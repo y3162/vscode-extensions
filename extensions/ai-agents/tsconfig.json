@@ -1,0 +1,5 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "noEmit": true, "types": ["node", "vscode"] },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

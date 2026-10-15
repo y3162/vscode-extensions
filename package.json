@@ -1,0 +1,23 @@
+{
+  "name": "vscode-extensions",
+  "private": true,
+  "workspaces": ["extensions/*"],
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "watch": "npm run watch --workspace ai-agents",
+    "check": "npm run check --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:integration": "npm run test:integration --workspace ai-agents",
+    "package": "npm run package --workspace ai-agents"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/vscode": "1.109.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3"
+  }
+}

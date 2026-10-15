@@ -1,0 +1,9 @@
+src/**
+test/**
+scripts/**
+dist/integration.js
+tsconfig.json
+**/*.map
+**/.DS_Store
+node_modules/.bin/**
+node_modules/.package-lock.json
