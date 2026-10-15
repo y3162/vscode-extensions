@@ -42,6 +42,8 @@ npm run package               # 実行環境のOS/CPU向けVSIXを作成
 AI_AGENTS_LIVE_TEST=1 npm run test:integration
 ```
 
+推論を行わず、実際のCodexからのモデル一覧取得だけを追加確認する場合は `AI_AGENTS_LIVE_MODELS_TEST=1 npm run test:integration` を使います。
+
 ## 拡張機能の追加
 
 `extensions/<拡張機能名>/` に独立した `package.json` を置き、必要に応じて `build`・`check`・`test` スクリプトを定義します。ルートのコマンドが各workspaceをまとめて実行します。バージョンとCHANGELOGは拡張機能ごとに管理します。

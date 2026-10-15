@@ -23,6 +23,8 @@ export function activate(context: vscode.ExtensionContext): { sidebar: AgentsSid
   };
   register('open', () => vscode.commands.executeCommand('ai-agents.chat.focus'));
   register('newChat', () => currentSidebar.newChat());
+  register('selectModel', () => currentSidebar.selectModel());
+  register('configureModel', () => currentSidebar.configureModel());
   register('showLogs', () => output.show(true));
   for (const provider of ['cursor', 'codex'] as const) {
     register(provider === 'cursor' ? 'setCursorApiKey' : 'setCodexApiKey', () => setApiKey(provider));

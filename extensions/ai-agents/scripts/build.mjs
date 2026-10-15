@@ -8,7 +8,7 @@ const options = {
   target: 'node22',
   outfile: 'dist/extension.js',
   sourcemap: true,
-  external: ['vscode', '@cursor/sdk', '@openai/codex-sdk'],
+  external: ['vscode', '@cursor/sdk', '@openai/codex-sdk', '@openai/codex'],
   logLevel: 'info',
 };
 

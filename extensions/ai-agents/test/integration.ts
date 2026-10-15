@@ -52,8 +52,94 @@ export async function run(): Promise<void> {
   assert.deepEqual(sidebar.controller.snapshot().messages, []);
   console.log('PASS: Stop terminates a running SDK subprocess; New Chat clears the conversation');
 
+  const models = await sidebar.listAvailableModels();
+  assert.deepEqual(models.map((model) => model.id), ['fixture-model', 'fixture-second']);
+  const selecting = sidebar.selectModel();
+  await until(() => sidebar.isModelPickerReady());
+  await vscode.commands.executeCommand('workbench.action.quickOpenSelectNext');
+  await until(() => sidebar.isModelPickerReady('fixture-model'));
+  await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
+  await selecting;
+  assert.equal(sidebar.controller.snapshot().selection.model, 'fixture-model');
+  await send('use the selected model');
+  const selectedInvocations = JSON.parse(await readFile(join(cwd, 'invocations.json'), 'utf8')) as { args: string[] }[];
+  const selectedArgs = selectedInvocations.at(-1)!.args;
+  assert.equal(selectedArgs[selectedArgs.indexOf('--model') + 1], 'fixture-model');
+  console.log('PASS: models are discovered, chosen in the native picker, and passed to the SDK');
+
+  const beforeCancel = sidebar.controller.snapshot();
+  const cancelledPicker = sidebar.selectModel();
+  await until(() => sidebar.isModelPickerReady());
+  await vscode.commands.executeCommand('workbench.action.closeQuickOpen');
+  await cancelledPicker;
+  assert.deepEqual(sidebar.controller.snapshot(), beforeCancel);
+  console.log('PASS: cancelling the model picker preserves the active conversation and selection');
+
+  const detailSettings = [{ id: 'effort', value: 'high' }, { id: 'context', value: '1m' }];
+  await sidebar.controller.select({ ...sidebar.controller.snapshot().selection, modelParams: detailSettings });
+  await send('preserve these settings');
+  const beforeReselect = sidebar.controller.snapshot();
+  const reselecting = sidebar.selectModel();
+  await until(() => sidebar.isModelPickerReady());
+  await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
+  await reselecting;
+  assert.deepEqual(sidebar.controller.snapshot(), beforeReselect);
+  console.log('PASS: reselecting the base model preserves effort/context settings and conversation');
+
+  const configuring = sidebar.configureModel();
+  await until(() => sidebar.isModelDetailsReady('parameter:modelReasoningEffort'));
+  await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
+  await until(() => sidebar.isModelDetailsReady('default:modelReasoningEffort'));
+  await vscode.commands.executeCommand('workbench.action.quickOpenSelectNext');
+  await until(() => sidebar.isModelDetailsReady('value:modelReasoningEffort:low'));
+  await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
+  await until(() => sidebar.isModelDetailsReady('parameter:modelReasoningEffort'));
+  await vscode.commands.executeCommand('workbench.action.quickOpenSelectNext');
+  await until(() => sidebar.isModelDetailsReady('apply'));
+  await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
+  await configuring;
+  assert.deepEqual(sidebar.controller.snapshot().selection.modelParams, [{ id: 'modelReasoningEffort', value: 'low' }]);
+  assert.deepEqual(sidebar.controller.snapshot().messages, []);
+  await send('use the configured effort');
+  const configured = JSON.parse(await readFile(join(cwd, 'invocations.json'), 'utf8')) as { args: string[] }[];
+  assert.ok(configured.at(-1)!.args.some((arg) => arg.includes('model_reasoning_effort') && arg.includes('low')));
+  console.log('PASS: detail changes apply atomically and Codex SDK forwards the selected effort');
+
+  const beforeDetailsCancel = sidebar.controller.snapshot();
+  const cancellingDetails = sidebar.configureModel();
+  await until(() => sidebar.isModelDetailsReady('parameter:modelReasoningEffort'));
+  await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
+  await until(() => sidebar.isModelDetailsReady('value:modelReasoningEffort:low'));
+  await vscode.commands.executeCommand('workbench.action.quickOpenSelectNext');
+  await until(() => sidebar.isModelDetailsReady('value:modelReasoningEffort:medium'));
+  await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
+  await until(() => sidebar.isModelDetailsReady('parameter:modelReasoningEffort'));
+  await vscode.commands.executeCommand('workbench.action.closeQuickOpen');
+  await cancellingDetails;
+  assert.deepEqual(sidebar.controller.snapshot(), beforeDetailsCancel);
+  console.log('PASS: cancelling detail edits preserves settings and conversation');
+
+  if (process.env.AI_AGENTS_LIVE_MODELS_TEST === '1') {
+    await config.update('codex.executablePath', '', vscode.ConfigurationTarget.Global);
+    const liveModels = await sidebar.listAvailableModels();
+    assert.ok(liveModels.length > 0);
+    assert.ok(liveModels.every((model) => model.id && model.label));
+    console.log(`PASS: bundled Codex app-server discovered ${liveModels.length} models inside the extension host`);
+    await config.update('codex.executablePath', mockPath, vscode.ConfigurationTarget.Global);
+  }
+
+  if (process.env.AI_AGENTS_LIVE_CURSOR_MODELS_TEST === '1') {
+    const cursorModels = await sidebar.listAvailableModels({ provider: 'cursor', cwd, model: '' });
+    assert.ok(cursorModels.length > 0);
+    assert.equal(cursorModels.length, new Set(cursorModels.map((model) => model.id)).size);
+    assert.ok(cursorModels.every((model) => !model.label.includes(' — ')));
+    console.log(`PASS: Cursor discovery returned ${cursorModels.length} base models with detail metadata kept separate`);
+  }
+
   if (process.env.AI_AGENTS_LIVE_TEST === '1') {
     await config.update('codex.executablePath', '', vscode.ConfigurationTarget.Global);
+    await sidebar.newChat();
+    await sidebar.controller.select({ provider: 'codex', cwd, model: '' });
     await writeFile(join(cwd, 'live-input.txt'), 'AI_AGENTS_LIVE_OK\n');
     const live = send('Read live-input.txt in the current working directory. Create live-output.txt containing exactly the same text. Do not inspect other files or run other tasks. Reply with that text.');
     const timer = setTimeout(() => sidebar.controller.stop(), 90000);

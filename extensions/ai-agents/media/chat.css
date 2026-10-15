@@ -12,6 +12,10 @@ input, select, textarea { width: 100%; padding: 6px; color: var(--vscode-input-f
 .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 label { display: block; font-size: 11px; color: var(--vscode-descriptionForeground); }
 label input, label select { margin-top: 4px; }
+.model-control { min-width: 0; font-size: 11px; color: var(--vscode-descriptionForeground); }
+.model-buttons { display: flex; gap: 4px; margin-top: 4px; }
+#model { flex: 1; min-width: 0; padding: 6px; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: var(--vscode-input-background); color: var(--vscode-input-foreground); }
+#modelDetails { padding: 6px; flex-shrink: 0; font-size: 11px; color: var(--vscode-button-secondaryForeground); background: var(--vscode-button-secondaryBackground); }
 .wide { grid-column: 1 / -1; }
 nav { margin: 10px 0; flex-wrap: wrap; }
 nav button { font-size: 11px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }

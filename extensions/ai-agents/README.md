@@ -7,11 +7,39 @@ VS Codeのサイドバーから、CursorとCodexの公式SDKを利用して質�
 1. 作業対象のフォルダをVS Codeで開きます。
 2. アクティビティバーの **AI Agents** を開きます。コマンドパレットの **AI Agents: Open Sidebar** でも開けます。
 3. **Codex** または **Cursor** を選び、必要に応じてログインします。
-4. 依頼を入力して送信します。Enterで送信、Shift+Enterで改行できます。
+4. **モデル** のボタンを押すと、取得したモデル一覧から検索・選択できます。
+5. 依頼を入力して送信します。Enterで送信、Shift+Enterで改行できます。
 
 例: 「このリポジトリの構成を説明して」「READMEの誤字を修正して」
 
 同じ会話への追加依頼、ツール実行状況の表示、**停止**、**新しい会話**に対応しています。複数フォルダを開いた場合は作業フォルダを選べます。エージェント・モデル・フォルダを切り替えると会話がリセットされます。
+
+## モデル選択
+
+サイドバーの **モデル** を押すか、コマンドパレットの **AI Agents: Select Model** を実行すると、VS Codeの検索できるモデル選択画面が開きます。モデルIDの手入力は不要です。
+
+- Codexは同梱CLIのApp Server `model/list`、Cursorは公式SDKの `Cursor.models.list()` から、選択画面を開くたびに一覧を取得します。
+- モデル本体ごとに1項目表示します。Effort・Context size・Fast・Thinkingなどの設定の組み合わせは、モデル一覧の項目を増やしません。
+- Cursorの一覧取得にはSDKログインまたはAPIキーが必要です。設定項目・候補値・既定値・プリセットはモデル本体と分けて保持します。
+- 右上の再取得ボタンで一覧を更新できます。取得に失敗した場合も再試行できます。
+- **既定のモデル** を選ぶと、Codexは既存のCodex設定、CursorはAutoを使用します。
+- 選択したモデルはワークスペースごと・エージェントごとに保存され、再読み込み後も復元されます。Escで閉じた場合は選択や会話を変更しません。
+- 同じモデルを選び直しても、保存済みの詳細値や会話を維持します。別のモデルへ変更した場合は新しいモデルの既定値を使います。
+
+モデル一覧は各プロバイダーが返すカタログです。アカウントやチームの設定によって内容が異なり、一覧への掲載だけで実際の推論リクエストの利用権限を保証するものではありません。
+
+## 詳細設定の変更
+
+1. **モデル** から使うモデルを選択します。
+2. モデル欄の右側の **詳細設定** を押します。コマンドパレットの **AI Agents: Configure Model Details** でも開けます。
+3. **Effort** や **Context** などの設定項目を選び、一覧から値を選択します。左上の戻るボタンで項目一覧に戻れます。
+4. 設定が終わったら **適用** を選択します。
+
+モデルが対応している設定項目・値だけを表示します。Codexはモデル一覧が返すEffort、CursorはモデルごとのEffort・Context size・Fast・Thinking等を設定できます。SDKから変更項目が返らないモデルでは、その旨を表示します。
+
+**既定値に戻す** で設定を戻してから **適用** することもできます。Codexの「既定」は既存のCodex設定を使用し、Cursorの「既定」はSDKが返すモデルの既定値を使用します。
+
+変更は **適用** するまで保存されません。Escで閉じると編集を破棄し、設定と会話を維持します。設定値を変更して適用した場合は新しい会話になり、次の依頼からSDKに反映します。選択値は再読み込み後も復元します。
 
 ## 認証
 
@@ -38,7 +66,7 @@ APIキーを使う場合は **APIキー** または **AI Agents: Set Cursor API 
 | `ai-agents.cursor.model` | `auto` | CursorのモデルID |
 | `ai-agents.codex.executablePath` | 空欄 | CLIを指定する場合の絶対パス。通常はSDK同梱CLIを利用 |
 
-モデルはサイドバーからも変更できます。設定値の変更は新しく開くサイドバーに反映します。
+モデルは通常、サイドバーの選択画面から変更してください。上記モデル設定は、まだモデルを選択していない場合の初期値です。選択画面で保存したモデルを優先します。
 
 ## 実行について
 
@@ -50,7 +78,7 @@ Codexは `workspace-write` / `approvalPolicy: never`、Cursorは `local.sandboxO
 
 ## VSIXの作成・インストール
 
-リポジトリのルートで `npm run package` を実行すると、`extensions/ai-agents/dist/ai-agents-0.1.0-<OS>-<CPU>.vsix` が生成されます。VS Codeの **Extensions: Install from VSIX...** でインストールできます。
+リポジトリのルートで `npm run package` を実行すると、`extensions/ai-agents/dist/ai-agents-<バージョン>-<OS>-<CPU>.vsix` が生成されます。VS Codeの **Extensions: Install from VSIX...** でインストールできます。
 
 SDKにはOS/CPU別のネイティブバイナリが含まれるため、VSIXは作成した環境向けです。SDKの動的ロードを壊さないように依存パッケージを同梱し、npm workspacesのhoistingに影響されない一時ディレクトリでパッケージ化します。
 
@@ -59,6 +87,7 @@ SDKにはOS/CPU別のネイティブバイナリが含まれるため、VSIXは�
 - [Cursor TypeScript SDK](https://cursor.com/docs/sdk/typescript): `@cursor/sdk`。`Agent.create({ local: { cwd } })`、`agent.send()`、`run.stream()`、`run.cancel()` でローカルエージェントを制御。Node.js 22.13以降が必要。VS Code内でのSQLite依存を避けるため `JsonlLocalAgentStore` を使用。
 - [Codex SDK](https://developers.openai.com/codex/sdk/): `@openai/codex-sdk`。ローカルCLIをラップし、`startThread()`、`runStreamed()`、`AbortSignal` で会話と停止を制御。モデルは固定せず、既存のCodex設定を利用可能。
 - [Codex認証](https://developers.openai.com/codex/auth/)
+- [Codex App Server](https://developers.openai.com/codex/app-server/): モデル一覧の自動取得に `model/list` を使用。
 - [VS Code Webview API](https://code.visualstudio.com/api/extension-guides/webview)
 
 利用バージョン: `@cursor/sdk@1.0.37`、`@openai/codex-sdk@0.162.1`。

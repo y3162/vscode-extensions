@@ -2,7 +2,7 @@
   "name": "ai-agents",
   "displayName": "AI Agents",
   "description": "Use Cursor and Codex agents from the VS Code sidebar.",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "publisher": "y3162",
   "private": true,
   "license": "UNLICENSED",
@@ -30,6 +30,8 @@
     "commands": [
       { "command": "ai-agents.open", "title": "AI Agents: Open Sidebar" },
       { "command": "ai-agents.newChat", "title": "AI Agents: New Chat", "icon": "$(add)" },
+      { "command": "ai-agents.selectModel", "title": "AI Agents: Select Model" },
+      { "command": "ai-agents.configureModel", "title": "AI Agents: Configure Model Details" },
       { "command": "ai-agents.cursorLogin", "title": "AI Agents: Sign in to Cursor" },
       { "command": "ai-agents.setCursorApiKey", "title": "AI Agents: Set Cursor API Key" },
       { "command": "ai-agents.setCodexApiKey", "title": "AI Agents: Set Codex API Key" },
@@ -70,6 +72,7 @@
   },
   "dependencies": {
     "@cursor/sdk": "1.0.37",
+    "@openai/codex": "0.162.1",
     "@openai/codex-sdk": "0.162.1"
   }
 }

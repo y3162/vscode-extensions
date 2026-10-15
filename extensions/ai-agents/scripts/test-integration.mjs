@@ -18,12 +18,14 @@ if (!executable && process.platform === 'darwin') {
 try {
   await runTests({
     vscodeExecutablePath: executable,
-    extensionDevelopmentPath: root,
+    extensionDevelopmentPath: process.env.AI_AGENTS_TEST_EXTENSION_PATH || root,
     extensionTestsPath: testBundle,
     extensionTestsEnv: {
       ELECTRON_RUN_AS_NODE: undefined,
       AI_AGENTS_TEST_WORKSPACE: fixture,
       AI_AGENTS_LIVE_TEST: process.env.AI_AGENTS_LIVE_TEST,
+      AI_AGENTS_LIVE_MODELS_TEST: process.env.AI_AGENTS_LIVE_MODELS_TEST,
+      AI_AGENTS_LIVE_CURSOR_MODELS_TEST: process.env.AI_AGENTS_LIVE_CURSOR_MODELS_TEST,
     },
     launchArgs: [fixture, '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes',
       '--user-data-dir', join(fixture, 'user-data'), '--extensions-dir', join(fixture, 'extensions')],
