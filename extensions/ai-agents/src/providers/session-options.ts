@@ -13,6 +13,7 @@ export interface SessionOptions extends Selection {
   webSearch?: string;
   additionalDirectories?: string[];
   resumeId?: string;
+  signal?: AbortSignal;
   interactions?: AgentInteractions;
   onIdentity?: (summary: SessionSummary) => void;
 }

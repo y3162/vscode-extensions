@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { redactSecrets } from './types.js';
 
 export interface DiagnosticCheck {
   label: string;
@@ -14,11 +15,16 @@ export function runProcess(command: string, args: string[], cwd?: string, timeou
     const finish = (ok: boolean, text: string) => {
       if (settled) return;
       settled = true;
-      resolve({ label, ok, output: text.slice(0, 4000) });
+      resolve({ label, ok, output: redactSecrets(text).slice(0, 4000) });
     };
-    const executable = command.endsWith('.cjs') || command.endsWith('.js') ? process.execPath : command;
+    const executable = command.endsWith('.cjs') || command.endsWith('.js') || command.endsWith('.mjs') ? process.execPath : command;
     const spawnArgs = executable === process.execPath && executable !== command ? [command, ...args] : args;
-    const child = spawn(executable, spawnArgs, { cwd, windowsHide: true, shell: false });
+    const child = spawn(executable, spawnArgs, {
+      cwd,
+      windowsHide: true,
+      shell: false,
+      env: executable === process.execPath ? { ...process.env, ELECTRON_RUN_AS_NODE: '1' } : process.env,
+    });
     const timer = setTimeout(() => { child.kill(); finish(false, `${output}\nTimed out.`); }, timeoutMs);
     child.stdout?.setEncoding('utf8');
     child.stderr?.setEncoding('utf8');

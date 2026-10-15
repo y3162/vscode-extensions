@@ -1,4 +1,5 @@
 import { writeImageFiles } from '../images.js';
+import { extensionVersion } from '../version.js';
 import type {
   AgentSession, AgentUpdate, ChatMessage, FileChange, PermissionDecision, SessionSummary, TodoEntry, UsageStats,
 } from '../types.js';
@@ -59,6 +60,27 @@ function filesOf(item: Record<string, unknown>): FileChange[] {
   });
 }
 
+function turnIdOf(body: Record<string, unknown>, fallback: string): string {
+  if (typeof body.turnId === 'string' && body.turnId) return body.turnId;
+  const turn = record(body.turn);
+  return typeof turn.id === 'string' && turn.id ? turn.id : fallback;
+}
+
+function failureText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  const item = record(value);
+  return typeof item.message === 'string' ? item.message : '';
+}
+
+function namesFrom(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const entry = record(item);
+    if (typeof entry.name === 'string') return [entry.name];
+    return namesFrom(entry.skills);
+  });
+}
+
 function todosOf(value: unknown): TodoEntry[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
@@ -99,6 +121,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
   let mode = options.mode ?? 'agent';
   const buffers = new Map<string, string>();
   const finished = new Map<string, Error | null>();
+  let stopRequested = false;
   let waiter: { id: string; resolve: () => void; reject: (error: Error) => void } | null = null;
   const replay = messagesFrom({});
   let instructionSources: string[] = [];
@@ -166,15 +189,25 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
         });
         return;
       }
+      if (method === 'turn/started') {
+        const id = turnIdOf(body, '');
+        if (id) turnId = id;
+        if (stopRequested && id) void rpc.request('turn/interrupt', { threadId, turnId: id }).catch(() => undefined);
+      }
       if (method === 'item/started' || method === 'item/completed' || method === 'item/updated') emitItem(item);
       if (method === 'turn/completed' || method === 'turn/diff/updated') {
-        const id = typeof body.turnId === 'string' ? body.turnId : turnId;
+        const id = turnIdOf(body, turnId);
         if (typeof body.diff === 'string' && emitLive.current) {
           emitLive.current({ id: `${id}:diff`, role: 'tool', text: 'diff updated', meta: { type: 'files', files: [{ path: 'turn.diff', kind: 'update', diff: body.diff }] } });
         }
-        const usage = usageOf(body.usage ?? body.tokenUsage);
+        const turn = record(body.turn);
+        const usage = usageOf(body.usage ?? body.tokenUsage ?? turn.usage);
         if (usage && emitLive.current) emitLive.current({ id: `${id}:usage`, role: 'status', text: '', meta: { type: 'usage', usage } });
-        if (method === 'turn/completed') finish(id, null);
+        if (method === 'turn/completed') {
+          const status = typeof turn.status === 'string' ? turn.status : 'completed';
+          const message = failureText(turn.error) || failureText(body.error);
+          finish(id, status === 'failed' ? new Error(message || 'Codex turn failed.') : null);
+        }
       }
       if (method === 'thread/tokenUsage/updated') {
         const usage = usageOf(body.tokenUsage ?? body);
@@ -184,7 +217,11 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
         const todos = todosOf(body.plan);
         emitLive.current?.({ id: 'plan', role: 'status', text: typeof body.explanation === 'string' ? body.explanation : '', meta: { type: 'todo', todos } });
       }
-      if (method === 'error') finish(turnId, new Error(typeof body.message === 'string' ? body.message : 'Codex app-server error'));
+      if (method === 'error') {
+        const message = failureText(body.error) || failureText(body) || 'Codex app-server error';
+        if (body.willRetry === true) return;
+        finish(turnIdOf(body, turnId), new Error(message));
+      }
     },
     request: async (method, params) => {
       const body = record(params);
@@ -227,9 +264,9 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
 
   try {
     await rpc.request('initialize', {
-      clientInfo: { name: 'ai_agents_vscode', title: 'AI Agents', version: '0.5.0' },
+      clientInfo: { name: 'ai_agents_vscode', title: 'AI Agents', version: extensionVersion },
       capabilities: { experimentalApi: true, requestAttestation: false },
-    });
+    }, options.signal);
     rpc.notify('initialized', {});
     const config: Record<string, unknown> = {};
     if (effort) config.model_reasoning_effort = effort;
@@ -244,8 +281,8 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       ...(options.additionalDirectories?.length ? { runtimeWorkspaceRoots: options.additionalDirectories } : {}),
     };
     const started = record(options.resumeId
-      ? await rpc.request('thread/resume', { threadId: options.resumeId, ...params })
-      : await rpc.request('thread/start', params));
+      ? await rpc.request('thread/resume', { threadId: options.resumeId, ...params }, options.signal)
+      : await rpc.request('thread/start', params, options.signal));
     const thread = record(started.thread);
     threadId = typeof thread.id === 'string' ? thread.id : typeof started.threadId === 'string' ? started.threadId : options.resumeId ?? '';
     instructionSources = Array.isArray(started.instructionSources) ? started.instructionSources.filter((item): item is string => typeof item === 'string') : [];
@@ -254,6 +291,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
     identify('Codex');
   } catch (error) {
     await rpc.dispose();
+    if (error instanceof Error && error.name === 'AbortError') throw error;
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(message.includes('ENOENT') || message.includes('exited') ? `Codex App Server を起動できません。 ${message}` : message);
   }
@@ -264,7 +302,8 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
     if (existing) throw existing;
     await new Promise<void>((resolve, reject) => {
       const abort = () => {
-        void rpc.request('turn/interrupt', { threadId, turnId: id }).catch(() => undefined);
+        stopRequested = true;
+        if (id) void rpc.request('turn/interrupt', { threadId, turnId: id }).catch(() => undefined);
         reject(new DOMException('Cancelled', 'AbortError'));
       };
       if (signal.aborted) {
@@ -284,15 +323,20 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
   }
 
   async function startTurn(method: string, params: unknown, signal: AbortSignal): Promise<void> {
+    stopRequested = signal.aborted;
     const response = record(await rpc.request(method, params, signal));
-    const turn = record(response.turn);
-    turnId = typeof turn.id === 'string' ? turn.id : typeof response.turnId === 'string' ? response.turnId : '';
+    turnId = turnIdOf(response, turnId);
     if (!turnId) return;
+    if (signal.aborted) {
+      void rpc.request('turn/interrupt', { threadId, turnId }).catch(() => undefined);
+      throw new DOMException('Cancelled', 'AbortError');
+    }
     await waitTurn(turnId, signal);
   }
 
   return {
     sessionId: threadId,
+    get closed() { return rpc.isClosed; },
     async setMode(next) { mode = next; },
     async steer(text) {
       if (!turnId) return false;
@@ -350,10 +394,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
     async instructions() {
       const skills = record(await rpc.request('skills/list', { cwds: [options.cwd] }).catch(() => ({})));
       const mcp = record(await rpc.request('mcpServerStatus/list', {}).catch(() => ({})));
-      const skillNames = Array.isArray(skills.data) ? skills.data.flatMap((item) => {
-        const name = record(item).name;
-        return typeof name === 'string' ? [name] : [];
-      }) : [];
+      const skillNames = namesFrom(skills.data);
       const servers = Array.isArray(mcp.data) ? mcp.data.flatMap((item) => {
         const name = record(item).name;
         return typeof name === 'string' ? [name] : [];

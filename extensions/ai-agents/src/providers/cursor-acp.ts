@@ -5,6 +5,7 @@ import type { SessionOptions } from './session-options.js';
 import { mergeStreamText } from './stream-text.js';
 import { StdioJsonRpc } from './stdio-rpc.js';
 import { classifyTool, toolStatus } from '../tool-kind.js';
+import { extensionVersion } from '../version.js';
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -19,9 +20,23 @@ function textOf(value: unknown): string {
   return '';
 }
 
-function decisionOption(decision: PermissionDecision): string {
-  if (decision === 'deny') return 'reject-once';
-  return 'allow-once';
+function optionIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const option = record(item);
+    const id = typeof option.optionId === 'string' ? option.optionId : typeof option.id === 'string' ? option.id : '';
+    return id ? [id] : [];
+  });
+}
+
+function decisionOption(decision: PermissionDecision, advertised: string[]): string {
+  const preferred = decision === 'deny'
+    ? ['reject-once', 'reject', 'deny', 'decline']
+    : decision === 'allow-session'
+      ? ['allow-always', 'allow-session', 'allow']
+      : ['allow-once', 'allow'];
+  return preferred.find((id) => advertised.includes(id))
+    ?? (decision === 'deny' ? 'reject-once' : decision === 'allow-session' ? 'allow-always' : 'allow-once');
 }
 
 function todosOf(value: unknown): TodoEntry[] {
@@ -78,7 +93,8 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
           const decision = options.interactions
             ? await options.interactions.requestPermission({ id: String(body.toolCallId ?? title), title, detail: textOf(tool.rawInput) || title, kind })
             : 'deny';
-          return { outcome: { outcome: 'selected', optionId: decisionOption(decision) } };
+          const advertised = optionIds(body.options ?? tool.options);
+          return { outcome: { outcome: 'selected', optionId: decisionOption(decision, advertised) } };
         }
         if (method === 'cursor/ask_question') {
           const request: QuestionRequest = {
@@ -205,18 +221,27 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     await rpc.request('initialize', {
       protocolVersion: 1,
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-      clientInfo: { name: 'ai-agents', version: '0.5.0' },
-    });
-    await rpc.request('authenticate', { methodId: 'cursor_login' });
+      clientInfo: { name: 'ai-agents', version: extensionVersion },
+    }, options.signal);
+    try {
+      await rpc.request('authenticate', { methodId: 'cursor_login' }, options.signal);
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') throw error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (/auth|login|logged/i.test(message)) {
+        throw new Error(`Cursor CLI にログインしていません。ターミナルで agent login を実行してください。 ${message}`);
+      }
+      throw error;
+    }
     if (options.resumeId) {
-      await rpc.request('session/load', { sessionId: options.resumeId, cwd: options.cwd, mcpServers: [] });
+      await rpc.request('session/load', { sessionId: options.resumeId, cwd: options.cwd, mcpServers: [] }, options.signal);
       sessionId = options.resumeId;
     } else {
       const created = record(await rpc.request('session/new', {
         cwd: options.cwd,
         mcpServers: [],
         ...(mode ? { mode } : {}),
-      }));
+      }, options.signal));
       sessionId = typeof created.sessionId === 'string' ? created.sessionId : '';
     }
     if (!sessionId) throw new Error('Cursor ACP did not return a session id.');
@@ -229,6 +254,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     });
   } catch (error) {
     await rpc.dispose();
+    if (error instanceof Error && error.name === 'AbortError') throw error;
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(message.includes('exited') || message.includes('ENOENT')
       ? `Cursor CLI を起動できません。ACP を使う場合は agent コマンドのパスを確認してください。 ${message}`
@@ -237,6 +263,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
 
   return {
     sessionId,
+    get closed() { return rpc.isClosed; },
     async setMode(next) {
       mode = next;
       await rpc.request('session/set_mode', { sessionId, modeId: next }).catch(() => undefined);

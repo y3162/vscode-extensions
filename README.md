@@ -29,20 +29,19 @@ Codexは既存の `codex login` を利用できます。CursorはSDK用の認証
 ```sh
 npm run watch                 # AI Agentsの変更を監視
 npm run check                 # 型チェック・Webview JS構文チェック
-npm test                      # 単体テスト（API接続不要）
+npm test                      # 単体テスト（API接続不要。ライブテストは含まない）
 npm run test:integration       # VS Code上で起動・SDK接続・停止を確認（API接続不要）
+npm run test:protocol          # インストール済み Cursor CLI と同梱 Codex の接続確認
+npm run test:live              # 既存ログインでの短い実推論（利用枠を使う）
+npm run test:tools             # 一時ディレクトリでの実ツール・承認・拒否
 npm run package               # 実行環境のOS/CPU向けVSIXを作成
 ```
 
 `npm run test:integration` はmacOSではインストール済みのVS Codeを使用し、それ以外はテスト用VS Codeをダウンロードします。`VSCODE_EXECUTABLE_PATH` でも実行ファイルを指定できます。ユーザー設定・拡張機能と作業ファイルはテスト専用の一時ディレクトリに分離します。
 
-実際のCodexへの接続とファイル読み書きを確認する場合は、ログイン後に実行します（通常のSDK利用料金・利用枠が適用されます）。
+`test:protocol`、`test:live`、`test:tools` は通常の `npm test` では走りません。既存の `codex login` と `agent login`、Cursor SDK のログインを使います。APIキーへは切り替えません。ログインが無い場合は、Codex は `codex login`、Cursor CLI は `agent login`、Cursor SDK はサイドバーのログインを使ってください。SDK のログインと CLI のログインは別です。
 
-```sh
-AI_AGENTS_LIVE_TEST=1 npm run test:integration
-```
-
-推論を行わず、実際のCodexからのモデル一覧取得だけを追加確認する場合は `AI_AGENTS_LIVE_MODELS_TEST=1 npm run test:integration` を使います。
+推論を行わず、統合テストにモデル一覧だけを足す場合は、これまでどおり `AI_AGENTS_LIVE_MODELS_TEST=1` または `AI_AGENTS_LIVE_CURSOR_MODELS_TEST=1` を付けて `npm run test:integration` を実行します。
 
 ## 拡張機能の追加
 

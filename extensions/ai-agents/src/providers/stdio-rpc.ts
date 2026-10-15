@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createInterface } from 'node:readline';
-import { errorMessage } from '../types.js';
+import { errorMessage, redactSecrets } from '../types.js';
 
 export interface SpawnSpec {
   command: string;
@@ -20,6 +20,7 @@ export class StdioJsonRpc {
   private nextId = 0;
   private stderr = '';
   private closed = false;
+  private lastError = new Error('Agent process exited.');
   private onNotification: (method: string, params: unknown) => void = () => undefined;
   private onServerRequest: (method: string, params: unknown) => Promise<unknown> = async () => ({});
 
@@ -37,8 +38,9 @@ export class StdioJsonRpc {
     this.child.stderr?.setEncoding('utf8');
     this.child.stderr?.on('data', (chunk: string) => { this.stderr = `${this.stderr}${chunk}`.slice(-4000); });
     this.child.on('error', (error) => this.fail(error));
-    this.child.on('exit', (code) => {
-      if (!this.closed) this.fail(new Error(this.stderr.trim() || `Agent process exited (${code ?? 'signal'}).`));
+    this.child.stdin?.on('error', (error) => this.fail(error));
+    this.child.on('exit', (code, signal) => {
+      if (!this.closed) this.fail(new Error(redactSecrets(this.stderr.trim()) || `Agent process exited (${code ?? signal ?? 'signal'}).`));
     });
     if (!this.child.stdout || !this.child.stdin) throw new Error('Agent process did not expose stdio.');
     createInterface({ input: this.child.stdout }).on('line', (line) => { this.handleLine(line); });
@@ -52,23 +54,28 @@ export class StdioJsonRpc {
     if (handlers.request) this.onServerRequest = handlers.request;
   }
 
+  get isClosed(): boolean { return this.closed; }
+
   request(method: string, params: unknown, signal?: AbortSignal): Promise<unknown> {
     if (signal?.aborted) return Promise.reject(signal.reason);
+    if (this.closed) return Promise.reject(this.lastError);
     const id = ++this.nextId;
     return new Promise((resolve, reject) => {
-      const pending: Pending = { resolve, reject };
-      this.pending.set(id, pending);
       const abort = () => {
         this.pending.delete(id);
         reject(signal?.reason ?? new DOMException('Cancelled', 'AbortError'));
       };
       signal?.addEventListener('abort', abort, { once: true });
-      const wrapped: Pending = {
+      const pending: Pending = {
         resolve: (value) => { signal?.removeEventListener('abort', abort); resolve(value); },
         reject: (error) => { signal?.removeEventListener('abort', abort); reject(error); },
       };
-      this.pending.set(id, wrapped);
-      this.write({ id, method, params });
+      this.pending.set(id, pending);
+      if (this.closed || !this.write({ id, method, params })) {
+        this.pending.delete(id);
+        signal?.removeEventListener('abort', abort);
+        reject(this.lastError);
+      }
     });
   }
 
@@ -84,9 +91,10 @@ export class StdioJsonRpc {
     this.write({ id, error: { code: -32000, message } });
   }
 
-  private write(message: unknown): void {
-    if (this.closed) return;
-    this.child.stdin?.write(`${JSON.stringify(message)}\n`);
+  private write(message: unknown): boolean {
+    if (this.closed || !this.child.stdin?.writable) return false;
+    this.child.stdin.write(`${JSON.stringify(message)}\n`);
+    return true;
   }
 
   private handleLine(line: string): void {
@@ -114,9 +122,12 @@ export class StdioJsonRpc {
   }
 
   private fail(error: unknown): void {
-    const wrapped = error instanceof Error ? error : new Error(String(error));
-    for (const pending of this.pending.values()) pending.reject(wrapped);
+    const wrapped = error instanceof Error ? error : new Error(redactSecrets(String(error)));
+    const waiters = [...this.pending.values()];
     this.pending.clear();
+    this.closed = true;
+    this.lastError = wrapped;
+    for (const pending of waiters) pending.reject(wrapped);
   }
 
   async dispose(): Promise<void> {
