@@ -9,18 +9,16 @@
   const messages = element('messages');
   const nodes = new Map();
   let state;
-  let models = { codex: '', cursor: 'auto' };
   let pending = false;
   let signature = '';
   prompt.value = vscode.getState()?.draft ?? '';
 
-  const selection = () => ({ provider: provider.value, model: model.value, cwd: folder.value });
+  const selection = () => ({ provider: provider.value, cwd: folder.value });
   const saveDraft = () => vscode.setState({ draft: prompt.value });
   const post = (type) => vscode.postMessage({ type, ...selection() });
 
   function render(data) {
     state = data.state;
-    models = data.models;
     pending = false;
     const stickToBottom = messages.scrollHeight - messages.scrollTop - messages.clientHeight < 80;
     const nextSignature = JSON.stringify(data.folders);
@@ -36,7 +34,8 @@
       }
     }
     provider.value = state.selection.provider;
-    model.value = state.selection.model;
+    model.textContent = `${data.modelLabel} ▾`;
+    model.title = 'モデル一覧から選択';
     folder.value = state.selection.cwd;
     const ids = new Set(state.messages.map((message) => message.id));
     for (const [id, node] of nodes) {
@@ -66,7 +65,7 @@
       if (body.textContent !== message.text) body.textContent = message.text;
     }
     const locked = state.busy;
-    for (const id of ['provider', 'model', 'folder', 'newChat', 'login', 'apiKey']) element(id).disabled = locked;
+    for (const id of ['provider', 'model', 'modelDetails', 'folder', 'newChat', 'login', 'apiKey']) element(id).disabled = locked;
     element('send').disabled = locked || !folder.value;
     element('stop').hidden = !locked;
     element('status').textContent = locked ? 'エージェント実行中…' : folder.value ? '準備完了' : '作業フォルダを開いてください';
@@ -81,10 +80,10 @@
       element('send').disabled = Boolean(state?.busy) || !folder.value;
     }
   });
-  provider.addEventListener('change', () => { model.value = models[provider.value] ?? ''; post('select'); });
-  model.addEventListener('change', () => post('select'));
+  provider.addEventListener('change', () => post('select'));
+  model.addEventListener('click', () => post('chooseModel'));
   folder.addEventListener('change', () => post('select'));
-  for (const id of ['newChat', 'stop', 'login', 'apiKey', 'settings', 'logs']) {
+  for (const id of ['newChat', 'stop', 'login', 'apiKey', 'settings', 'logs', 'modelDetails']) {
     element(id).addEventListener('click', () => post(id));
   }
   element('composer').addEventListener('submit', (event) => {

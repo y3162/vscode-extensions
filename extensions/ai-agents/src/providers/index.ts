@@ -1,4 +1,5 @@
 import { mkdir } from 'node:fs/promises';
+import type { ModelReasoningEffort } from '@openai/codex-sdk';
 import type { AgentSession, Selection } from '../types.js';
 import { codexUpdate, cursorUpdate } from './events.js';
 
@@ -23,6 +24,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
     const thread = codex.startThread({
       workingDirectory: options.cwd,
       model: options.model || undefined,
+      modelReasoningEffort: options.modelParams?.find((param) => param.id === 'modelReasoningEffort')?.value as ModelReasoningEffort | undefined,
       sandboxMode: 'workspace-write',
       approvalPolicy: 'never',
       skipGitRepoCheck: true,
@@ -59,7 +61,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
   await mkdir(options.storagePath, { recursive: true });
   const agent = await Agent.create({
     apiKey: options.apiKey || undefined,
-    model: { id: options.model || 'auto' },
+    model: { id: options.model || 'auto', ...(options.modelParams?.length ? { params: options.modelParams } : {}) },
     local: {
       cwd: options.cwd,
       store: new JsonlLocalAgentStore(options.storagePath),

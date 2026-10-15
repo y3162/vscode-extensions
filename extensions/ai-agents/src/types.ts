@@ -4,6 +4,30 @@ export interface Selection {
   provider: Provider;
   cwd: string;
   model: string;
+  modelParams?: { id: string; value: string }[];
+}
+
+export interface AgentModel {
+  id: string;
+  label: string;
+  description?: string;
+  isDefault?: boolean;
+  aliases?: string[];
+  defaultParams?: { id: string; value: string }[];
+  parameters?: ModelParameter[];
+  presets?: {
+    label: string;
+    description?: string;
+    isDefault?: boolean;
+    params: { id: string; value: string }[];
+  }[];
+}
+
+export interface ModelParameter {
+  id: string;
+  label: string;
+  defaultValue?: string;
+  values: { value: string; label: string; description?: string }[];
 }
 
 export interface ChatMessage {

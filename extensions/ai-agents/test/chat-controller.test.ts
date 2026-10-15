@@ -125,3 +125,19 @@ test('a prompt immediately following a selection change waits for old-session cl
   assert.deepEqual(providers, ['codex', 'cursor']);
   assert.deepEqual(controller.snapshot().messages.map((message) => message.text), ['immediate send']);
 });
+
+test('selecting a different variant of the same model starts a fresh session', async () => {
+  let disposed = 0;
+  const options: Selection[] = [];
+  const controller = new ChatController(selection, async (selected) => {
+    options.push(selected);
+    return { async run() {}, async dispose() { disposed++; } };
+  }, () => {});
+  await controller.send('first');
+  const next = { ...selection, modelParams: [{ id: 'mode', value: 'variant' }] };
+  await controller.select(next);
+  assert.deepEqual(controller.snapshot().messages, []);
+  await controller.send('second');
+  assert.equal(disposed, 1);
+  assert.deepEqual(options[1]?.modelParams, next.modelParams);
+});

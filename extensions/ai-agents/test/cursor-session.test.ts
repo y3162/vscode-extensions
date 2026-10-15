@@ -9,7 +9,7 @@ import type { AgentUpdate } from '../src/types.js';
 
 type CursorSdk = Awaited<ReturnType<NonNullable<Parameters<typeof createSession>[1]>['cursor']>>;
 
-async function fixture(t: TestContext, send: () => Promise<Run>) {
+async function fixture(t: TestContext, send: () => Promise<Run>, modelParams?: { id: string; value: string }[]) {
   const storagePath = await mkdtemp(join(tmpdir(), 'ai-agents-cursor-test-'));
   t.after(() => rm(storagePath, { recursive: true, force: true }));
   let created: AgentOptions | undefined;
@@ -21,7 +21,7 @@ async function fixture(t: TestContext, send: () => Promise<Run>) {
     } },
     JsonlLocalAgentStore: class {},
   } as unknown as CursorSdk;
-  const session = await createSession({ provider: 'cursor', cwd: storagePath, model: '', storagePath, apiKey: 'fixture-only' }, {
+  const session = await createSession({ provider: 'cursor', cwd: storagePath, model: '', modelParams, storagePath, apiKey: 'fixture-only' }, {
     cursor: async () => sdk,
     codex: async () => { throw new Error('Unexpected Codex load'); },
   });
@@ -76,4 +76,10 @@ test('Cursor terminal errors are surfaced instead of treating the stream ending 
     id: 'failed', status: 'error', error: { message: 'SDK auth failed' },
   }));
   await assert.rejects(session.run('prompt', new AbortController().signal, () => {}), /SDK auth failed/);
+});
+
+test('Cursor selected catalog parameters are forwarded to the SDK', async (t) => {
+  const params = [{ id: 'fixture-mode', value: 'fixture-value' }];
+  const { created } = await fixture(t, async () => run([], { id: 'run', status: 'finished' }), params);
+  assert.deepEqual(created?.model?.params, params);
 });

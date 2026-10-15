@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { sameModelParams } from './model-settings.js';
 import { errorMessage, type AgentSession, type ChatState, type Selection } from './types.js';
 
 type SessionFactory = (selection: Selection) => Promise<AgentSession>;
@@ -26,7 +27,8 @@ export class ChatController {
     while (this.resetting) await this.resetting;
     if (this.active) throw new Error('実行が終わってからエージェントを切り替えてください。');
     const current = this.state.selection;
-    if (current.provider === selection.provider && current.cwd === selection.cwd && current.model === selection.model) return;
+    if (current.provider === selection.provider && current.cwd === selection.cwd && current.model === selection.model
+      && sameModelParams(current.modelParams, selection.modelParams)) return;
     await this.reset();
     this.state.selection = { ...selection };
     this.publish();
