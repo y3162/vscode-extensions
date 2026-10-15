@@ -60,6 +60,15 @@ export interface ImageAttachment {
 export interface SendExtras {
   displayText?: string;
   images?: ImageAttachment[];
+  attachments?: string[];
+}
+
+export interface ToolInfo {
+  kind: 'read' | 'edit' | 'search' | 'shell' | 'git' | 'mcp' | 'subagent' | 'other';
+  name: string;
+  status: 'running' | 'completed' | 'error';
+  target?: string;
+  exitCode?: number;
 }
 
 export interface QueuedPrompt {
@@ -97,6 +106,9 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'tool' | 'status' | 'error';
   text: string;
   meta?: UpdateMeta;
+  tool?: ToolInfo;
+  at?: number;
+  attachments?: string[];
 }
 
 export type AgentUpdate = Omit<ChatMessage, 'role'> & {

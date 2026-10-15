@@ -78,6 +78,24 @@ test('Cursor terminal errors are surfaced instead of treating the stream ending 
   await assert.rejects(session.run('prompt', new AbortController().signal, () => {}), /SDK auth failed/);
 });
 
+test('Cursor assistant and thinking chunks collapse without duplicating a snapshot', async (t) => {
+  const base = { agent_id: 'agent-1', run_id: 'run-1' };
+  const { session } = await fixture(t, async () => run([
+    { ...base, type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Hello' }] } },
+    { ...base, type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: ' world' }] } },
+    { ...base, type: 'thinking', text: 'Think' },
+    { ...base, type: 'thinking', text: 'Think more' },
+    { ...base, type: 'tool_call', call_id: 'tool1', name: 'Shell', status: 'completed', args: { command: 'git status' } },
+  ] as SDKMessage[], { id: 'run', status: 'finished' }));
+  const updates: AgentUpdate[] = [];
+  await session.run('prompt', new AbortController().signal, (event) => updates.push(event));
+  const assistants = updates.filter((update) => update.role === 'assistant');
+  assert.equal(assistants.at(-1)?.text, 'Hello world');
+  assert.equal(new Set(assistants.map((update) => update.id)).size, 1);
+  assert.equal(updates.filter((update) => update.meta?.type === 'thinking').at(-1)?.text, 'Think more');
+  assert.equal(updates.find((update) => update.tool?.name === 'Shell')?.tool?.kind, 'git');
+});
+
 test('Cursor selected catalog parameters are forwarded to the SDK', async (t) => {
   const params = [{ id: 'fixture-mode', value: 'fixture-value' }];
   const { created } = await fixture(t, async () => run([], { id: 'run', status: 'finished' }), params);

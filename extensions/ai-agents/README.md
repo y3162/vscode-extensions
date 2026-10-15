@@ -6,9 +6,9 @@ VS Codeのサイドバーから、CursorとCodexの公式SDKを利用して質�
 
 1. 作業対象のフォルダをVS Codeで開きます。
 2. アクティビティバーまたはセカンダリサイドバーの **AI Agents** を開きます。コマンドパレットの **AI Agents: Open Sidebar** でも開けます。
-3. **Codex** または **Cursor** を選び、必要に応じてログインします。
-4. **バックエンド** は既定で公式SDKです。対話型の承認や Codex のレビューには、Codex は **App Server**、Cursor は **ACP** を選びます。
-5. **モデル** のボタンを押すと、取得したモデル一覧から検索・選択できます。
+3. ヘッダーで **Codex** または **Cursor** を選び、必要に応じてログインします。ログイン、APIキー、診断はビュータイトルのメニューにあります。
+4. 入力欄の下に、モード、権限、モデルが表示されます。バックエンドは既定で公式SDKです。対話型の承認や Codex のレビューには、詳細設定で Codex は **App Server**、Cursor は **ACP** を選びます。
+5. モデル名を押すと、取得したモデル一覧から検索・選択できます。Effort などの表示を押すと詳細設定が開きます。
 6. 依頼を入力して送信します。Enterで送信、Shift+Enterで改行できます。実行中は追加入力がキューに入り、停止してもキューは残ります。
 
 例: 「このリポジトリの構成を説明して」「READMEの誤字を修正して」
@@ -17,7 +17,7 @@ VS Codeのサイドバーから、CursorとCodexの公式SDKを利用して質�
 
 ## モデル選択
 
-サイドバーの **モデル** を押すか、コマンドパレットの **AI Agents: Select Model** を実行すると、VS Codeの検索できるモデル選択画面が開きます。モデルIDの手入力は不要です。
+入力欄のモデル名を押すか、コマンドパレットの **AI Agents: Select Model** を実行すると、VS Codeの検索できるモデル選択画面が開きます。モデルIDの手入力は不要です。
 
 - Codexは同梱CLIのApp Server `model/list`、Cursorは公式SDKの `Cursor.models.list()` から、選択画面を開くたびに一覧を取得します。
 - モデル本体ごとに1項目表示します。Effort・Context size・Fast・Thinkingなどの設定の組み合わせは、モデル一覧の項目を増やしません。
@@ -32,7 +32,7 @@ VS Codeのサイドバーから、CursorとCodexの公式SDKを利用して質�
 ## 詳細設定の変更
 
 1. **モデル** から使うモデルを選択します。
-2. モデル欄の右側の **詳細設定** を押します。コマンドパレットの **AI Agents: Configure Model Details** でも開けます。
+2. モデル名のとなりの Effort などを押します。コマンドパレットの **AI Agents: Configure Model Details** でも開けます。
 3. **Effort** や **Context** などの設定項目を選び、一覧から値を選択します。左上の戻るボタンで項目一覧に戻れます。
 4. 設定が終わったら **適用** を選択します。
 
@@ -46,15 +46,15 @@ VS Codeのサイドバーから、CursorとCodexの公式SDKを利用して質�
 
 ### Codex
 
-既存のCodex CLIの認証を使用できます。未認証の場合はサイドバーの **ログイン** から開くターミナルで `codex login` を実行します。このログイン操作にはCLIがPATH上に必要です。SDK自体にはCLIが同梱されているため、APIキー認証時にCLIの別途インストールは不要です。
+既存のCodex CLIの認証を使用できます。未認証の場合はビュータイトルの **ログイン** から開くターミナルで `codex login` を実行します。このログイン操作にはCLIがPATH上に必要です。SDK自体にはCLIが同梱されているため、APIキー認証時にCLIの別途インストールは不要です。
 
-APIキーで利用する場合は、サイドバーの **APIキー** または **AI Agents: Set Codex API Key** で設定します。環境変数 `CODEX_API_KEY` / `OPENAI_API_KEY` にも対応します。明示的なAPIキーがなければCodexの既存ログインを使用します。
+APIキーで利用する場合は、ビュータイトルの **APIキー** または **AI Agents: Set Codex API Key** で設定します。環境変数 `CODEX_API_KEY` / `OPENAI_API_KEY` にも対応します。明示的なAPIキーがなければCodexの既存ログインを使用します。
 
 ### Cursor
 
-サイドバーでCursorを選び、**ログイン** を押してブラウザで認証します。これはCursor SDK用のログインです。CursorエディタやCLIへのログインとは別で、エディタの認証情報は自動では引き継がれません。
+ヘッダーでCursorを選び、ビュータイトルの **ログイン** を押してブラウザで認証します。これはCursor SDK用のログインです。CursorエディタやCLIへのログインとは別で、エディタの認証情報は自動では引き継がれません。
 
-APIキーを使う場合は **APIキー** または **AI Agents: Set Cursor API Key** で設定します。環境変数 `CURSOR_API_KEY` にも対応します。ユーザーまたはサービスアカウント用のAPIキーが必要です。
+APIキーを使う場合はビュータイトルの **APIキー** または **AI Agents: Set Cursor API Key** で設定します。環境変数 `CURSOR_API_KEY` にも対応します。ユーザーまたはサービスアカウント用のAPIキーが必要です。
 
 手入力したキーはVS CodeのSecretStorageに保存します。空欄を確定するとその保存済みキーを削除します。設定ファイルやWebviewにはキーを渡しません。CursorのブラウザログインはSDK標準の `~/.cursor/sdk/auth.json` に認証情報を保存します。
 
@@ -77,15 +77,15 @@ APIキーを使う場合は **APIキー** または **AI Agents: Set Cursor API 
 
 SDKは選択したフォルダを作業ディレクトリとして、ファイルの読み書きとコマンド実行を行います。信頼済みのファイルシステム上のワークスペースが必要です。VS Code Webには対応していません。Remote SSH等では拡張機能ホスト側で実行するため、その環境での認証とSDK実行条件が必要です。
 
-既定では Codex は `workspace-write` / `approvalPolicy: never`、Cursor は `local.sandboxOptions.enabled: true` です。サイドバーからサンドボックスと、プロトコルが対応する承認ポリシーを変更できます。SDKの `codex exec` は対話承認を受け取れないため、承認が必要なポリシーは App Server を選びます。Cursor SDKでサンドボックスが拒否した操作は、確認ダイアログにはなりません。ACPを選ぶと `session/request_permission` をチャット内で承認・拒否できます。
+既定では Codex は `workspace-write` / `approvalPolicy: never`、Cursor は `local.sandboxOptions.enabled: true` です。入力欄の権限表示と詳細設定から、サンドボックスと、プロトコルが対応する承認ポリシーを変更できます。SDKの `codex exec` は対話承認を受け取れないため、承認が必要なポリシーは App Server を選びます。Cursor SDKでサンドボックスが拒否した操作は、確認ダイアログにはなりません。ACPを選ぶと `session/request_permission` をチャット内で承認・拒否できます。
 
 自動承認は既定でオフです。有効化には確認が必要で、サンドボックスを切ることとは別です。
 
 `@` でワークスペース内のファイルやフォルダ、`/` でコマンドやスキルを参照できます。画像の貼り付け、選択範囲、Problems、Git差分、シェル統合で見えた最近のコマンドも添付できます。変更ファイルは VS Code の Diff Editor で開き、変更前の内容を保持しているものはワークスペース内に限って復元できます。
 
-会話は現在の拡張機能ホスト内で継続します。サイドバーを隠しても継続し、ウィンドウをリロードすると新しい会話になります。履歴ボタンから、SDK・ACP・App Server が返すセッションを開き直せます。CursorのSDK履歴は拡張機能のglobalStorage配下、Codexの履歴はCodex標準の保存先に置かれます。
+会話は現在の拡張機能ホスト内で継続します。サイドバーを隠しても継続し、ウィンドウをリロードすると新しい会話になります。履歴から、SDK・ACP・App Server が返すセッションを開き直せます。CursorのSDK履歴は拡張機能のglobalStorage配下、Codexの履歴はCodex標準の保存先に置かれます。
 
-設計と機能差分は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、[docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md)、[docs/GAP_ANALYSIS.md](docs/GAP_ANALYSIS.md) を参照してください。
+設計と機能差分は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、[docs/UI_ARCHITECTURE.md](docs/UI_ARCHITECTURE.md)、[docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md)、[docs/UI_GAP_ANALYSIS.md](docs/UI_GAP_ANALYSIS.md) を参照してください。
 
 ## VSIXの作成・インストール
 

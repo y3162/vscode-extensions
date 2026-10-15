@@ -1,0 +1,183 @@
+import type { Post } from './cards.js';
+import { Composer } from './composer.js';
+import { createDom } from './dom.js';
+import { Header } from './header.js';
+import { HistoryPanel } from './history.js';
+import type { HostToWebview, MessageDiff, ViewMessage, ViewShell, VsCodeApi } from '../protocol.js';
+import { Menu } from './popover.js';
+import { SettingsPanel } from './settings.js';
+import { strings, type Locale } from './strings.js';
+import { Transcript } from './transcript.js';
+
+interface Persisted { draft?: string; expanded?: string[]; stick?: boolean }
+
+class MessageLog {
+  private readonly byId = new Map<string, ViewMessage>();
+  order: string[] = [];
+  version = 0;
+
+  reset(): void {
+    this.byId.clear();
+    this.order = [];
+    this.version += 1;
+  }
+
+  apply(diff: MessageDiff): void {
+    for (const id of diff.removed) this.byId.delete(id);
+    for (const message of diff.upserts) this.byId.set(message.id, message);
+    this.order = diff.order;
+    this.version += 1;
+  }
+
+  list(): ViewMessage[] {
+    return this.order.flatMap((id) => {
+      const message = this.byId.get(id);
+      return message ? [message] : [];
+    });
+  }
+}
+
+export function createApp(vscode: VsCodeApi, options?: { document?: Document }): { destroy(): void; flush(): void } {
+  const document = options?.document ?? globalThis.document;
+  const dom = createDom(document);
+  const root = document.getElementById('app') ?? document.body;
+  root.classList.add('shell');
+  const headerHost = dom.el('div');
+  const stage = dom.el('div', 'stage');
+  const thread = dom.el('main', 'thread');
+  thread.setAttribute('role', 'log');
+  const jump = dom.button('jump', 'Latest', 'arrow-down');
+  jump.hidden = true;
+  const dock = dom.el('footer', 'dock');
+  const alert = dom.el('p', 'host-error');
+  alert.hidden = true;
+  alert.setAttribute('role', 'alert');
+  stage.append(thread, jump);
+  dock.append(alert);
+  root.append(headerHost, stage, dock);
+
+  const log = new MessageLog();
+  let shell: ViewShell | null = null;
+  let locale: Locale = document.documentElement.lang === 'en' ? 'en' : 'ja';
+  let copy = strings(locale);
+  let stick = true;
+  let scheduled = false;
+  let painted = '';
+
+  const post: Post = (message) => {
+    vscode.postMessage(shell ? { provider: shell.provider, cwd: shell.cwd, ...message } : message);
+  };
+  const menu = new Menu(dom, root);
+  let show = (_panel: 'history' | 'settings' | 'chat') => {};
+  const header = new Header(dom, headerHost, copy, (anchor) => {
+    if (!shell) return;
+    menu.open(anchor, [
+      { id: 'note', label: copy.switchNote },
+      ...shell.providers.map((item) => ({
+        id: item.id, label: item.label, description: item.detail, checked: item.id === shell?.provider,
+        onSelect: () => post({ type: 'select', provider: item.id }),
+      })),
+    ]);
+  });
+  const history = new HistoryPanel(dom, stage, post, () => show('chat'));
+  const settings = new SettingsPanel(dom, stage, post, () => show('chat'));
+  const composer = new Composer(dom, dock, post, menu, show);
+  const transcript = new Transcript(dom, thread, post, () => show('history'), (text) => { composer.draft = text; composer.focus(); save(); });
+  show = (panel) => {
+    history.close();
+    settings.close();
+    if (panel === 'history') {
+      history.open();
+      post({ type: 'refreshSessions' });
+    } else if (panel === 'settings') settings.open();
+    menu.close(false);
+    paint();
+  };
+
+  const saved = vscode.getState() as Persisted | null;
+  if (saved?.draft) composer.draft = saved.draft;
+  if (saved?.expanded) transcript.restoreExpanded(saved.expanded);
+  if (saved?.stick === false) stick = false;
+
+  const save = () => vscode.setState({ draft: composer.draft, expanded: transcript.expandedIds(), stick });
+  composer.onInput(save);
+
+  const paint = () => {
+    if (!shell) return;
+    copy = strings(shell.locale);
+    locale = shell.locale;
+    document.documentElement.lang = locale === 'ja' ? 'ja' : 'en';
+    header.render(shell, copy);
+    history.render(shell, copy);
+    settings.render(shell, copy);
+    composer.render(shell, copy);
+    const messages = log.list();
+    transcript.render(messages, shell, copy);
+    const last = [...messages].reverse().find((message) => message.role === 'user');
+    if (last) composer.notePrompt(last.text);
+    const jumpLabel = jump.querySelector('.btn-label');
+    if (jumpLabel) jumpLabel.textContent = copy.latest;
+    jump.title = copy.latest;
+    const marker = `${log.version}:${shell.statusText}:${history.hidden}:${settings.hidden}`;
+    if (marker !== painted && stick) thread.scrollTop = thread.scrollHeight;
+    painted = marker;
+    jump.hidden = stick || thread.scrollHeight <= thread.clientHeight + 80;
+  };
+  const schedule = () => {
+    if (scheduled) return;
+    scheduled = true;
+    const raf = document.defaultView?.requestAnimationFrame?.bind(document.defaultView);
+    if (raf) raf(() => { scheduled = false; paint(); });
+    else { scheduled = false; paint(); }
+  };
+
+  const onMessage = (event: MessageEvent) => {
+    const data = event.data as HostToWebview | { type: 'probeResult' };
+    if (!data || typeof data !== 'object' || !('type' in data)) return;
+    if (data.type === 'state') {
+      if (data.full) log.reset();
+      log.apply(data.messages);
+      shell = data.shell;
+      schedule();
+      return;
+    }
+    if (data.type === 'error') { alert.hidden = false; alert.textContent = data.text; return; }
+    if (data.type === 'suggestions') { composer.setSuggestions(data.requestId, data.items); return; }
+    if (data.type === 'insert') { composer.insert(data.text, data.label); save(); return; }
+    if (data.type === 'inspector') { settings.showInspector(data.title, data.text); return; }
+    if (data.type === 'navigate') { show(data.panel); return; }
+    if (data.type === 'probe') {
+      paint();
+      vscode.postMessage({
+        type: 'probeResult',
+        turns: thread.querySelectorAll('.turn').length,
+        pending: Boolean(thread.querySelector('.pending-card')),
+        history: !history.hidden,
+        settings: !settings.hidden,
+      });
+    }
+  };
+  const onKey = (event: KeyboardEvent) => {
+    if (event.key !== 'Escape' || menu.isOpen) return;
+    if (!history.hidden || !settings.hidden) show('chat');
+  };
+  thread.addEventListener('scroll', () => {
+    const distance = thread.scrollHeight - thread.scrollTop - thread.clientHeight;
+    stick = thread.clientHeight === 0 || distance < 60;
+    jump.hidden = stick || thread.scrollHeight <= thread.clientHeight + 80;
+    save();
+  });
+  jump.addEventListener('click', () => { stick = true; thread.scrollTop = thread.scrollHeight; jump.hidden = true; save(); });
+  const view = document.defaultView ?? globalThis;
+  view.addEventListener('keydown', onKey);
+  view.addEventListener('message', onMessage);
+  vscode.postMessage({ type: 'ready' });
+
+  return {
+    flush: paint,
+    destroy() {
+      view.removeEventListener('keydown', onKey);
+      view.removeEventListener('message', onMessage);
+    },
+  };
+}

@@ -127,6 +127,47 @@ export async function run(): Promise<void> {
   assert.deepEqual(sidebar.controller.snapshot(), beforeDetailsCancel);
   console.log('PASS: cancelling detail edits preserves settings and conversation');
 
+  await sidebar.handleMessage({ type: 'select', provider: 'cursor', cwd, model: '' });
+  assert.equal(sidebar.controller.snapshot().selection.provider, 'cursor');
+  await sidebar.handleMessage({ type: 'select', provider: 'codex', cwd, model: '' });
+  assert.equal(sidebar.controller.snapshot().selection.provider, 'codex');
+  await send('history row');
+  await sidebar.handleMessage({ type: 'refreshSessions' });
+  const sessionId = sidebar.controller.snapshot().sessions[0]?.id;
+  assert.ok(sessionId);
+  await sidebar.handleMessage({ type: 'restoreSession', id: sessionId });
+  assert.ok(sidebar.controller.snapshot().messages.some((message) => message.text.includes('再開') || message.text.includes('resumed') || message.role === 'assistant'));
+  await sidebar.handleMessage({ type: 'configure', sandbox: 'read-only' });
+  assert.ok(sidebar.controller.snapshot().messages.some((message) => message.text.includes('新しい会話') || message.text.includes('new conversation')));
+  assert.equal(sidebar.controller.snapshot().messages.some((message) => message.role === 'user'), false);
+  const note = join(cwd, 'note.txt');
+  await writeFile(note, 'changed\n');
+  await send(`EMIT_DIFF ${note}`);
+  assert.equal(sidebar.controller.snapshot().changes.some((change) => change.path === note && change.previousText === 'original\n'), true);
+  await sidebar.handleMessage({ type: 'openDiff', path: note });
+  assert.ok(vscode.window.tabGroups.all.flatMap((group) => group.tabs).some((tab) => tab.label.includes('note.txt')));
+  await sidebar.handleMessage({ type: 'revertFile', path: note });
+  assert.equal(await readFile(note, 'utf8'), 'original\n');
+  const appServer = join(cwd, 'mock-app-server.cjs');
+  await chmod(appServer, 0o755);
+  await config.update('codex.executablePath', appServer, vscode.ConfigurationTarget.Global);
+  await sidebar.handleMessage({ type: 'configure', backend: 'app-server' });
+  const approving = send('NEED_APPROVAL');
+  await until(() => sidebar.controller.snapshot().pendingPermission?.title === 'npm test');
+  const token = sidebar.controller.interactionTokens().permission;
+  assert.ok(token);
+  await sidebar.handleMessage({ type: 'resolvePermission', id: sidebar.controller.snapshot().pendingPermission?.id, decision: 'allow-once', token });
+  await approving;
+  assert.ok(sidebar.controller.snapshot().messages.some((message) => message.text.includes('approved:accept')));
+  await config.update('codex.executablePath', mockPath, vscode.ConfigurationTarget.Global);
+  await sidebar.handleMessage({ type: 'configure', backend: 'sdk' });
+  await vscode.commands.executeCommand('ai-agents.showHistory');
+  await until(async () => (await sidebar.probe()).history);
+  const probed = await sidebar.probe();
+  assert.equal(probed.history, true);
+  assert.equal(typeof probed.turns, 'number');
+  console.log('PASS: provider switch, history, sandbox reset, diff revert, approval token, and webview probe');
+
   if (process.env.AI_AGENTS_LIVE_MODELS_TEST === '1') {
     await config.update('codex.executablePath', '', vscode.ConfigurationTarget.Global);
     const liveModels = await sidebar.listAvailableModels();

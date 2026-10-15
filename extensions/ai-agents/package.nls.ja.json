@@ -3,5 +3,11 @@
   "command.openSecondary": "AI Agents: セカンダリサイドバーで開く",
   "command.addFile": "AI Agents: アクティブなファイルを添付",
   "command.addSelection": "AI Agents: 選択範囲を添付",
-  "command.diagnose": "AI Agents: 接続診断"
+  "command.diagnose": "AI Agents: 接続診断",
+  "command.showHistory": "AI Agents: 履歴を表示",
+  "command.showSettings": "AI Agents: 詳細設定を開く",
+  "command.signIn": "AI Agents: ログイン",
+  "command.usage": "AI Agents: 使用量を表示",
+  "command.instructions": "AI Agents: ルール、Skills、MCP を表示",
+  "command.apiKey": "AI Agents: APIキーを設定"
 }

@@ -8,6 +8,8 @@ import { createCodexAppServerSession } from './codex-app-server.js';
 import { createCursorAcpSession } from './cursor-acp.js';
 import { codexMeta, cursorMeta } from './details.js';
 import { codexUpdate, cursorUpdate } from './events.js';
+import { mergeStreamText } from './stream-text.js';
+import { codexTool, cursorTool } from './tools.js';
 import type { SessionOptions } from './session-options.js';
 
 export type { SessionOptions } from './session-options.js';
@@ -81,7 +83,8 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
           if ('item' in event) {
             const update = codexUpdate(event.item);
             const meta = codexMeta(event.item);
-            if (update) emit(meta ? { ...update, meta } : update);
+            const tool = codexTool(event.item);
+            if (update) emit({ ...update, ...(meta ? { meta } : {}), ...(tool ? { tool } : {}) });
           }
         }
       },
@@ -157,6 +160,8 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
       if (signal.aborted) cancel();
       let index = 0;
       let hasAssistant = false;
+      let assistantText = '';
+      let thinkingText = '';
       try {
         for await (const event of run.stream()) {
           if (event.type === 'tool_call' && event.status === 'running') {
@@ -165,7 +170,18 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
             if (filePath) await captureBaseline(options.cwd, filePath, baselines);
           }
           if (event.type === 'thinking' && event.text && !signal.aborted) {
-            emit({ id: `thinking-${index}`, role: 'status', text: event.text, meta: { type: 'thinking', append: true } });
+            thinkingText = mergeStreamText(thinkingText, event.text);
+            emit({ id: 'thinking', role: 'status', text: thinkingText, meta: { type: 'thinking' } });
+            continue;
+          }
+          if (event.type === 'assistant' && !signal.aborted) {
+            const chunk = event.message.content.filter((block) => block.type === 'text').map((block) => block.text).join('');
+            if (chunk) {
+              assistantText = mergeStreamText(assistantText, chunk);
+              hasAssistant = true;
+              emit({ id: 'assistant', role: 'assistant', text: assistantText });
+            }
+            continue;
           }
           if (event.type === 'usage' && !signal.aborted) {
             const meta = cursorMeta(event);
@@ -173,9 +189,10 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
           }
           const update = cursorUpdate(event, index++);
           const meta = withBaseline(cursorMeta(event), baselines, options.cwd);
+          const tool = cursorTool(event);
           if (update?.text && !signal.aborted) {
             hasAssistant ||= update.role === 'assistant';
-            emit(meta ? { ...update, meta } : update);
+            emit({ ...update, ...(meta ? { meta } : {}), ...(tool ? { tool } : {}) });
           }
           if (event.type === 'request') {
             await run.cancel();

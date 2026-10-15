@@ -43,10 +43,15 @@ function filePathOf(value: unknown): string | undefined {
 
 export function codexMeta(item: ThreadItem): UpdateMeta | undefined {
   if (item.type === 'file_change') {
-    const files: FileChange[] = item.changes.map((change) => ({
-      path: change.path,
-      kind: change.kind === 'add' || change.kind === 'delete' ? change.kind : 'update',
-    }));
+    const files: FileChange[] = item.changes.map((change) => {
+      const extra = change as { diff?: unknown; previousText?: unknown };
+      return {
+        path: change.path,
+        kind: change.kind === 'add' || change.kind === 'delete' ? change.kind : 'update',
+        ...(typeof extra.diff === 'string' ? { diff: extra.diff } : {}),
+        ...(typeof extra.previousText === 'string' || extra.previousText === null ? { previousText: extra.previousText } : {}),
+      };
+    });
     return files.length ? { type: 'files', files } : undefined;
   }
   if (item.type === 'todo_list') {

@@ -1,0 +1,255 @@
+import path from 'node:path';
+import type { AgentControls, ProviderCapabilities } from './capabilities.js';
+import { isInsideWorkspace } from './change-review.js';
+import type { MessageDiff, ViewChange, ViewChoice, ViewMessage, ViewShell } from './protocol.js';
+import type { Backend, ChatMessage, ChatState, FileChange, Provider, SessionSummary } from './types.js';
+
+export interface InteractionTokens {
+  permission: string | null;
+  plan: string | null;
+  question: string | null;
+}
+
+export interface ShellSource {
+  state: ChatState;
+  folders: { name: string; path: string }[];
+  modelLabel: string;
+  hasModelDetails: boolean;
+  capabilities: ProviderCapabilities;
+  controls: AgentControls;
+  locale: 'ja' | 'en';
+  sessionId?: string;
+  activeFile?: { label: string; token: string } | null;
+  dismissedWarning?: string | null;
+  tokens: InteractionTokens;
+  backends: Record<Provider, Backend>;
+}
+
+const genericTitles = new Set(['', 'Codex', 'Cursor', 'Cursor ACP']);
+const syntheticPaths = new Set(['turn.diff', 'patch']);
+
+export function backendLabel(backend: Backend): string {
+  if (backend === 'acp') return 'ACP';
+  if (backend === 'app-server') return 'App Server';
+  return 'SDK';
+}
+
+export function effortText(params: { value: string }[] | undefined, hasDetails: boolean, locale: 'ja' | 'en'): string | null {
+  if (params?.length) return params.map((param) => param.value).join(' · ');
+  if (hasDetails) return locale === 'ja' ? '既定' : 'Default';
+  return null;
+}
+
+export function countDiff(diff: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  for (const line of diff.split('\n')) {
+    if (line.startsWith('+++') || line.startsWith('---')) continue;
+    if (line.startsWith('+')) additions += 1;
+    else if (line.startsWith('-')) deletions += 1;
+  }
+  return { additions, deletions };
+}
+
+export function presentChange(change: FileChange, roots: string[]): ViewChange {
+  const base = path.basename(change.path) || change.path;
+  const outside = path.isAbsolute(change.path) && roots.length > 0 && !isInsideWorkspace(change.path, roots);
+  const synthetic = syntheticPaths.has(change.path) || syntheticPaths.has(base) || outside;
+  const counted = change.additions !== undefined || change.deletions !== undefined
+    ? { ...(change.additions !== undefined ? { additions: change.additions } : {}), ...(change.deletions !== undefined ? { deletions: change.deletions } : {}) }
+    : change.diff ? countDiff(change.diff) : {};
+  const backed = change.previousText !== undefined || Boolean(change.diff);
+  return {
+    path: change.path,
+    name: synthetic ? 'Patch' : base,
+    kind: change.kind,
+    ...counted,
+    canRevert: !synthetic && backed,
+    canDiff: !synthetic && backed,
+    synthetic,
+    ...(synthetic && change.diff ? { patch: change.diff.slice(0, 4000) } : {}),
+  };
+}
+
+function choice(id: string, label: string, description?: string): ViewChoice {
+  return description ? { id, label, description } : { id, label };
+}
+
+function statusText(state: ChatState, locale: 'ja' | 'en', folderReady: boolean): string {
+  const waiting = Boolean(state.pendingPermission || state.pendingPlan || state.pendingQuestion);
+  const ja = locale === 'ja';
+  const base = waiting ? (ja ? '承認待ち' : 'Waiting for approval')
+    : state.status === 'cancelling' ? (ja ? '停止中…' : 'Stopping…')
+      : state.status === 'restoring' ? (ja ? '復元中…' : 'Restoring…')
+        : state.status === 'error' ? (ja ? 'エラー' : 'Error')
+          : state.busy ? (ja ? '実行中…' : 'Running…')
+            : folderReady ? (ja ? '準備完了' : 'Ready')
+              : (ja ? '作業フォルダを開いてください' : 'Open a workspace folder');
+  const usage = state.usage ? ` · in ${state.usage.inputTokens} / out ${state.usage.outputTokens}` : '';
+  return base + usage;
+}
+
+function sessionTitle(state: ChatState, sessions: SessionSummary[], sessionId: string | undefined, locale: 'ja' | 'en'): string {
+  const saved = sessionId ? sessions.find((session) => session.id === sessionId && session.provider === state.selection.provider) : undefined;
+  if (saved?.title && !genericTitles.has(saved.title)) return saved.title;
+  const first = state.messages.find((message) => message.role === 'user')?.text.split('\n')[0]?.trim();
+  if (first) return first.slice(0, 80);
+  return locale === 'ja' ? '新しいチャット' : 'New chat';
+}
+
+function accessOf(source: ShellSource): { label: string; risky: boolean; banner: ViewShell['banner'] } {
+  const { controls, capabilities, locale, state } = source;
+  const ja = locale === 'ja';
+  const sandbox = capabilities.sandbox.find((item) => item.id === controls.sandbox)?.label ?? controls.sandbox;
+  const approval = capabilities.approval.find((item) => item.id === controls.approval)?.label ?? controls.approval;
+  let label = sandbox;
+  if (source.state.selection.provider === 'codex' && capabilities.approval.length > 1) label = `${sandbox} · ${approval}`;
+  if (source.state.selection.provider === 'cursor' && capabilities.interactiveApproval) {
+    label = `${sandbox} · ${ja ? 'ツールごとに確認' : 'Approve tools'}`;
+  }
+  const risky = state.autoApprove || controls.sandbox === 'danger-full-access' || controls.sandbox === 'disabled';
+  const id = `${state.selection.provider}|${controls.sandbox}|${controls.approval}|${state.autoApprove ? 1 : 0}`;
+  if (!risky || source.dismissedWarning === id) return { label, risky, banner: null };
+  if (state.autoApprove) {
+    return {
+      label, risky, banner: {
+        id,
+        title: ja ? '自動承認がオンです' : 'Auto-approve is on',
+        body: ja
+          ? 'ファイルの変更とコマンドを、確認なしで許可します。サンドボックスを無効にしたという意味ではありません。'
+          : 'File changes and commands are allowed without a prompt. This does not turn the sandbox off.',
+      },
+    };
+  }
+  const off = controls.sandbox === 'disabled';
+  return {
+    label, risky, banner: {
+      id,
+      title: off ? (ja ? 'サンドボックスがオフです' : 'Sandbox is off') : (ja ? 'フルアクセスがオンです' : 'Full access is on'),
+      body: ja
+        ? 'サンドボックスが無効です。確認なしにファイルの変更やコマンドの実行が許可されることがあります。'
+        : 'The sandbox is off. File changes and commands may run without a prompt.',
+    },
+  };
+}
+
+export function buildShell(source: ShellSource): ViewShell {
+  const { state, capabilities, controls, locale } = source;
+  const folder = source.folders.find((item) => item.path === state.selection.cwd);
+  const providerName = state.selection.provider === 'cursor' ? 'Cursor' : 'Codex';
+  const access = accessOf(source);
+  const changes = state.changes.map((change) => presentChange(change, source.folders.map((item) => item.path)));
+  const waiting = Boolean(state.pendingPermission || state.pendingPlan || state.pendingQuestion);
+  const presence: ViewShell['presence'] = waiting ? 'waiting'
+    : state.status === 'error' ? 'error'
+      : state.busy || state.status === 'running' || state.status === 'cancelling' || state.status === 'restoring' ? 'running'
+        : 'idle';
+  const sessions = state.sessions.filter((session) => session.provider === state.selection.provider);
+  return {
+    provider: state.selection.provider,
+    providerLabel: `${providerName} · ${backendLabel(controls.backend)}`,
+    cwd: state.selection.cwd,
+    busy: state.busy,
+    presence,
+    statusText: statusText(state, locale, Boolean(folder)),
+    sessionTitle: sessionTitle(state, state.sessions, source.sessionId, locale),
+    ...(source.sessionId ? { sessionId: source.sessionId } : {}),
+    modelLabel: source.modelLabel,
+    effortLabel: effortText(state.selection.modelParams, source.hasModelDetails, locale),
+    accessLabel: access.label,
+    risky: access.risky,
+    banner: access.banner,
+    backendLabel: backendLabel(controls.backend),
+    folderName: folder?.name ?? (locale === 'ja' ? 'フォルダなし' : 'No folder'),
+    folders: source.folders,
+    modes: capabilities.modes.map((item) => choice(item.id, item.label, item.description)),
+    mode: controls.mode,
+    showMode: capabilities.modes.length > 1,
+    sandboxChoices: capabilities.sandbox.map((item) => choice(item.id, item.label, item.description)),
+    sandbox: controls.sandbox,
+    approvalChoices: capabilities.approval.map((item) => choice(item.id, item.label, item.description)),
+    approval: controls.approval,
+    showApproval: capabilities.approval.length > 1,
+    webSearchChoices: capabilities.webSearch.map((item) => choice(item.id, item.label, item.description)),
+    webSearch: controls.webSearch,
+    showWebSearch: capabilities.webSearch.length > 1,
+    network: controls.network,
+    showNetwork: capabilities.networkToggle,
+    backendChoices: (state.selection.provider === 'cursor'
+      ? [choice('sdk', 'SDK'), choice('acp', 'ACP')]
+      : [choice('sdk', 'SDK'), choice('app-server', 'App Server')]),
+    backend: controls.backend,
+    additionalDirectories: controls.additionalDirectories,
+    autoApprove: state.autoApprove,
+    steer: capabilities.steer,
+    interactiveApproval: capabilities.interactiveApproval,
+    queue: state.queue.map((item) => ({
+      id: item.id,
+      text: item.extras?.displayText || item.text,
+      images: item.extras?.images?.length ?? 0,
+    })),
+    changes,
+    additions: changes.reduce((sum, change) => sum + (change.additions ?? 0), 0),
+    deletions: changes.reduce((sum, change) => sum + (change.deletions ?? 0), 0),
+    sessions,
+    usage: state.usage,
+    permission: state.pendingPermission && source.tokens.permission
+      ? { token: source.tokens.permission, request: state.pendingPermission } : null,
+    plan: state.pendingPlan && source.tokens.plan ? { token: source.tokens.plan, request: state.pendingPlan } : null,
+    question: state.pendingQuestion && source.tokens.question
+      ? { token: source.tokens.question, request: state.pendingQuestion } : null,
+    activeFile: source.activeFile ?? null,
+    locale,
+    providers: (['codex', 'cursor'] as const).map((id) => ({
+      id,
+      label: id === 'cursor' ? 'Cursor' : 'Codex',
+      detail: backendLabel(source.backends[id]),
+    })),
+  };
+}
+
+export function toViewMessage(message: ChatMessage): ViewMessage {
+  const meta = message.meta;
+  const files = meta?.files?.map((file) => ({
+    path: file.path,
+    kind: file.kind,
+    ...(file.additions !== undefined ? { additions: file.additions } : {}),
+    ...(file.deletions !== undefined ? { deletions: file.deletions } : {}),
+  }));
+  return {
+    id: message.id,
+    role: message.role,
+    text: message.text,
+    ...(message.at !== undefined ? { at: message.at } : {}),
+    ...(message.attachments?.length ? { attachments: message.attachments } : {}),
+    ...(message.tool ? { tool: message.tool } : {}),
+    ...(meta ? {
+      meta: {
+        type: meta.type,
+        ...(files?.length ? { files } : {}),
+        ...(meta.todos?.length ? { todos: meta.todos } : {}),
+        ...(meta.task ? { task: meta.task } : {}),
+        ...(meta.imagePath ? { imagePath: meta.imagePath } : {}),
+      },
+    } : {}),
+  };
+}
+
+export function messageSignature(message: ViewMessage): string {
+  return JSON.stringify(message);
+}
+
+export function diffMessages(previous: ReadonlyMap<string, string>, messages: readonly ViewMessage[]): MessageDiff & { next: Map<string, string> } {
+  const next = new Map<string, string>();
+  const upserts: ViewMessage[] = [];
+  const order: string[] = [];
+  for (const message of messages) {
+    const signature = messageSignature(message);
+    next.set(message.id, signature);
+    order.push(message.id);
+    if (previous.get(message.id) !== signature) upserts.push(message);
+  }
+  const removed: string[] = [];
+  for (const id of previous.keys()) if (!next.has(id)) removed.push(id);
+  return { removed, upserts, order, next };
+}

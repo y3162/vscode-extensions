@@ -9,6 +9,7 @@ const fixture = await mkdtemp(join(tmpdir(), 'ai-agents-integration-'));
 const testBundle = join(root, 'dist', 'integration.js');
 await build({ entryPoints: [join(root, 'test', 'integration.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: testBundle, external: ['vscode'] });
 await cp(join(root, 'test', 'fixtures', 'mock-codex.cjs'), join(fixture, 'mock-codex.cjs'));
+await cp(join(root, 'test', 'fixtures', 'mock-app-server.cjs'), join(fixture, 'mock-app-server.cjs'));
 
 let executable = process.env.VSCODE_EXECUTABLE_PATH;
 if (!executable && process.platform === 'darwin') {

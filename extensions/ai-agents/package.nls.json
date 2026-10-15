@@ -3,5 +3,11 @@
   "command.openSecondary": "AI Agents: Open Secondary Sidebar",
   "command.addFile": "AI Agents: Attach Active File",
   "command.addSelection": "AI Agents: Attach Selection",
-  "command.diagnose": "AI Agents: Run Connection Diagnostics"
+  "command.diagnose": "AI Agents: Run Connection Diagnostics",
+  "command.showHistory": "AI Agents: Show History",
+  "command.showSettings": "AI Agents: Open Agent Settings",
+  "command.signIn": "AI Agents: Sign In",
+  "command.usage": "AI Agents: Show Usage",
+  "command.instructions": "AI Agents: Show Rules, Skills, and MCP",
+  "command.apiKey": "AI Agents: Set API Key"
 }
