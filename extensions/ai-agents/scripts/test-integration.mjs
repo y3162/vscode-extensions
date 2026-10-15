@@ -1,0 +1,33 @@
+import { access, cp, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { build } from 'esbuild';
+import { runTests } from '@vscode/test-electron';
+
+const root = resolve(import.meta.dirname, '..');
+const fixture = await mkdtemp(join(tmpdir(), 'ai-agents-integration-'));
+const testBundle = join(root, 'dist', 'integration.js');
+await build({ entryPoints: [join(root, 'test', 'integration.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: testBundle, external: ['vscode'] });
+await cp(join(root, 'test', 'fixtures', 'mock-codex.cjs'), join(fixture, 'mock-codex.cjs'));
+
+let executable = process.env.VSCODE_EXECUTABLE_PATH;
+if (!executable && process.platform === 'darwin') {
+  const installed = '/Applications/Visual Studio Code.app/Contents/MacOS/Code';
+  try { await access(installed); executable = installed; } catch { /* Download a test copy below. */ }
+}
+try {
+  await runTests({
+    vscodeExecutablePath: executable,
+    extensionDevelopmentPath: root,
+    extensionTestsPath: testBundle,
+    extensionTestsEnv: {
+      ELECTRON_RUN_AS_NODE: undefined,
+      AI_AGENTS_TEST_WORKSPACE: fixture,
+      AI_AGENTS_LIVE_TEST: process.env.AI_AGENTS_LIVE_TEST,
+    },
+    launchArgs: [fixture, '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes',
+      '--user-data-dir', join(fixture, 'user-data'), '--extensions-dir', join(fixture, 'extensions')],
+  });
+} finally {
+  await rm(fixture, { recursive: true, force: true });
+}

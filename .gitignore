@@ -1,0 +1,12 @@
+.vscode/*
+!.vscode/launch.json
+!.vscode/tasks.json
+node_modules/
+dist/
+.vscode-test/
+*.vsix
+*.tsbuildinfo
+.DS_Store
+.env
+.env.*
+!.env.example

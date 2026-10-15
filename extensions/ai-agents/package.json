@@ -1,0 +1,75 @@
+{
+  "name": "ai-agents",
+  "displayName": "AI Agents",
+  "description": "Use Cursor and Codex agents from the VS Code sidebar.",
+  "version": "0.1.0",
+  "publisher": "y3162",
+  "private": true,
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/y3162/vscode-extensions.git",
+    "directory": "extensions/ai-agents"
+  },
+  "engines": { "vscode": "^1.109.0", "node": ">=22.13" },
+  "categories": ["AI", "Other"],
+  "extensionKind": ["workspace"],
+  "capabilities": {
+    "untrustedWorkspaces": { "supported": false },
+    "virtualWorkspaces": { "supported": false }
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": ["onView:ai-agents.chat"],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [{ "id": "ai-agents", "title": "AI Agents", "icon": "resources/agents.svg" }]
+    },
+    "views": {
+      "ai-agents": [{ "type": "webview", "id": "ai-agents.chat", "name": "Chat" }]
+    },
+    "commands": [
+      { "command": "ai-agents.open", "title": "AI Agents: Open Sidebar" },
+      { "command": "ai-agents.newChat", "title": "AI Agents: New Chat", "icon": "$(add)" },
+      { "command": "ai-agents.cursorLogin", "title": "AI Agents: Sign in to Cursor" },
+      { "command": "ai-agents.setCursorApiKey", "title": "AI Agents: Set Cursor API Key" },
+      { "command": "ai-agents.setCodexApiKey", "title": "AI Agents: Set Codex API Key" },
+      { "command": "ai-agents.showLogs", "title": "AI Agents: Show Logs" }
+    ],
+    "menus": {
+      "view/title": [{ "command": "ai-agents.newChat", "when": "view == ai-agents.chat", "group": "navigation" }]
+    },
+    "configuration": {
+      "title": "AI Agents",
+      "properties": {
+        "ai-agents.defaultProvider": {
+          "type": "string", "enum": ["codex", "cursor"], "default": "codex",
+          "description": "Provider selected when opening a new sidebar."
+        },
+        "ai-agents.codex.model": {
+          "type": "string", "default": "",
+          "description": "Codex model ID. Empty uses your Codex configuration."
+        },
+        "ai-agents.cursor.model": {
+          "type": "string", "default": "auto",
+          "description": "Cursor model ID, for example auto."
+        },
+        "ai-agents.codex.executablePath": {
+          "type": "string", "default": "", "scope": "machine",
+          "description": "Optional absolute path to a Codex CLI. Empty uses the SDK's bundled CLI."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "check": "tsc --noEmit && node --check media/chat.js",
+    "test": "tsx --test test/*.test.ts",
+    "test:integration": "npm run build && node scripts/test-integration.mjs",
+    "package": "npm run build && node scripts/package.mjs"
+  },
+  "dependencies": {
+    "@cursor/sdk": "1.0.37",
+    "@openai/codex-sdk": "0.162.1"
+  }
+}

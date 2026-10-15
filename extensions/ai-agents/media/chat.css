@@ -1,0 +1,33 @@
+:root { color-scheme: light dark; }
+* { box-sizing: border-box; }
+body { padding: 12px; margin: 0; height: 100vh; display: flex; flex-direction: column; color: var(--vscode-foreground); font-family: var(--vscode-font-family); font-size: var(--vscode-font-size); background: var(--vscode-sideBar-background); }
+header, nav, footer { display: flex; align-items: center; gap: 8px; }
+header { justify-content: space-between; margin-bottom: 12px; }
+button, input, select, textarea { font: inherit; border: 1px solid var(--vscode-input-border, transparent); border-radius: 4px; }
+button { padding: 5px 9px; color: var(--vscode-button-foreground); background: var(--vscode-button-background); cursor: pointer; }
+button:hover { background: var(--vscode-button-hoverBackground); }
+button:disabled { opacity: .5; cursor: default; }
+button:focus-visible, input:focus, select:focus, textarea:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: 1px; }
+input, select, textarea { width: 100%; padding: 6px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); }
+.controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+label { display: block; font-size: 11px; color: var(--vscode-descriptionForeground); }
+label input, label select { margin-top: 4px; }
+.wide { grid-column: 1 / -1; }
+nav { margin: 10px 0; flex-wrap: wrap; }
+nav button { font-size: 11px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+main { flex: 1; min-height: 80px; overflow-y: auto; overflow-wrap: anywhere; }
+.empty { color: var(--vscode-descriptionForeground); line-height: 1.7; }
+.message { padding: 10px; margin: 8px 0; border: 1px solid var(--vscode-panel-border); border-radius: 5px; }
+.message strong { font-size: 10px; opacity: .75; }
+.message pre { font: inherit; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; margin: 6px 0 0; }
+.message.user { background: var(--vscode-textBlockQuote-background); }
+.message.tool, .message.status { font-size: 11px; color: var(--vscode-descriptionForeground); }
+.message.tool pre { max-height: 180px; overflow-y: auto; font-family: var(--vscode-editor-font-family); }
+.message.error { border-color: var(--vscode-errorForeground); color: var(--vscode-errorForeground); }
+#status { margin: 8px 0; font-size: 11px; color: var(--vscode-descriptionForeground); }
+textarea { resize: vertical; min-height: 70px; max-height: 240px; }
+footer { margin-top: 6px; justify-content: flex-end; flex-wrap: wrap; }
+footer small { flex: 1; font-size: 10px; color: var(--vscode-descriptionForeground); }
+.hint { margin: 8px 0 0; font-size: 10px; color: var(--vscode-descriptionForeground); }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+[hidden] { display: none !important; }
