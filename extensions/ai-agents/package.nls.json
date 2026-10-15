@@ -1,0 +1,7 @@
+{
+  "command.stop": "AI Agents: Stop",
+  "command.openSecondary": "AI Agents: Open Secondary Sidebar",
+  "command.addFile": "AI Agents: Attach Active File",
+  "command.addSelection": "AI Agents: Attach Selection",
+  "command.diagnose": "AI Agents: Run Connection Diagnostics"
+}

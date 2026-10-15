@@ -5,10 +5,11 @@ VS Codeのサイドバーから、CursorとCodexの公式SDKを利用して質�
 ## 使い方
 
 1. 作業対象のフォルダをVS Codeで開きます。
-2. アクティビティバーの **AI Agents** を開きます。コマンドパレットの **AI Agents: Open Sidebar** でも開けます。
+2. アクティビティバーまたはセカンダリサイドバーの **AI Agents** を開きます。コマンドパレットの **AI Agents: Open Sidebar** でも開けます。
 3. **Codex** または **Cursor** を選び、必要に応じてログインします。
-4. **モデル** のボタンを押すと、取得したモデル一覧から検索・選択できます。
-5. 依頼を入力して送信します。Enterで送信、Shift+Enterで改行できます。
+4. **バックエンド** は既定で公式SDKです。対話型の承認や Codex のレビューには、Codex は **App Server**、Cursor は **ACP** を選びます。
+5. **モデル** のボタンを押すと、取得したモデル一覧から検索・選択できます。
+6. 依頼を入力して送信します。Enterで送信、Shift+Enterで改行できます。実行中は追加入力がキューに入り、停止してもキューは残ります。
 
 例: 「このリポジトリの構成を説明して」「READMEの誤字を修正して」
 
@@ -65,6 +66,10 @@ APIキーを使う場合は **APIキー** または **AI Agents: Set Cursor API 
 | `ai-agents.codex.model` | 空欄 | CodexのモデルID。空欄で既存のCodex設定を利用 |
 | `ai-agents.cursor.model` | `auto` | CursorのモデルID |
 | `ai-agents.codex.executablePath` | 空欄 | CLIを指定する場合の絶対パス。通常はSDK同梱CLIを利用 |
+| `ai-agents.codex.backend` | `sdk` | `sdk` または `app-server` |
+| `ai-agents.cursor.backend` | `sdk` | `sdk` または `acp` |
+| `ai-agents.cursor.agentPath` | `agent` | ACPで起動するCursor CLI |
+| `ai-agents.autoApprove` | `false` | ツール承認を省略する。サンドボックスは無効にしない |
 
 モデルは通常、サイドバーの選択画面から変更してください。上記モデル設定は、まだモデルを選択していない場合の初期値です。選択画面で保存したモデルを優先します。
 
@@ -72,9 +77,15 @@ APIキーを使う場合は **APIキー** または **AI Agents: Set Cursor API 
 
 SDKは選択したフォルダを作業ディレクトリとして、ファイルの読み書きとコマンド実行を行います。信頼済みのファイルシステム上のワークスペースが必要です。VS Code Webには対応していません。Remote SSH等では拡張機能ホスト側で実行するため、その環境での認証とSDK実行条件が必要です。
 
-Codexは `workspace-write` / `approvalPolicy: never`、Cursorは `local.sandboxOptions.enabled: true` で実行します。SDKのサンドボックスで許可されない操作は拒否されます。追加承認のUIはまだありません。Cursorが追加入力を要求した場合は実行を停止して案内を表示します。
+既定では Codex は `workspace-write` / `approvalPolicy: never`、Cursor は `local.sandboxOptions.enabled: true` です。サイドバーからサンドボックスと、プロトコルが対応する承認ポリシーを変更できます。SDKの `codex exec` は対話承認を受け取れないため、承認が必要なポリシーは App Server を選びます。Cursor SDKでサンドボックスが拒否した操作は、確認ダイアログにはなりません。ACPを選ぶと `session/request_permission` をチャット内で承認・拒否できます。
 
-会話は現在の拡張機能ホスト内で継続します。サイドバーを隠しても継続し、ウィンドウをリロードすると新しい会話になります。SDK側には履歴が保存されますが、この版には過去の会話を開き直すUIはありません。CursorのSDK履歴は拡張機能のglobalStorage配下、Codexの履歴はCodex標準の保存先に置かれます。
+自動承認は既定でオフです。有効化には確認が必要で、サンドボックスを切ることとは別です。
+
+`@` でワークスペース内のファイルやフォルダ、`/` でコマンドやスキルを参照できます。画像の貼り付け、選択範囲、Problems、Git差分、シェル統合で見えた最近のコマンドも添付できます。変更ファイルは VS Code の Diff Editor で開き、変更前の内容を保持しているものはワークスペース内に限って復元できます。
+
+会話は現在の拡張機能ホスト内で継続します。サイドバーを隠しても継続し、ウィンドウをリロードすると新しい会話になります。履歴ボタンから、SDK・ACP・App Server が返すセッションを開き直せます。CursorのSDK履歴は拡張機能のglobalStorage配下、Codexの履歴はCodex標準の保存先に置かれます。
+
+設計と機能差分は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、[docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md)、[docs/GAP_ANALYSIS.md](docs/GAP_ANALYSIS.md) を参照してください。
 
 ## VSIXの作成・インストール
 

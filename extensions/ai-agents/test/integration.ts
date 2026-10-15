@@ -44,13 +44,21 @@ export async function run(): Promise<void> {
 
   const running = send('WAIT_FOR_STOP');
   await until(async () => (await readFile(join(cwd, 'invocations.json'), 'utf8')).includes('WAIT_FOR_STOP'));
+  await sidebar.handleMessage({ type: 'enqueue', ...selection, prompt: 'queued follow-up' });
+  assert.equal(sidebar.controller.snapshot().queue.length, 1);
   await sidebar.handleMessage({ type: 'stop' });
   await running;
   assert.equal(sidebar.controller.snapshot().busy, false);
+  assert.equal(sidebar.controller.snapshot().queue.length, 1);
   assert.ok(sidebar.controller.snapshot().messages.some((message) => message.text === '停止しました。'));
+  const queuedId = sidebar.controller.snapshot().queue[0]?.id;
+  assert.ok(queuedId);
+  await sidebar.handleMessage({ type: 'sendNow', id: queuedId });
+  assert.equal(sidebar.controller.snapshot().queue.length, 0);
+  assert.ok(sidebar.controller.snapshot().messages.some((message) => message.role === 'assistant' && message.text.includes('queued follow-up')));
   await sidebar.newChat();
   assert.deepEqual(sidebar.controller.snapshot().messages, []);
-  console.log('PASS: Stop terminates a running SDK subprocess; New Chat clears the conversation');
+  console.log('PASS: Stop terminates a running SDK subprocess; a queued prompt survives Stop and can be sent; New Chat clears the conversation');
 
   const models = await sidebar.listAvailableModels();
   assert.deepEqual(models.map((model) => model.id), ['fixture-model', 'fixture-second']);

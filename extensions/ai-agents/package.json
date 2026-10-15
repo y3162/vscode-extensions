@@ -2,7 +2,7 @@
   "name": "ai-agents",
   "displayName": "AI Agents",
   "description": "Use Cursor and Codex agents from the VS Code sidebar.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "y3162",
   "private": true,
   "license": "UNLICENSED",
@@ -19,13 +19,15 @@
     "virtualWorkspaces": { "supported": false }
   },
   "main": "./dist/extension.js",
-  "activationEvents": ["onView:ai-agents.chat"],
+  "activationEvents": ["onView:ai-agents.chat", "onView:ai-agents.secondaryChat"],
   "contributes": {
     "viewsContainers": {
-      "activitybar": [{ "id": "ai-agents", "title": "AI Agents", "icon": "resources/agents.svg" }]
+      "activitybar": [{ "id": "ai-agents", "title": "AI Agents", "icon": "resources/agents.svg" }],
+      "secondarySidebar": [{ "id": "ai-agents-secondary", "title": "AI Agents", "icon": "resources/agents.svg" }]
     },
     "views": {
-      "ai-agents": [{ "type": "webview", "id": "ai-agents.chat", "name": "Chat" }]
+      "ai-agents": [{ "type": "webview", "id": "ai-agents.chat", "name": "Chat" }],
+      "ai-agents-secondary": [{ "type": "webview", "id": "ai-agents.secondaryChat", "name": "Chat" }]
     },
     "commands": [
       { "command": "ai-agents.open", "title": "AI Agents: Open Sidebar" },
@@ -35,11 +37,28 @@
       { "command": "ai-agents.cursorLogin", "title": "AI Agents: Sign in to Cursor" },
       { "command": "ai-agents.setCursorApiKey", "title": "AI Agents: Set Cursor API Key" },
       { "command": "ai-agents.setCodexApiKey", "title": "AI Agents: Set Codex API Key" },
-      { "command": "ai-agents.showLogs", "title": "AI Agents: Show Logs" }
+      { "command": "ai-agents.showLogs", "title": "AI Agents: Show Logs" },
+      { "command": "ai-agents.stop", "title": "%command.stop%", "icon": "$(debug-stop)" },
+      { "command": "ai-agents.openSecondary", "title": "%command.openSecondary%" },
+      { "command": "ai-agents.addFile", "title": "%command.addFile%" },
+      { "command": "ai-agents.addSelection", "title": "%command.addSelection%" },
+      { "command": "ai-agents.diagnose", "title": "%command.diagnose%" }
     ],
     "menus": {
-      "view/title": [{ "command": "ai-agents.newChat", "when": "view == ai-agents.chat", "group": "navigation" }]
+      "view/title": [
+        { "command": "ai-agents.newChat", "when": "view == ai-agents.chat || view == ai-agents.secondaryChat", "group": "navigation" },
+        { "command": "ai-agents.stop", "when": "(view == ai-agents.chat || view == ai-agents.secondaryChat) && ai-agents.busy", "group": "navigation" }
+      ],
+      "editor/context": [
+        { "command": "ai-agents.addFile", "when": "editorTextFocus", "group": "ai-agents" },
+        { "command": "ai-agents.addSelection", "when": "editorHasSelection", "group": "ai-agents" }
+      ]
     },
+    "keybindings": [
+      { "command": "ai-agents.open", "key": "ctrl+alt+a", "mac": "ctrl+alt+a" },
+      { "command": "ai-agents.newChat", "key": "ctrl+alt+n", "mac": "ctrl+alt+n" },
+      { "command": "ai-agents.stop", "key": "ctrl+alt+.", "mac": "ctrl+alt+." }
+    ],
     "configuration": {
       "title": "AI Agents",
       "properties": {
@@ -58,6 +77,22 @@
         "ai-agents.codex.executablePath": {
           "type": "string", "default": "", "scope": "machine",
           "description": "Optional absolute path to a Codex CLI. Empty uses the SDK's bundled CLI."
+        },
+        "ai-agents.codex.backend": {
+          "type": "string", "enum": ["sdk", "app-server"], "default": "sdk",
+          "description": "Codex transport. SDK keeps the verified exec path. App Server enables interactive approvals, plan mode, review, and thread management."
+        },
+        "ai-agents.cursor.backend": {
+          "type": "string", "enum": ["sdk", "acp"], "default": "sdk",
+          "description": "Cursor transport. SDK uses @cursor/sdk. ACP uses the local Cursor CLI for interactive approvals and Ask mode."
+        },
+        "ai-agents.cursor.agentPath": {
+          "type": "string", "default": "agent", "scope": "machine",
+          "description": "Command used to launch the Cursor CLI for ACP."
+        },
+        "ai-agents.autoApprove": {
+          "type": "boolean", "default": false,
+          "description": "Allow tool actions without a prompt. This does not disable the agent sandbox. Off by default."
         }
       }
     }

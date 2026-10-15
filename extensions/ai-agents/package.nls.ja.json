@@ -1,0 +1,7 @@
+{
+  "command.stop": "AI Agents: 停止",
+  "command.openSecondary": "AI Agents: セカンダリサイドバーで開く",
+  "command.addFile": "AI Agents: アクティブなファイルを添付",
+  "command.addSelection": "AI Agents: 選択範囲を添付",
+  "command.diagnose": "AI Agents: 接続診断"
+}

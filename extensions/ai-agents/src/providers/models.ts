@@ -145,7 +145,7 @@ async function listCodexModels(options: ModelListOptions, signal: AbortSignal): 
     child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
   });
   try {
-    await request('initialize', { clientInfo: { name: 'ai_agents_vscode', title: 'AI Agents', version: '0.3.0' } });
+    await request('initialize', { clientInfo: { name: 'ai_agents_vscode', title: 'AI Agents', version: '0.4.0' } });
     child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
     const models = new Map<string, AgentModel>();
     const cursors = new Set<string>();

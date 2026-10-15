@@ -1,0 +1,134 @@
+import { spawn, type ChildProcess } from 'node:child_process';
+import { createInterface } from 'node:readline';
+import { errorMessage } from '../types.js';
+
+export interface SpawnSpec {
+  command: string;
+  args: string[];
+  cwd?: string;
+  env?: NodeJS.ProcessEnv;
+}
+
+interface Pending {
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+}
+
+export class StdioJsonRpc {
+  private readonly child: ChildProcess;
+  private readonly pending = new Map<number, Pending>();
+  private nextId = 0;
+  private stderr = '';
+  private closed = false;
+  private onNotification: (method: string, params: unknown) => void = () => undefined;
+  private onServerRequest: (method: string, params: unknown) => Promise<unknown> = async () => ({});
+
+  constructor(spec: SpawnSpec) {
+    const command = spec.command.endsWith('.cjs') || spec.command.endsWith('.mjs') || spec.command.endsWith('.js')
+      ? process.execPath : spec.command;
+    const args = command === process.execPath && command !== spec.command ? [spec.command, ...spec.args] : spec.args;
+    this.child = spawn(command, args, {
+      cwd: spec.cwd,
+      env: spec.env ?? process.env,
+      stdio: ['pipe', 'pipe', 'pipe'],
+      windowsHide: true,
+      shell: process.platform === 'win32' && command !== process.execPath,
+    });
+    this.child.stderr?.setEncoding('utf8');
+    this.child.stderr?.on('data', (chunk: string) => { this.stderr = `${this.stderr}${chunk}`.slice(-4000); });
+    this.child.on('error', (error) => this.fail(error));
+    this.child.on('exit', (code) => {
+      if (!this.closed) this.fail(new Error(this.stderr.trim() || `Agent process exited (${code ?? 'signal'}).`));
+    });
+    if (!this.child.stdout || !this.child.stdin) throw new Error('Agent process did not expose stdio.');
+    createInterface({ input: this.child.stdout }).on('line', (line) => { this.handleLine(line); });
+  }
+
+  setHandlers(handlers: {
+    notification?: (method: string, params: unknown) => void;
+    request?: (method: string, params: unknown) => Promise<unknown>;
+  }): void {
+    if (handlers.notification) this.onNotification = handlers.notification;
+    if (handlers.request) this.onServerRequest = handlers.request;
+  }
+
+  request(method: string, params: unknown, signal?: AbortSignal): Promise<unknown> {
+    if (signal?.aborted) return Promise.reject(signal.reason);
+    const id = ++this.nextId;
+    return new Promise((resolve, reject) => {
+      const pending: Pending = { resolve, reject };
+      this.pending.set(id, pending);
+      const abort = () => {
+        this.pending.delete(id);
+        reject(signal?.reason ?? new DOMException('Cancelled', 'AbortError'));
+      };
+      signal?.addEventListener('abort', abort, { once: true });
+      const wrapped: Pending = {
+        resolve: (value) => { signal?.removeEventListener('abort', abort); resolve(value); },
+        reject: (error) => { signal?.removeEventListener('abort', abort); reject(error); },
+      };
+      this.pending.set(id, wrapped);
+      this.write({ id, method, params });
+    });
+  }
+
+  notify(method: string, params: unknown): void {
+    this.write({ method, params });
+  }
+
+  respond(id: number, result: unknown): void {
+    this.write({ id, result });
+  }
+
+  failRequest(id: number, message: string): void {
+    this.write({ id, error: { code: -32000, message } });
+  }
+
+  private write(message: unknown): void {
+    if (this.closed) return;
+    this.child.stdin?.write(`${JSON.stringify(message)}\n`);
+  }
+
+  private handleLine(line: string): void {
+    if (!line.trim()) return;
+    let message: { id?: number; method?: string; params?: unknown; result?: unknown; error?: { message?: string } };
+    try { message = JSON.parse(line) as typeof message; }
+    catch { this.fail(new Error('Agent returned invalid JSON.')); return; }
+    if (message.id !== undefined && message.method) {
+      void this.onServerRequest(message.method, message.params).then((result) => {
+        this.respond(message.id!, result);
+      }, (error: unknown) => {
+        this.failRequest(message.id!, errorMessage(error));
+      });
+      return;
+    }
+    if (message.id !== undefined) {
+      const pending = this.pending.get(message.id);
+      this.pending.delete(message.id);
+      if (!pending) return;
+      if (message.error) pending.reject(new Error(message.error.message || 'Agent request failed.'));
+      else pending.resolve(message.result);
+      return;
+    }
+    if (message.method) this.onNotification(message.method, message.params);
+  }
+
+  private fail(error: unknown): void {
+    const wrapped = error instanceof Error ? error : new Error(String(error));
+    for (const pending of this.pending.values()) pending.reject(wrapped);
+    this.pending.clear();
+  }
+
+  async dispose(): Promise<void> {
+    this.closed = true;
+    this.fail(new Error('Agent process closed.'));
+    this.child.stdin?.end();
+    this.child.kill();
+    if (this.child.exitCode === null && this.child.signalCode === null) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => { this.child.kill('SIGKILL'); resolve(); }, 1500);
+        this.child.once('exit', () => { clearTimeout(timer); resolve(); });
+      });
+    }
+  }
+}

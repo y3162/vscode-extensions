@@ -8,9 +8,10 @@ export function activate(context: vscode.ExtensionContext): { sidebar: AgentsSid
   const output = vscode.window.createOutputChannel('AI Agents');
   sidebar = new AgentsSidebar(context, output);
   const currentSidebar = sidebar;
-  context.subscriptions.push(output, vscode.window.registerWebviewViewProvider('ai-agents.chat', sidebar, {
-    webviewOptions: { retainContextWhenHidden: true },
-  }));
+  const webviewOptions = { webviewOptions: { retainContextWhenHidden: true } };
+  context.subscriptions.push(output,
+    vscode.window.registerWebviewViewProvider('ai-agents.chat', sidebar, webviewOptions),
+    vscode.window.registerWebviewViewProvider('ai-agents.secondaryChat', sidebar, webviewOptions));
 
   const register = (name: string, action: () => unknown) => {
     context.subscriptions.push(vscode.commands.registerCommand(`ai-agents.${name}`, async () => {
@@ -22,7 +23,12 @@ export function activate(context: vscode.ExtensionContext): { sidebar: AgentsSid
     }));
   };
   register('open', () => vscode.commands.executeCommand('ai-agents.chat.focus'));
+  register('openSecondary', () => vscode.commands.executeCommand('ai-agents.secondaryChat.focus'));
   register('newChat', () => currentSidebar.newChat());
+  register('stop', () => currentSidebar.stop());
+  register('addSelection', () => currentSidebar.insertContext('selection'));
+  register('addFile', () => currentSidebar.insertContext('file'));
+  register('diagnose', () => currentSidebar.showDiagnostics());
   register('selectModel', () => currentSidebar.selectModel());
   register('configureModel', () => currentSidebar.configureModel());
   register('showLogs', () => output.show(true));
