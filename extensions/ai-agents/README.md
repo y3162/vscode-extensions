@@ -101,4 +101,4 @@ SDKにはOS/CPU別のネイティブバイナリが含まれるため、VSIXは�
 - [Codex App Server](https://developers.openai.com/codex/app-server/): モデル一覧の自動取得に `model/list` を使用。
 - [VS Code Webview API](https://code.visualstudio.com/api/extension-guides/webview)
 
-利用バージョン: `@cursor/sdk@1.0.37`、`@openai/codex-sdk@0.162.1`。
+利用バージョン: `@cursor/sdk@1.0.37`、`@openai/codex-sdk@0.162.1`。ACP と App Server の接続確認は、インストールされている CLI の応答を正とします。検証結果は [docs/VERIFICATION.md](docs/VERIFICATION.md) です。

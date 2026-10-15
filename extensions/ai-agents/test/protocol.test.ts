@@ -39,6 +39,11 @@ test('Cursor ACP streams text, file diffs, and answers a permission request', { 
       assert.equal(files.some((update) => update.meta?.type === 'files'), true);
       const listed = await session.listSessions?.();
       assert.equal(listed?.[0]?.id, 'acp-session');
+      await session.dispose();
+      assert.equal(session.closed, true);
+      const started = Date.now();
+      await assert.rejects(() => session.run('again', new AbortController().signal, () => {}), /closed|exited/);
+      assert.ok(Date.now() - started < 1000);
     } finally { await session.dispose(); }
   } finally { await cleanup(); }
 });
@@ -67,6 +72,12 @@ test('Codex App Server streams deltas, lists threads, and returns an approval de
       assert.match(await session.rateLimits?.() ?? '', /12%/);
       assert.match(await session.instructions?.() ?? '', /fixture-skill/);
       assert.equal(await session.fork?.(), 'thread-2');
+      await assert.rejects(() => session.run('FAIL_TURN', new AbortController().signal, () => {}), /boom/);
+      await session.dispose();
+      assert.equal(session.closed, true);
+      const started = Date.now();
+      await assert.rejects(() => session.run('again', new AbortController().signal, () => {}), /closed|exited/);
+      assert.ok(Date.now() - started < 1000);
     } finally { await session.dispose(); }
   } finally { await cleanup(); }
 });

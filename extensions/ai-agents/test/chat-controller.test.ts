@@ -126,6 +126,29 @@ test('a prompt immediately following a selection change waits for old-session cl
   assert.deepEqual(controller.snapshot().messages.map((message) => message.text), ['immediate send']);
 });
 
+test('a closed session is replaced and the next send resumes its id', async () => {
+  const seen: Array<string | undefined> = [];
+  let created = 0;
+  const controller = new ChatController(selection, async (_selection, context) => {
+    created += 1;
+    seen.push(context?.resumeId);
+    const dead = created === 1;
+    return {
+      sessionId: 'thread-1',
+      get closed() { return dead; },
+      async run() { if (dead) throw new Error('Agent process exited (1).'); },
+      async dispose() {},
+    };
+  }, () => {});
+  await controller.send('first');
+  assert.equal(controller.snapshot().messages.at(-1)?.role, 'error');
+  await controller.send('second');
+  assert.equal(created, 2);
+  assert.equal(seen[0], undefined);
+  assert.equal(seen[1], 'thread-1');
+  assert.equal(controller.snapshot().status, 'idle');
+});
+
 test('selecting a different variant of the same model starts a fresh session', async () => {
   let disposed = 0;
   const options: Selection[] = [];

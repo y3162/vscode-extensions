@@ -172,6 +172,8 @@ export interface AgentSession {
   rateLimits?(): Promise<string>;
   instructions?(): Promise<string>;
   sessionId?: string;
+  /** True after the backing process has exited. A later send must not reuse it. */
+  readonly closed?: boolean;
 }
 
 export interface ChatState {
@@ -191,5 +193,12 @@ export interface ChatState {
 }
 
 export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return redactSecrets(error instanceof Error ? error.message : String(error));
+}
+
+export function redactSecrets(text: string): string {
+  return text
+    .replace(/(api[_-]?key|token|authorization|secret|password|bearer)\s*[:=]\s*\S+/gi, '$1=[redacted]')
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, 'sk-[redacted]')
+    .replace(/\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g, '[redacted]');
 }

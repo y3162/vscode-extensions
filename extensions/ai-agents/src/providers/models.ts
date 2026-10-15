@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
 import type { SDKModel } from '@cursor/sdk';
 import type { AgentModel, Provider } from '../types.js';
+import { extensionVersion } from '../version.js';
 
 export interface ModelListOptions {
   provider: Provider;
@@ -145,7 +146,7 @@ async function listCodexModels(options: ModelListOptions, signal: AbortSignal): 
     child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
   });
   try {
-    await request('initialize', { clientInfo: { name: 'ai_agents_vscode', title: 'AI Agents', version: '0.5.0' } });
+    await request('initialize', { clientInfo: { name: 'ai_agents_vscode', title: 'AI Agents', version: extensionVersion } });
     child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
     const models = new Map<string, AgentModel>();
     const cursors = new Set<string>();

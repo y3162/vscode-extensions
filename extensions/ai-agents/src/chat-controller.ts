@@ -9,7 +9,7 @@ import {
   type QuestionRequest, type Selection, type SendExtras, type SessionSummary,
 } from './types.js';
 
-type SessionFactory = (selection: Selection) => Promise<AgentSession>;
+type SessionFactory = (selection: Selection, context?: { signal?: AbortSignal; resumeId?: string }) => Promise<AgentSession>;
 
 interface PermissionWait { request: PermissionRequest; token: string; resolve: (decision: PermissionDecision) => void }
 interface PlanWait { request: PlanRequest; token: string; resolve: (decision: 'accepted' | 'rejected') => void }
@@ -22,6 +22,7 @@ export class ChatController {
   private autoDrain = false;
   private queueTail: Promise<void> = Promise.resolve();
   private replayed = false;
+  private retainedId?: string;
   private readonly allowSession: { kind: string; title: string; detail: string }[] = [];
   private permissionWait: PermissionWait | null = null;
   private planWait: PlanWait | null = null;
@@ -198,10 +199,12 @@ export class ChatController {
     });
     this.publish();
     operation.done = (async () => {
+      const signal = operation.abort.signal;
+      const resuming = (!this.session || this.session.closed === true) && Boolean(this.retainedId || this.session?.sessionId);
       try {
-        this.session ??= await this.factory({ ...this.state.selection });
-        operation.abort.signal.throwIfAborted();
-        await this.session.run(prompt, operation.abort.signal, (update) => {
+        await this.openAgent(signal);
+        signal.throwIfAborted();
+        await this.session?.run(prompt, signal, (update) => {
           if (operation.abort.signal.aborted) return;
           this.absorb(update);
           if (update.meta?.type === 'usage' && !update.text) {
@@ -215,15 +218,24 @@ export class ChatController {
           this.state.messages = this.state.messages.slice(-300);
           this.publish();
         }, extras);
-        if (operation.abort.signal.aborted) this.addStatus('停止しました。');
+        if (signal.aborted) this.addStatus('停止しました。');
       } catch (error) {
-        const cancelled = operation.abort.signal.aborted || (error instanceof Error && error.name === 'AbortError');
+        const cancelled = signal.aborted || (error instanceof Error && error.name === 'AbortError');
         this.state.messages.push({
           id: randomUUID(), role: cancelled ? 'status' : 'error',
           text: cancelled ? '停止しました。' : errorMessage(error), at: Date.now(),
         });
-        if (!cancelled) this.state.status = 'error';
+        if (!cancelled) {
+          this.state.status = 'error';
+          if (resuming && !this.session) this.retainedId = undefined;
+        }
       } finally {
+        if (this.session?.closed) {
+          this.retainedId = this.session.sessionId || this.retainedId;
+          const dead = this.session;
+          this.session = undefined;
+          await dead.dispose();
+        } else if (this.session?.sessionId) this.retainedId = this.session.sessionId;
         if (this.active === operation) this.active = undefined;
         if (this.autoDrain && !this.resetting) this.continueQueue();
         this.state.busy = Boolean(this.active || this.resetting);
@@ -251,6 +263,17 @@ export class ChatController {
       this.state.status = 'cancelling';
       this.addStatus('停止中…');
     }
+  }
+
+  private async openAgent(signal: AbortSignal): Promise<void> {
+    if (this.session?.closed) {
+      this.retainedId = this.session.sessionId || this.retainedId;
+      const dead = this.session;
+      this.session = undefined;
+      await dead.dispose();
+    }
+    this.session ??= await this.factory({ ...this.state.selection }, { signal, resumeId: this.retainedId });
+    if (this.session.sessionId) this.retainedId = this.session.sessionId;
   }
 
   private addStatus(text: string): void {
@@ -360,7 +383,8 @@ export class ChatController {
     this.state.status = 'restoring';
     this.publish();
     try {
-      this.session ??= await this.factory({ ...this.state.selection });
+      this.session ??= await this.factory({ ...this.state.selection }, { resumeId: this.retainedId });
+      if (this.session.sessionId) this.retainedId = this.session.sessionId;
       if (this.session.loadTranscript && !this.replayed) {
         this.replayed = true;
         const replay: ChatMessage[] = [];
@@ -378,6 +402,7 @@ export class ChatController {
 
   reset(): Promise<void> {
     if (this.resetting) return this.resetting;
+    this.retainedId = undefined;
     this.autoDrain = false;
     this.state.queue = [];
     this.settleInteractions();

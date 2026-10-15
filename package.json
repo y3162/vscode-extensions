@@ -13,6 +13,9 @@
     "check": "npm run check --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "test:integration": "npm run test:integration --workspace ai-agents",
+    "test:protocol": "npm run test:protocol --workspace ai-agents",
+    "test:live": "npm run test:live --workspace ai-agents",
+    "test:tools": "npm run test:tools --workspace ai-agents",
     "package": "npm run package --workspace ai-agents"
   },
   "devDependencies": {

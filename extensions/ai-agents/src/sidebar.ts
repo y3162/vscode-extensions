@@ -6,6 +6,7 @@ import { revertChange } from './change-review.js';
 import { ChatController } from './chat-controller.js';
 import { builtinCommand, expandPrompt } from './context-text.js';
 import { runProcess } from './diagnostics.js';
+import { agentLaunch, codexLaunch } from './providers/codex-binary.js';
 import { localeFrom } from './i18n.js';
 import { sanitizeImages } from './images.js';
 import { baseModelLabel, matchesModel, selectBaseModel } from './model-selection.js';
@@ -58,7 +59,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       cwd: this.folders()[0]?.path ?? '',
       model: saved?.model ?? config.get<string>(`${provider}.model`, ''),
       ...(saved?.modelParams ? { modelParams: saved.modelParams } : {}),
-    }, async (selection) => {
+    }, async (selection, sessionContext) => {
       this.requireWorkspace(selection.cwd);
       const controls = this.controls[selection.provider];
       return createSession({
@@ -68,7 +69,8 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
         apiKey: await context.secrets.get(`ai-agents.${selection.provider}.apiKey`),
         codexPath: vscode.workspace.getConfiguration('ai-agents').get<string>('codex.executablePath'),
         agentPath: vscode.workspace.getConfiguration('ai-agents').get<string>('cursor.agentPath') || 'agent',
-        resumeId: this.resumeId,
+        resumeId: this.resumeId || sessionContext?.resumeId,
+        signal: sessionContext?.signal,
         interactions: this.controller.interactions,
         onIdentity: (summary) => this.remember(summary),
       });
@@ -479,9 +481,15 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       return;
     }
     const provider = this.controller.snapshot().selection.provider;
-    this.output.appendLine(`[${provider}] Start (${cwd})`);
+    const backend = this.controls[provider].backend;
+    const config = vscode.workspace.getConfiguration('ai-agents');
+    const launch = provider === 'codex'
+      ? codexLaunch(config.get<string>('codex.executablePath') || undefined, [])
+      : agentLaunch(config.get<string>('cursor.agentPath'), []);
+    const command = [launch.command, ...launch.args].join(' ');
+    this.output.appendLine(`[${provider}/${backend}] ${launch.kind}${launch.version ? ` ${launch.version}` : ''} ${command} start`);
     await this.controller.send(expanded, extras);
-    this.output.appendLine(`[${provider}] Finished`);
+    this.output.appendLine(`[${provider}/${backend}] ${this.controller.snapshot().status}`);
   }
 
   private async configure(message: object): Promise<void> {
@@ -665,11 +673,14 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
 
   async showDiagnostics(): Promise<void> {
     const selection = this.controller.snapshot().selection;
+    const config = vscode.workspace.getConfiguration('ai-agents');
     const checks = [];
+    checks.push({ label: 'Extension host', ok: true, output: `node ${process.versions.node}` });
     if (selection.provider === 'cursor') {
-      const agentPath = vscode.workspace.getConfiguration('ai-agents').get<string>('cursor.agentPath') || 'agent';
-      checks.push(await runProcess(agentPath, ['--version'], selection.cwd || undefined));
-      checks.push(await runProcess(agentPath, ['status'], selection.cwd || undefined));
+      const launch = agentLaunch(config.get<string>('cursor.agentPath'), []);
+      const version = await runProcess(launch.command, ['--version'], selection.cwd || undefined);
+      checks.push({ ...version, label: `Cursor CLI (${launch.kind}) ${launch.command}` });
+      checks.push(await runProcess(launch.command, ['status'], selection.cwd || undefined));
       try {
         const { Cursor } = await import('@cursor/sdk');
         const status = await Cursor.auth.status();
@@ -678,9 +689,12 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
         checks.push({ label: 'Cursor SDK auth', ok: false, output: errorMessage(error) });
       }
     } else {
-      const codexPath = vscode.workspace.getConfiguration('ai-agents').get<string>('codex.executablePath') || 'codex';
-      checks.push(await runProcess(codexPath, ['--version'], selection.cwd || undefined));
+      const launch = codexLaunch(config.get<string>('codex.executablePath') || undefined, []);
+      const version = await runProcess(launch.command, [...launch.args, '--version'], selection.cwd || undefined);
+      checks.push({ ...version, label: `Codex CLI (${launch.kind})` });
     }
+    const backend = this.controls[selection.provider].backend;
+    checks.push({ label: 'Backend', ok: true, output: `${selection.provider}/${backend}` });
     this.post({ type: 'inspector', title: 'Diagnostics', text: checks.map((check) => `${check.ok ? 'OK' : 'FAIL'} ${check.label}\n${check.output}`).join('\n\n') });
   }
 

@@ -2,7 +2,7 @@
   "name": "ai-agents",
   "displayName": "AI Agents",
   "description": "Use Cursor and Codex agents from the VS Code sidebar.",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "publisher": "y3162",
   "private": true,
   "license": "UNLICENSED",
@@ -117,6 +117,9 @@
     "check": "tsc --noEmit && tsc -p tsconfig.webview.json --noEmit",
     "test": "tsx --test test/*.test.ts test/webview/*.test.ts",
     "test:integration": "npm run build && node scripts/test-integration.mjs",
+    "test:protocol": "AI_AGENTS_REAL_PROTOCOL=1 tsx --test test/live/protocol.test.ts",
+    "test:live": "AI_AGENTS_LIVE_CURSOR_TEST=1 AI_AGENTS_LIVE_ACP_TEST=1 AI_AGENTS_LIVE_TEST=1 AI_AGENTS_LIVE_APP_SERVER_TEST=1 tsx --test test/live/inference.test.ts",
+    "test:tools": "AI_AGENTS_LIVE_TOOLS=1 tsx --test test/live/tools.test.ts",
     "package": "npm run build && node scripts/package.mjs"
   },
   "dependencies": {
