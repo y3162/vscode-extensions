@@ -11,9 +11,9 @@ import {
 
 type SessionFactory = (selection: Selection) => Promise<AgentSession>;
 
-interface PermissionWait { request: PermissionRequest; resolve: (decision: PermissionDecision) => void }
-interface PlanWait { request: PlanRequest; resolve: (decision: 'accepted' | 'rejected') => void }
-interface QuestionWait { request: QuestionRequest; resolve: (answers: Record<string, string[]>) => void }
+interface PermissionWait { request: PermissionRequest; token: string; resolve: (decision: PermissionDecision) => void }
+interface PlanWait { request: PlanRequest; token: string; resolve: (decision: 'accepted' | 'rejected') => void }
+interface QuestionWait { request: QuestionRequest; token: string; resolve: (answers: Record<string, string[]>) => void }
 
 export class ChatController {
   private session?: AgentSession;
@@ -48,6 +48,14 @@ export class ChatController {
   snapshot(): ChatState { return structuredClone(this.state); }
   hasSession(): boolean { return Boolean(this.session); }
   currentSession(): AgentSession | undefined { return this.session; }
+  sessionId(): string | undefined { return this.session?.sessionId; }
+  interactionTokens(): { permission: string | null; plan: string | null; question: string | null } {
+    return {
+      permission: this.permissionWait?.token ?? null,
+      plan: this.planWait?.token ?? null,
+      question: this.questionWait?.token ?? null,
+    };
+  }
 
   private publish(): void { this.changed(this.snapshot()); }
 
@@ -73,7 +81,7 @@ export class ChatController {
   }
 
   notify(text: string): void {
-    this.state.messages.push({ id: randomUUID(), role: 'status', text });
+    this.state.messages.push({ id: randomUUID(), role: 'status', text, at: Date.now() });
     this.publish();
   }
 
@@ -96,7 +104,7 @@ export class ChatController {
     this.active = operation;
     this.state.busy = true;
     this.state.status = 'running';
-    this.state.messages.push({ id: turnId, role: 'user', text: target === 'base' ? '/review base' : '/review' });
+    this.state.messages.push({ id: turnId, role: 'user', text: target === 'base' ? '/review base' : '/review', at: Date.now() });
     this.publish();
     operation.done = (async () => {
       try {
@@ -106,15 +114,15 @@ export class ChatController {
             return;
           }
           this.absorb(update);
-          const message = { ...update, id: `${turnId}:${update.id}`, text: update.text.slice(0, 32000), meta: lightMeta(update.meta) };
+          const message = this.stamp(turnId, update);
           const existing = this.state.messages.findIndex((item) => item.id === message.id);
           if (existing < 0) this.state.messages.push(message);
-          else this.state.messages[existing] = message;
+          else this.state.messages[existing] = { ...message, at: this.state.messages[existing]?.at ?? message.at };
           this.publish();
         }, operation.abort.signal);
       } catch (error) {
         const cancelled = operation.abort.signal.aborted || (error instanceof Error && error.name === 'AbortError');
-        this.state.messages.push({ id: randomUUID(), role: cancelled ? 'status' : 'error', text: cancelled ? '停止しました。' : errorMessage(error) });
+        this.state.messages.push({ id: randomUUID(), role: cancelled ? 'status' : 'error', text: cancelled ? '停止しました。' : errorMessage(error), at: Date.now() });
       } finally {
         if (this.active === operation) this.active = undefined;
         this.state.busy = Boolean(this.resetting);
@@ -183,7 +191,11 @@ export class ChatController {
     this.active = operation;
     this.state.busy = true;
     this.state.status = 'running';
-    this.state.messages.push({ id: turnId, role: 'user', text: (extras?.displayText ?? prompt).trim() });
+    const attachments = extras?.attachments?.map((item) => item.slice(0, 200)).slice(0, 20).filter(Boolean);
+    this.state.messages.push({
+      id: turnId, role: 'user', text: (extras?.displayText ?? prompt).trim(), at: Date.now(),
+      ...(attachments?.length ? { attachments } : {}),
+    });
     this.publish();
     operation.done = (async () => {
       try {
@@ -196,15 +208,10 @@ export class ChatController {
             this.publish();
             return;
           }
-          const message = {
-            ...update,
-            id: `${turnId}:${update.id}`,
-            text: update.text.slice(0, 32000),
-            meta: lightMeta(update.meta),
-          };
+          const message = this.stamp(turnId, update);
           const existing = this.state.messages.findIndex((item) => item.id === message.id);
           if (existing < 0) this.state.messages.push(message);
-          else this.state.messages[existing] = message;
+          else this.state.messages[existing] = { ...message, at: this.state.messages[existing]?.at ?? message.at };
           this.state.messages = this.state.messages.slice(-300);
           this.publish();
         }, extras);
@@ -213,7 +220,7 @@ export class ChatController {
         const cancelled = operation.abort.signal.aborted || (error instanceof Error && error.name === 'AbortError');
         this.state.messages.push({
           id: randomUUID(), role: cancelled ? 'status' : 'error',
-          text: cancelled ? '停止しました。' : errorMessage(error),
+          text: cancelled ? '停止しました。' : errorMessage(error), at: Date.now(),
         });
         if (!cancelled) this.state.status = 'error';
       } finally {
@@ -247,8 +254,18 @@ export class ChatController {
   }
 
   private addStatus(text: string): void {
-    this.state.messages.push({ id: randomUUID(), role: 'status', text });
+    this.state.messages.push({ id: randomUUID(), role: 'status', text, at: Date.now() });
     this.publish();
+  }
+
+  private stamp(turnId: string, update: AgentUpdate): ChatMessage {
+    return {
+      ...update,
+      id: `${turnId}:${update.id}`,
+      text: update.text.slice(0, 32000),
+      meta: lightMeta(update.meta),
+      at: Date.now(),
+    };
   }
 
   private absorb(update: AgentUpdate): void {
@@ -263,16 +280,16 @@ export class ChatController {
       return Promise.resolve('allow-once');
     }
     return new Promise((resolve) => {
-      this.permissionWait = { request, resolve };
+      this.permissionWait = { request, token: randomUUID(), resolve };
       this.state.pendingPermission = request;
       this.state.status = 'waiting_approval';
       this.publish();
     });
   }
 
-  resolvePermission(id: string, decision: PermissionDecision): void {
+  resolvePermission(id: string, decision: PermissionDecision, token?: string): void {
     const pending = this.permissionWait;
-    if (!pending || pending.request.id !== id) return;
+    if (!pending || pending.request.id !== id || (token !== undefined && token !== pending.token)) return;
     if (decision === 'allow-session') {
       this.allowSession.push({ kind: pending.request.kind, title: pending.request.title, detail: pending.request.detail });
     }
@@ -285,7 +302,7 @@ export class ChatController {
 
   requestPlan(request: PlanRequest): Promise<'accepted' | 'rejected'> {
     return new Promise((resolve) => {
-      this.planWait = { request, resolve };
+      this.planWait = { request, token: randomUUID(), resolve };
       this.state.pendingPlan = request;
       this.state.todos = request.todos;
       this.state.status = 'waiting_approval';
@@ -293,9 +310,9 @@ export class ChatController {
     });
   }
 
-  resolvePlan(id: string, decision: 'accepted' | 'rejected'): void {
+  resolvePlan(id: string, decision: 'accepted' | 'rejected', token?: string): void {
     const pending = this.planWait;
-    if (!pending || pending.request.id !== id) return;
+    if (!pending || pending.request.id !== id || (token !== undefined && token !== pending.token)) return;
     this.planWait = null;
     this.state.pendingPlan = null;
     if (this.state.status === 'waiting_approval') this.state.status = this.active ? 'running' : 'idle';
@@ -305,16 +322,16 @@ export class ChatController {
 
   requestAnswers(request: QuestionRequest): Promise<Record<string, string[]>> {
     return new Promise((resolve) => {
-      this.questionWait = { request, resolve };
+      this.questionWait = { request, token: randomUUID(), resolve };
       this.state.pendingQuestion = request;
       this.state.status = 'waiting_approval';
       this.publish();
     });
   }
 
-  resolveAnswers(id: string, answers: Record<string, string[]>): void {
+  resolveAnswers(id: string, answers: Record<string, string[]>, token?: string): void {
     const pending = this.questionWait;
-    if (!pending || pending.request.id !== id) return;
+    if (!pending || pending.request.id !== id || (token !== undefined && token !== pending.token)) return;
     this.questionWait = null;
     this.state.pendingQuestion = null;
     if (this.state.status === 'waiting_approval') this.state.status = this.active ? 'running' : 'idle';
@@ -354,7 +371,7 @@ export class ChatController {
       this.state.status = 'idle';
     } catch (error) {
       this.state.status = 'error';
-      this.state.messages.push({ id: randomUUID(), role: 'error', text: errorMessage(error) });
+        this.state.messages.push({ id: randomUUID(), role: 'error', text: errorMessage(error), at: Date.now() });
     }
     this.publish();
   }

@@ -1,15 +1,17 @@
 # Verification
 
-実施日: 2026-10-16。作業ディレクトリは `vscode-extensions`。
+実施日: 2026-10-16。作業ディレクトリは `vscode-extensions`。対象は AI Agents 0.5.0。
 
 ## 実行した結果
 
 | Check | Result |
 | --- | --- |
-| `npm run check` | 成功。`tsc --noEmit` と `node --check media/chat.js` |
-| `npm test --workspace ai-agents` | 36 passed, 0 failed |
-| `npm run build` | esbuild 成功（`dist/extension.js`） |
-| `npm run test:integration` | 成功。Webview の ready、Codex SDK の往復と resume、エラー後の再送、Stop、キューの保持と Send now、New Chat、モデル選択、選択キャンセル、詳細設定の適用とキャンセル |
+| `npm run check` | 成功。拡張機能ホストと Webview の `tsc --noEmit` |
+| `npm test --workspace ai-agents` | 48 passed, 0 failed |
+| `npm run build` | esbuild 成功（`dist/extension.js` と `dist/webview/main.js`） |
+| `npm run test:integration` | 成功。0.4.0 の項目に加え、プロバイダー切替、履歴の再開、サンドボックス変更による新しい会話、Diff Editor、復元、App Server の承認とトークン、Webview の履歴表示 |
+
+0.4.0 で確認していた単体テストは、この 48 件の中に残っている。追加したのは、チャンクの結合、ツール情報、状態の差分、承認トークン、ターンの分割、Markdown のエスケープと差分描画、Enter / Shift+Enter / IME、キュー、履歴の呼び出し、候補のキー操作、質問カードの複数回答。
 
 統合テストで確認したログ:
 
@@ -22,21 +24,18 @@
 - reselecting the base model preserves effort/context settings and conversation
 - detail changes apply atomically and Codex SDK forwards the selected effort
 - cancelling detail edits preserves settings and conversation
+- provider switch, history, sandbox reset, diff revert, approval token, and webview probe
 
-## 単体テストで見た範囲
+## 画面
 
-- 既存のセッション継続、停止、プロバイダー切替、モデル一覧、詳細設定
-- 入力キューが Stop 後も残り、Send now で送られること
-- 承認が選ばれるまで保留され、セッション内許可が2回目を自動で許可すること
-- 使用量だけの更新が空メッセージにならないこと
-- ワークスペース外とシンボリックリンクの復元拒否、変更前テキストの書き戻し
-- `@file` の展開とプレーンプロンプトが変わらないこと
-- 画像のMIMEと枚数制限
-- モックプロセスに対する Cursor ACP と Codex App Server のストリーム、承認、一覧、fork、rate limit
+同じ Webview バンドルを、テーマ変数だけを足したプレビューで確認した。幅 390px と 300px、ダークとライト。
+
+確認した状態: 空のチャットと最近の履歴、完了したターン、展開したツール、実行中、承認カード、フルアクセスの警告、履歴一覧、英語 UI。
+
+Extension Development Host では、統合テストが Webview の起動、履歴パネル、ターン数を読んだ。セカンダリサイドバーを手で開いた見た目の撮影は、この環境では行っていない。
 
 ## 未検証
 
 - `AI_AGENTS_LIVE_TEST`、`AI_AGENTS_LIVE_MODELS_TEST`、`AI_AGENTS_LIVE_CURSOR_MODELS_TEST` は実行していない。実アカウントへの推論、実モデル一覧、実ファイル変更は未確認。
 - インストール済みの `agent acp` と `codex app-server` への実接続は未確認。プロトコルテストは同梱のモックプロセス。
-- Extension Development Host での見た目、狭い幅、IME、画像貼り付けの手操作は未確認。統合テストは Webview の起動と ready まで。
-- セカンダリサイドバーを開いた状態の手操作は未確認。ビュー登録と、既存の `ai-agents.chat` の起動は確認した。
+- 日本語 IME の実機操作、画像の貼り付け、ハイコントラストテーマの目視は未確認。IME は happy-dom の `compositionend` と `isComposing` で、確定直後の Enter が送信されないことまで確認した。

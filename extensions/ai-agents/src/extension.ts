@@ -26,6 +26,12 @@ export function activate(context: vscode.ExtensionContext): { sidebar: AgentsSid
   register('openSecondary', () => vscode.commands.executeCommand('ai-agents.secondaryChat.focus'));
   register('newChat', () => currentSidebar.newChat());
   register('stop', () => currentSidebar.stop());
+  register('showHistory', () => currentSidebar.openPanel('history'));
+  register('showSettings', () => currentSidebar.openPanel('settings'));
+  register('signIn', () => currentSidebar.signIn());
+  register('usage', () => currentSidebar.showUsage());
+  register('instructions', () => currentSidebar.showInstructions());
+  register('apiKey', () => currentSidebar.setApiKey());
   register('addSelection', () => currentSidebar.insertContext('selection'));
   register('addFile', () => currentSidebar.insertContext('file'));
   register('diagnose', () => currentSidebar.showDiagnostics());

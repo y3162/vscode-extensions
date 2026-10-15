@@ -5,6 +5,7 @@ import type {
 import { codexSpawn } from './codex-binary.js';
 import type { SessionOptions } from './session-options.js';
 import { StdioJsonRpc } from './stdio-rpc.js';
+import { describedTool } from './tools.js';
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -122,7 +123,11 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
     const text = textOf(item) || buffers.get(id) || '';
     if (type.includes('file')) {
       const files = filesOf(item);
-      emit({ id, role: 'tool', text: text || files.map((file) => `${file.kind}: ${file.path}`).join('\n'), ...(files.length ? { meta: { type: 'files', files } } : {}) });
+      const body = text || files.map((file) => `${file.kind}: ${file.path}`).join('\n');
+      emit({
+        id, role: 'tool', text: body, tool: describedTool('edit', body, typeof item.status === 'string' ? item.status : 'completed'),
+        ...(files.length ? { meta: { type: 'files', files } } : {}),
+      });
       return;
     }
     if (type.includes('todo') || type === 'plan') {
@@ -138,7 +143,11 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       if (text) emit({ id, role: 'error', text });
       return;
     }
-    if (text) emit({ id, role: 'tool', text: `${type || 'tool'}: ${text}` });
+    if (text) {
+      const status = typeof item.status === 'string' ? item.status : 'completed';
+      const name = type.includes('command') ? 'shell' : type || 'tool';
+      emit({ id, role: 'tool', text: `${type || 'tool'}: ${text}`, tool: describedTool(name, text, status) });
+    }
   };
 
   rpc.setHandlers({
@@ -149,7 +158,12 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
         const id = typeof body.itemId === 'string' ? body.itemId : 'stream';
         const delta = typeof body.delta === 'string' ? body.delta : '';
         buffers.set(id, `${buffers.get(id) ?? ''}${delta}`);
-        emitItem({ id, type: method.includes('command') ? 'commandExecution' : method.includes('reasoning') ? 'reasoning' : method.includes('plan') ? 'plan' : 'agentMessage', text: buffers.get(id) });
+        emitItem({
+          id,
+          type: method.includes('command') ? 'commandExecution' : method.includes('reasoning') ? 'reasoning' : method.includes('plan') ? 'plan' : 'agentMessage',
+          text: buffers.get(id),
+          status: 'in_progress',
+        });
         return;
       }
       if (method === 'item/started' || method === 'item/completed' || method === 'item/updated') emitItem(item);
@@ -213,7 +227,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
 
   try {
     await rpc.request('initialize', {
-      clientInfo: { name: 'ai_agents_vscode', title: 'AI Agents', version: '0.4.0' },
+      clientInfo: { name: 'ai_agents_vscode', title: 'AI Agents', version: '0.5.0' },
       capabilities: { experimentalApi: true, requestAttestation: false },
     });
     rpc.notify('initialized', {});

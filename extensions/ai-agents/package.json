@@ -2,7 +2,7 @@
   "name": "ai-agents",
   "displayName": "AI Agents",
   "description": "Use Cursor and Codex agents from the VS Code sidebar.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "publisher": "y3162",
   "private": true,
   "license": "UNLICENSED",
@@ -32,6 +32,12 @@
     "commands": [
       { "command": "ai-agents.open", "title": "AI Agents: Open Sidebar" },
       { "command": "ai-agents.newChat", "title": "AI Agents: New Chat", "icon": "$(add)" },
+      { "command": "ai-agents.showHistory", "title": "%command.showHistory%", "icon": "$(history)" },
+      { "command": "ai-agents.showSettings", "title": "%command.showSettings%", "icon": "$(settings-gear)" },
+      { "command": "ai-agents.signIn", "title": "%command.signIn%" },
+      { "command": "ai-agents.usage", "title": "%command.usage%" },
+      { "command": "ai-agents.instructions", "title": "%command.instructions%" },
+      { "command": "ai-agents.apiKey", "title": "%command.apiKey%" },
       { "command": "ai-agents.selectModel", "title": "AI Agents: Select Model" },
       { "command": "ai-agents.configureModel", "title": "AI Agents: Configure Model Details" },
       { "command": "ai-agents.cursorLogin", "title": "AI Agents: Sign in to Cursor" },
@@ -46,8 +52,16 @@
     ],
     "menus": {
       "view/title": [
-        { "command": "ai-agents.newChat", "when": "view == ai-agents.chat || view == ai-agents.secondaryChat", "group": "navigation" },
-        { "command": "ai-agents.stop", "when": "(view == ai-agents.chat || view == ai-agents.secondaryChat) && ai-agents.busy", "group": "navigation" }
+        { "command": "ai-agents.newChat", "when": "view == ai-agents.chat || view == ai-agents.secondaryChat", "group": "navigation@1" },
+        { "command": "ai-agents.showHistory", "when": "view == ai-agents.chat || view == ai-agents.secondaryChat", "group": "navigation@2" },
+        { "command": "ai-agents.stop", "when": "(view == ai-agents.chat || view == ai-agents.secondaryChat) && ai-agents.busy", "group": "navigation@3" },
+        { "command": "ai-agents.showSettings", "when": "view == ai-agents.chat || view == ai-agents.secondaryChat", "group": "1_manage@1" },
+        { "command": "ai-agents.signIn", "when": "view == ai-agents.chat || view == ai-agents.secondaryChat", "group": "1_manage@2" },
+        { "command": "ai-agents.apiKey", "when": "view == ai-agents.chat || view == ai-agents.secondaryChat", "group": "1_manage@3" },
+        { "command": "ai-agents.diagnose", "when": "view == ai-agents.chat || view == ai-agents.secondaryChat", "group": "1_manage@4" },
+        { "command": "ai-agents.usage", "when": "view == ai-agents.chat || view == ai-agents.secondaryChat", "group": "1_manage@5" },
+        { "command": "ai-agents.instructions", "when": "view == ai-agents.chat || view == ai-agents.secondaryChat", "group": "1_manage@6" },
+        { "command": "ai-agents.showLogs", "when": "view == ai-agents.chat || view == ai-agents.secondaryChat", "group": "1_manage@7" }
       ],
       "editor/context": [
         { "command": "ai-agents.addFile", "when": "editorTextFocus", "group": "ai-agents" },
@@ -100,8 +114,8 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "watch": "node scripts/build.mjs --watch",
-    "check": "tsc --noEmit && node --check media/chat.js",
-    "test": "tsx --test test/*.test.ts",
+    "check": "tsc --noEmit && tsc -p tsconfig.webview.json --noEmit",
+    "test": "tsx --test test/*.test.ts test/webview/*.test.ts",
     "test:integration": "npm run build && node scripts/test-integration.mjs",
     "package": "npm run build && node scripts/package.mjs"
   },

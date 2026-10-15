@@ -13,11 +13,13 @@ import { ModelDetails } from './model-details.js';
 import { sameModelParams } from './model-settings.js';
 import { createSession, listCursorSdkSessions, writeBaselineFile } from './providers/index.js';
 import { listModels } from './providers/models.js';
+import type { ProbeResult } from './protocol.js';
 import { upsertSession } from './session-index.js';
-import { errorMessage, type AgentMode, type AgentModel, type Backend, type ChatState, type ImageAttachment, type Provider, type Selection, type SessionSummary } from './types.js';
+import { errorMessage, type AgentModel, type Backend, type ChatState, type ImageAttachment, type Provider, type Selection, type SessionSummary } from './types.js';
+import { buildShell, diffMessages, toViewMessage } from './view-state.js';
 import { activeFileToken, gitSummary, instructionSummary, problemsText, recentTerminalText, searchWorkspace, selectionBlock, watchTerminals, workspaceCommands } from './vscode-context.js';
 
-type SavedModel = Pick<Selection, 'model' | 'modelParams'> & { label: string };
+type SavedModel = Pick<Selection, 'model' | 'modelParams'> & { label: string; hasDetails?: boolean };
 interface ModelItem extends vscode.QuickPickItem { model: AgentModel }
 
 export class AgentsSidebar implements vscode.WebviewViewProvider {
@@ -33,6 +35,10 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   private detailsEditor?: ModelDetails;
   private detailsRequest?: AbortController;
   private readonly selectedModels: Partial<Record<Provider, SavedModel>>;
+  private dismissedWarning: string | null;
+  private flushTimer: ReturnType<typeof setTimeout> | undefined;
+  private probeWait?: (result: ProbeResult) => void;
+  private readonly sync = new Map<vscode.WebviewView, { sigs: Map<string, string>; revision: number }>();
   readonly controller: ChatController;
 
   constructor(private readonly context: vscode.ExtensionContext, private readonly output: vscode.OutputChannel) {
@@ -44,6 +50,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       cursor: normalizeControls('cursor', { ...defaultControls('cursor', config.get<Backend>('cursor.backend', 'sdk')), ...storedControls.cursor }),
     };
     this.selectedModels = context.workspaceState.get('ai-agents.selectedModels', {});
+    this.dismissedWarning = context.workspaceState.get<string>('ai-agents.dismissedWarning') ?? null;
     for (const saved of Object.values(this.selectedModels)) saved.label = baseModelLabel(saved.label);
     const saved = this.selectedModels[provider];
     this.controller = new ChatController({
@@ -65,7 +72,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
         interactions: this.controller.interactions,
         onIdentity: (summary) => this.remember(summary),
       });
-    }, (state) => this.postState(state));
+    }, () => this.postState());
     this.controller.setAutoApprove(config.get<boolean>('autoApprove', false) === true);
     this.controller.replaceSessions(context.workspaceState.get<SessionSummary[]>('ai-agents.sessionIndex', []));
     watchTerminals(context.subscriptions);
@@ -95,7 +102,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     this.views.add(view);
     view.webview.options = {
       enableScripts: true,
-      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'media')],
+      localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview')],
     };
     const listener = view.webview.onDidReceiveMessage((message: unknown) => {
       void this.handleMessage(message, view).catch((error: unknown) => this.showError(error));
@@ -104,6 +111,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       listener.dispose();
       this.views.delete(view);
       this.readyViews.delete(view);
+      this.sync.delete(view);
     });
     view.webview.html = this.html(view.webview);
   }
@@ -114,37 +122,91 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     for (const view of this.readyViews) void view.webview.postMessage(message);
   }
 
-  private postState(state = this.controller.snapshot()): void {
+  private postState(): void {
+    if (!this.controller.snapshot().busy) {
+      this.flushNow();
+      return;
+    }
+    if (this.flushTimer) return;
+    this.flushTimer = setTimeout(() => { this.flushTimer = undefined; this.flushNow(); }, 16);
+  }
+
+  private flushNow(): void {
+    if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = undefined; }
     if (!this.readyViews.size) return;
+    const state = this.controller.snapshot();
     if (state.busy !== this.lastBusy) {
       this.lastBusy = state.busy;
       void vscode.commands.executeCommand('setContext', 'ai-agents.busy', state.busy);
     }
-    const controls = this.controls[state.selection.provider];
-    this.post({
-      type: 'state',
-      state: {
-        ...state,
-        changes: state.changes.map((change) => ({
-          path: change.path, kind: change.kind, additions: change.additions, deletions: change.deletions,
-          canRevert: change.previousText !== undefined || Boolean(change.diff),
-        })),
-        queue: state.queue.map((item) => ({ id: item.id, text: item.extras?.displayText || item.text, images: item.extras?.images?.length ?? 0 })),
-      },
-      folders: this.folders(),
-      modelLabel: this.selectedModels[state.selection.provider]?.label || state.selection.model || '既定のモデル',
-      capabilities: capabilitiesFor(state.selection.provider, controls.backend),
-      controls,
-      locale: this.locale,
+    const provider = state.selection.provider;
+    const controls = this.controls[provider];
+    const saved = this.selectedModels[provider];
+    const token = activeFileToken(state.selection.cwd);
+    const shell = buildShell({
+      state, folders: this.folders(),
+      modelLabel: saved?.label || state.selection.model || (this.locale === 'ja' ? '既定のモデル' : 'Default model'),
+      hasModelDetails: saved?.hasDetails === true,
+      capabilities: capabilitiesFor(provider, controls.backend),
+      controls, locale: this.locale, sessionId: this.controller.sessionId(),
+      activeFile: token ? { token, label: path.basename(token) } : null,
+      dismissedWarning: this.dismissedWarning,
+      tokens: this.controller.interactionTokens(),
+      backends: { codex: this.controls.codex.backend, cursor: this.controls.cursor.backend },
     });
+    const messages = state.messages.map(toViewMessage);
+    for (const view of this.readyViews) {
+      const current = this.sync.get(view) ?? { sigs: new Map<string, string>(), revision: 0 };
+      const full = current.revision === 0;
+      const diff = diffMessages(current.sigs, messages);
+      current.sigs = diff.next;
+      current.revision += 1;
+      this.sync.set(view, current);
+      void view.webview.postMessage({
+        type: 'state', revision: current.revision, full, shell,
+        messages: { removed: diff.removed, upserts: diff.upserts, order: diff.order },
+      });
+      view.description = shell.sessionTitle;
+      const waiting = Boolean(shell.permission || shell.plan || shell.question);
+      view.badge = waiting ? { value: 1, tooltip: shell.statusText } : undefined;
+    }
+  }
+
+  probe(): Promise<ProbeResult> {
+    this.flushNow();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('probe timed out')), 5000);
+      this.probeWait = (result) => { clearTimeout(timer); this.probeWait = undefined; resolve(result); };
+      this.post({ type: 'probe' });
+    });
+  }
+
+  private isProbe(message: object): message is ProbeResult {
+    return 'turns' in message && typeof message.turns === 'number' && 'pending' in message && 'history' in message && 'settings' in message;
   }
 
   async handleMessage(message: unknown, source?: vscode.WebviewView): Promise<void> {
     if (!message || typeof message !== 'object' || !('type' in message)) return;
     switch (message.type) {
       case 'ready':
-        if (source) this.readyViews.add(source);
+        if (source) {
+          this.sync.delete(source);
+          this.readyViews.add(source);
+        }
         this.postState();
+        return;
+      case 'probeResult':
+        if (this.isProbe(message)) this.probeWait?.(message);
+        return;
+      case 'dismissWarning':
+        if ('id' in message && typeof message.id === 'string') {
+          this.dismissedWarning = message.id;
+          await this.context.workspaceState.update('ai-agents.dismissedWarning', message.id);
+          this.postState();
+        }
+        return;
+      case 'removeDirectory':
+        if ('path' in message && typeof message.path === 'string') await this.removeDirectory(message.path);
         return;
       case 'stop': this.controller.stop(); return;
       case 'newChat': await this.newChat(); return;
@@ -172,22 +234,11 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       case 'resolveQuestion': this.resolveQuestion(message); return;
       case 'openDiff':
       case 'openFile':
-      case 'revertFile': await this.reviewFile(String(message.type), 'path' in message ? message.path : undefined); return;
+      case 'revertFile': await this.reviewFile(String(message.type), 'path' in message ? message.path : undefined, 'line' in message ? message.line : undefined); return;
       case 'restoreSession': await this.restoreSession('id' in message ? message.id : undefined); return;
       case 'addDirectory': await this.addDirectory(); return;
-      case 'login':
-        if (this.controller.snapshot().selection.provider === 'cursor') {
-          await vscode.commands.executeCommand('ai-agents.cursorLogin');
-        } else {
-          const terminal = vscode.window.createTerminal('Codex Login');
-          terminal.sendText('codex login');
-          terminal.show();
-        }
-        return;
-      case 'apiKey':
-        await vscode.commands.executeCommand(this.controller.snapshot().selection.provider === 'cursor'
-          ? 'ai-agents.setCursorApiKey' : 'ai-agents.setCodexApiKey');
-        return;
+      case 'login': await this.signIn(); return;
+      case 'apiKey': await this.setApiKey(); return;
       case 'select':
       case 'send':
       case 'enqueue': {
@@ -197,9 +248,12 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
           const prompt = 'prompt' in message && typeof message.prompt === 'string' ? message.prompt : '';
           if (prompt.length > 100000) throw new Error('依頼は100,000文字以内で入力してください。');
           const images = sanitizeImages('images' in message ? message.images : undefined);
+          const attachments = 'attachments' in message && Array.isArray(message.attachments)
+            ? message.attachments.flatMap((item) => typeof item === 'string' && item.trim() ? [item.trim().slice(0, 200)] : []).slice(0, 20)
+            : [];
           if (!prompt.trim() && !images.length) return;
           this.requireWorkspace(selection.cwd);
-          await this.deliver(prompt, images, message.type === 'enqueue');
+          await this.deliver(prompt, images, message.type === 'enqueue', attachments);
         }
         return;
       }
@@ -296,7 +350,10 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       const current = this.controller.snapshot().selection;
       if (current.provider !== selection.provider || current.cwd !== selection.cwd) return;
       const next = selectBaseModel(chosen, current);
-      const saved: SavedModel = { model: next.model, label: chosen.label, ...(next.modelParams ? { modelParams: next.modelParams } : {}) };
+      const saved: SavedModel = {
+        model: next.model, label: chosen.label, hasDetails: Boolean(chosen.parameters?.length),
+        ...(next.modelParams ? { modelParams: next.modelParams } : {}),
+      };
       await this.controller.select(next);
       this.selectedModels[selection.provider] = saved;
       await this.context.workspaceState.update('ai-agents.selectedModels', this.selectedModels);
@@ -337,7 +394,9 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
         || !sameModelParams(current.modelParams, selection.modelParams)) return;
       const next = { ...current, modelParams: params.length ? params : undefined };
       await this.controller.select(next);
-      this.selectedModels[next.provider] = { model: next.model, modelParams: next.modelParams, label: model.label };
+      this.selectedModels[next.provider] = {
+        model: next.model, modelParams: next.modelParams, label: model.label, hasDetails: Boolean(model.parameters?.length),
+      };
       await this.context.workspaceState.update('ai-agents.selectedModels', this.selectedModels);
       this.postState();
     } finally {
@@ -368,7 +427,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
         : kind === 'problems' ? problemsText(cwd)
           : kind === 'git' ? await gitSummary(cwd)
             : recentTerminalText();
-    if (text) this.post({ type: 'insert', text });
+    if (text) this.post({ type: 'insert', text, label: this.contextLabel(kind) });
   }
 
   private fileToken(cwd: string): string {
@@ -382,7 +441,16 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     void this.context.workspaceState.update('ai-agents.sessionIndex', this.controller.snapshot().sessions);
   }
 
-  private async deliver(prompt: string, images: ImageAttachment[], forceQueue: boolean): Promise<void> {
+  private contextLabel(kind: 'file' | 'selection' | 'problems' | 'git' | 'terminal'): string {
+    const ja = this.locale === 'ja';
+    if (kind === 'file') return ja ? 'ファイル' : 'File';
+    if (kind === 'selection') return ja ? '選択範囲' : 'Selection';
+    if (kind === 'problems') return ja ? '問題' : 'Problems';
+    if (kind === 'git') return ja ? 'Git 差分' : 'Git diff';
+    return ja ? 'ターミナル' : 'Terminal';
+  }
+
+  private async deliver(prompt: string, images: ImageAttachment[], forceQueue: boolean, attachments: string[] = []): Promise<void> {
     const cwd = this.controller.snapshot().selection.cwd;
     const builtin = builtinCommand(prompt);
     if (builtin?.name === 'clear' && !builtin.rest) { await this.newChat(); return; }
@@ -405,7 +473,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     else if (builtin?.name === 'diff') text = `${builtin.rest}\n\n${await gitSummary(cwd)}`.trim();
     else if (builtin?.name === 'terminal') text = `${builtin.rest}\n\n${recentTerminalText()}`.trim();
     const expanded = await expandPrompt(text, cwd, await workspaceCommands(cwd));
-    const extras = { displayText: prompt, ...(images.length ? { images } : {}) };
+    const extras = { displayText: prompt, ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}) };
     if (forceQueue || this.controller.snapshot().busy) {
       this.controller.enqueue(expanded, extras);
       return;
@@ -464,45 +532,73 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     this.post({ type: 'suggestions', requestId, items });
   }
 
+  private tokenOf(message: object): string | undefined {
+    return 'token' in message && typeof message.token === 'string' ? message.token : undefined;
+  }
+
   private async resolvePermission(message: object): Promise<void> {
     const id = 'id' in message && typeof message.id === 'string' ? message.id : '';
     const decision = 'decision' in message ? message.decision : undefined;
-    if (decision === 'allow-once' || decision === 'allow-session' || decision === 'deny') this.controller.resolvePermission(id, decision);
+    if (decision === 'allow-once' || decision === 'allow-session' || decision === 'deny') this.controller.resolvePermission(id, decision, this.tokenOf(message));
   }
 
   private resolvePlan(message: object): void {
     const id = 'id' in message && typeof message.id === 'string' ? message.id : '';
     const decision = 'decision' in message && message.decision === 'rejected' ? 'rejected' : 'accepted';
-    if (id) this.controller.resolvePlan(id, decision);
+    if (id) this.controller.resolvePlan(id, decision, this.tokenOf(message));
   }
 
   private resolveQuestion(message: object): void {
     const id = 'id' in message && typeof message.id === 'string' ? message.id : '';
     const answers = 'answers' in message && message.answers && typeof message.answers === 'object' ? message.answers as Record<string, string[]> : {};
-    if (id) this.controller.resolveAnswers(id, answers);
+    if (id) this.controller.resolveAnswers(id, answers, this.tokenOf(message));
   }
 
-  private async reviewFile(type: string, filePath: unknown): Promise<void> {
+  private async reviewFile(type: string, filePath: unknown, line?: unknown): Promise<void> {
     if (typeof filePath !== 'string' || !filePath) return;
     const roots = this.folders().map((folder) => folder.path);
     const change = this.controller.snapshot().changes.find((item) => item.path === filePath);
+    const synthetic = filePath === 'turn.diff' || filePath === 'patch' || path.basename(filePath) === 'turn.diff';
     if (type === 'openFile') {
-      if (!change && !roots.some((root) => filePath.startsWith(root))) throw new Error('ワークスペース外のファイルは変更できません。');
-      await vscode.window.showTextDocument(vscode.Uri.file(filePath));
+      const resolved = this.resolveInside(filePath);
+      if (!resolved) throw new Error('ワークスペース外のファイルは変更できません。');
+      const editor = await vscode.window.showTextDocument(vscode.Uri.file(resolved), { preview: true });
+      const lineNumber = typeof line === 'number' ? line : Number(line);
+      if (Number.isInteger(lineNumber) && lineNumber > 0) {
+        const position = new vscode.Position(lineNumber - 1, 0);
+        editor.selection = new vscode.Selection(position, position);
+        editor.revealRange(new vscode.Range(position, position));
+      }
       return;
     }
-    if (!change) return;
+    if (!change || synthetic) {
+      if (change?.diff) this.post({ type: 'inspector', title: path.basename(filePath), text: change.diff.slice(0, 8000) });
+      return;
+    }
     if (type === 'revertFile') {
       await revertChange(change, roots);
       this.controller.notify(`Reverted ${path.basename(filePath)}`);
       return;
     }
+    const target = this.resolveInside(change.path) ?? (roots.some((root) => change.path.startsWith(root)) ? change.path : '');
+    if (!target) return;
     if (change.previousText === undefined && !change.diff) {
-      await vscode.window.showTextDocument(vscode.Uri.file(change.path));
+      await vscode.window.showTextDocument(vscode.Uri.file(target));
       return;
     }
-    const baseline = await writeBaselineFile(path.join(this.context.globalStorageUri.fsPath, 'review'), { ...change, previousText: change.previousText ?? '' });
-    await vscode.commands.executeCommand('vscode.diff', vscode.Uri.file(baseline), vscode.Uri.file(change.path), `${path.basename(change.path)}: before ↔ current`);
+    const baseline = await writeBaselineFile(path.join(this.context.globalStorageUri.fsPath, 'review'), { ...change, path: target, previousText: change.previousText ?? '' });
+    await vscode.commands.executeCommand('vscode.diff', vscode.Uri.file(baseline), vscode.Uri.file(target), `${path.basename(target)}: before ↔ current`);
+  }
+
+  private resolveInside(filePath: string): string | undefined {
+    const roots = this.folders().map((folder) => folder.path);
+    const cwd = this.controller.snapshot().selection.cwd;
+    const candidate = path.isAbsolute(filePath) ? filePath : cwd ? path.resolve(cwd, filePath) : '';
+    if (!candidate || !roots.some((root) => {
+      const relative = path.relative(path.resolve(root), path.resolve(candidate));
+      return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+    })) return undefined;
+    return candidate;
   }
 
   private async restoreSession(id: unknown): Promise<void> {
@@ -529,6 +625,19 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     if (this.controller.hasSession()) {
       await this.controller.reset();
       this.controller.notify('設定を変更したため、新しい会話になりました。');
+    }
+    this.postState();
+  }
+
+  private async removeDirectory(folder: string): Promise<void> {
+    const provider = this.controller.snapshot().selection.provider;
+    const current = this.controls[provider];
+    if (!current.additionalDirectories.includes(folder)) return;
+    this.controls[provider] = { ...current, additionalDirectories: current.additionalDirectories.filter((item) => item !== folder) };
+    await this.context.workspaceState.update('ai-agents.controls', this.controls);
+    if (this.controller.hasSession()) {
+      await this.controller.reset();
+      this.controller.notify(this.locale === 'ja' ? '設定を変更したため、新しい会話になりました。' : 'Started a new conversation because the execution settings changed.');
     }
     this.postState();
   }
@@ -575,14 +684,34 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     this.post({ type: 'inspector', title: 'Diagnostics', text: checks.map((check) => `${check.ok ? 'OK' : 'FAIL'} ${check.label}\n${check.output}`).join('\n\n') });
   }
 
-  private async showUsage(): Promise<void> {
+  async openPanel(panel: 'history' | 'settings' | 'chat'): Promise<void> {
+    const visible = [...this.views].find((view) => view.visible);
+    await vscode.commands.executeCommand(visible?.viewType === 'ai-agents.secondaryChat' ? 'ai-agents.secondaryChat.focus' : 'ai-agents.chat.focus');
+    this.post({ type: 'navigate', panel });
+  }
+
+  async signIn(): Promise<void> {
+    if (this.controller.snapshot().selection.provider === 'cursor') await vscode.commands.executeCommand('ai-agents.cursorLogin');
+    else {
+      const terminal = vscode.window.createTerminal('Codex Login');
+      terminal.sendText('codex login');
+      terminal.show();
+    }
+  }
+
+  async setApiKey(): Promise<void> {
+    await vscode.commands.executeCommand(this.controller.snapshot().selection.provider === 'cursor'
+      ? 'ai-agents.setCursorApiKey' : 'ai-agents.setCodexApiKey');
+  }
+
+  async showUsage(): Promise<void> {
     const usage = this.controller.snapshot().usage;
     const limits = await this.controller.currentSession()?.rateLimits?.().catch((error: unknown) => errorMessage(error)) ?? '';
     const text = [usage ? `input ${usage.inputTokens} / output ${usage.outputTokens}` : 'No token usage yet.', limits].filter(Boolean).join('\n');
     this.post({ type: 'inspector', title: 'Usage', text });
   }
 
-  private async showInstructions(): Promise<void> {
+  async showInstructions(): Promise<void> {
     const cwd = this.controller.snapshot().selection.cwd;
     const local = cwd ? await instructionSummary(cwd) : '';
     const live = await this.controller.currentSession()?.instructions?.().catch((error: unknown) => errorMessage(error)) ?? '';
@@ -614,6 +743,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   }
 
   async dispose(): Promise<void> {
+    if (this.flushTimer) clearTimeout(this.flushTimer);
     this.modelRequest?.abort();
     this.modelPicker?.hide();
     this.detailsRequest?.abort();
@@ -623,43 +753,15 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
 
   private html(webview: vscode.Webview): string {
     const nonce = randomBytes(16).toString('hex');
-    const asset = (name: string) => webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'media', name));
-    const ja = this.locale === 'ja';
-    const label = (japanese: string, english: string) => ja ? japanese : english;
+    const root = vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview');
+    const asset = (name: string) => webview.asWebviewUri(vscode.Uri.joinPath(root, name));
     return `<!DOCTYPE html>
-<html lang="${ja ? 'ja' : 'en'}"><head>
+<html lang="${this.locale === 'ja' ? 'ja' : 'en'}"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: ${webview.cspSource}; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
-<link rel="stylesheet" href="${asset('chat.css')}"><title>AI Agents</title>
-</head><body>
-<header><strong>AI Agents <span id="connection"></span></strong><div class="header-actions"><button id="history" class="secondary" type="button">${label('履歴', 'History')}</button><button id="changes" class="secondary" type="button">${label('変更', 'Changes')}</button><button id="newChat" type="button">${label('新しい会話', 'New chat')}</button></div></header>
-<div id="historyList" class="card" hidden></div>
-<div id="changeList" class="card" hidden></div>
-<section class="controls" aria-label="${label('エージェント設定', 'Agent settings')}">
-<label>${label('エージェント', 'Agent')}<select id="provider"><option value="codex">Codex</option><option value="cursor">Cursor</option></select></label>
-<div class="model-control"><span id="modelLabel">${label('モデル', 'Model')}</span><div class="model-buttons"><button id="model" type="button" aria-labelledby="modelLabel model">${label('モデルを選択', 'Select model')} ▾</button><button id="modelDetails" type="button">${label('詳細設定', 'Details')}</button></div></div>
-<label class="wide">${label('作業フォルダ', 'Folder')}<select id="folder"></select></label>
-<label>${label('バックエンド', 'Backend')}<select id="backend"></select></label>
-<label>${label('モード', 'Mode')}<select id="mode"></select></label>
-<label>${label('サンドボックス', 'Sandbox')}<select id="sandbox"></select></label>
-<label>${label('承認', 'Approval')}<select id="approval"></select></label>
-<label>${label('検索', 'Search')}<select id="webSearch"></select></label>
-<label class="wide">${label('ネットワークを明示的に許可', 'Explicitly allow network')}<input id="network" type="checkbox"></label>
-</section>
-<nav><button id="login" type="button">${label('ログイン', 'Sign in')}</button><button id="apiKey" type="button">${label('APIキー', 'API key')}</button><button id="settings" type="button">${label('設定', 'Settings')}</button><button id="logs" type="button">${label('ログ', 'Logs')}</button><button id="diagnose" type="button">${label('診断', 'Diagnose')}</button><button id="usage" type="button">${label('使用量', 'Usage')}</button><button id="instructions" type="button">${label('ルール', 'Rules')}</button><button id="autoApprove" type="button" aria-pressed="false">${label('自動承認', 'Auto-approve')}</button></nav>
-<div class="tool-row"><button id="activeFile" type="button">${label('ファイル', 'File')}</button><button id="selectionBtn" type="button">${label('選択範囲', 'Selection')}</button><button id="problems" type="button">${label('問題', 'Problems')}</button><button id="git" type="button">${label('差分', 'Diff')}</button><button id="terminalBtn" type="button">${label('ターミナル', 'Terminal')}</button></div>
-<section id="inspector" hidden><h3 id="inspectorTitle"></h3><pre id="inspectorBody"></pre><button id="inspectorClose" class="secondary" type="button">${label('閉じる', 'Close')}</button></section>
-<main id="messages" role="log" aria-label="${label('会話', 'Conversation')}" aria-live="polite"></main>
-<div id="pending" hidden></div>
-<div id="status" role="status">${label('準備中…', 'Starting…')}</div>
-<form id="composer"><label class="sr-only" for="prompt">${label('エージェントへの依頼', 'Prompt')}</label>
-<div id="contextTray"></div><div id="attachmentTray"></div><div id="queueTray"></div><div id="suggest" hidden></div>
-<textarea id="prompt" rows="4" placeholder="${label('質問、または変更を依頼…', 'Ask a question or request a change…')}" maxlength="100000"></textarea>
-<footer><small>${label('Enterで送信 · Shift+Enterで改行', 'Enter to send · Shift+Enter for a new line')}</small><button id="attach" class="secondary" type="button">${label('画像', 'Image')}</button><button id="stop" type="button" hidden>${label('停止', 'Stop')}</button><button id="send" type="submit">${label('送信', 'Send')}</button></footer>
-<input id="imageInput" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
-</form>
-<p class="hint">${label('SDKが既定です。対話型の承認には Codex は App Server、Cursor は ACP を選んでください。', 'SDK is the default. For interactive approvals, choose Codex App Server or Cursor ACP.')}</p>
-<script nonce="${nonce}" src="${asset('chat.js')}"></script>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: ${webview.cspSource}; style-src ${webview.cspSource}; font-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+<link rel="stylesheet" href="${asset('codicon.css')}"><link rel="stylesheet" href="${asset('main.css')}"><title>AI Agents</title>
+</head><body><div id="app"></div>
+<script nonce="${nonce}" src="${asset('main.js')}"></script>
 </body></html>`;
   }
 }

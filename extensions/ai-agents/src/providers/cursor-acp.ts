@@ -2,7 +2,9 @@ import type {
   AgentSession, AgentUpdate, ChatMessage, FileChange, PermissionDecision, PlanRequest, QuestionRequest, SessionSummary, TodoEntry,
 } from '../types.js';
 import type { SessionOptions } from './session-options.js';
+import { mergeStreamText } from './stream-text.js';
 import { StdioJsonRpc } from './stdio-rpc.js';
+import { classifyTool, toolStatus } from '../tool-kind.js';
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -43,6 +45,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
   let sessionId = options.resumeId ?? '';
   let mode = options.mode ?? 'agent';
   let assistant = '';
+  let thought = '';
   let assistantId = 'assistant';
   const emitLive = { current: undefined as ((update: AgentUpdate) => void) | undefined };
   const fail = (error: unknown) => {
@@ -137,7 +140,9 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     }
     if (kind === 'agent_thought_chunk') {
       const chunk = textOf(update.content ?? update);
-      if (chunk) emitUpdate({ id: `thought-${assistantId}`, role: 'status', text: chunk, meta: { type: 'thinking', append: true } }, transcript);
+      if (!chunk) return;
+      thought = mergeStreamText(thought, chunk);
+      emitUpdate({ id: `thought-${assistantId}`, role: 'status', text: thought, meta: { type: 'thinking' } }, transcript);
       return;
     }
     if (kind === 'user_message_chunk' || kind === 'user_message') {
@@ -150,8 +155,16 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       const title = typeof update.title === 'string' ? update.title : 'tool';
       const status = typeof update.status === 'string' ? update.status : kind;
       const files = filesFrom(update);
+      const kindName = typeof update.kind === 'string' ? update.kind : '';
+      const target = files[0]?.path;
       emitUpdate({
         id, role: 'tool', text: `${status}: ${title}`,
+        tool: {
+          kind: classifyTool(`${kindName} ${title}`, target),
+          name: title,
+          status: toolStatus(status),
+          ...(target ? { target } : {}),
+        },
         ...(files.length ? { meta: { type: 'files' as const, files } } : {}),
       }, transcript);
       return;
@@ -192,7 +205,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     await rpc.request('initialize', {
       protocolVersion: 1,
       clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-      clientInfo: { name: 'ai-agents', version: '0.4.0' },
+      clientInfo: { name: 'ai-agents', version: '0.5.0' },
     });
     await rpc.request('authenticate', { methodId: 'cursor_login' });
     if (options.resumeId) {
@@ -251,6 +264,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     async run(prompt, signal, emit, extras) {
       emitLive.current = emit;
       assistant = '';
+      thought = '';
       assistantId = `assistant-${Date.now()}`;
       const blocks: Record<string, unknown>[] = [{ type: 'text', text: prompt }];
       for (const image of extras?.images ?? []) blocks.push({ type: 'image', mimeType: image.mimeType, data: image.data });

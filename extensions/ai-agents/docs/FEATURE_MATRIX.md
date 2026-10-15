@@ -8,17 +8,17 @@
 
 | Feature | Category | Phase | Reference | Cursor | Codex | Runtime | SDK / Protocol | VS Code | Extension | Status | Decision | Evidence |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| チャットUI | Common | 1 | Secondary sidebar、Markdown、ツール折りたたみ | 共通UI | 共通UI | なし | ストリーミングイベント | Webview | 描画と状態表示 | Implemented | Implement | `media/chat.js`, `src/sidebar.ts` |
+| チャットUI | Common | 1 | Secondary sidebar、Markdown、ツール折りたたみ | 共通UI | 共通UI | なし | ストリーミングイベント | Webview | ヘッダー、下部 Composer、ターン描画 | Implemented | Implement | `src/webview`, `src/sidebar.ts` |
 | プロバイダー切替 | Common | 1 | Cursor のみ | SDK / ACP | SDK / App Server | なし | セッション作成 | 設定 | 切替とセッション破棄 | Implemented | Implement | `ChatController.select` |
 | モデル選択 | Common | 1 | Webview 内ドロップダウン | `Cursor.models.list` | App Server `model/list` | カタログ | 一覧API | Quick Pick | 既存の選択UIを維持 | Implemented | Skip | `src/sidebar.ts` `selectModel`, `test/models.test.ts` |
 | モデル詳細 | Common | 1 | モデルIDにパラメータを結合 | parameters / variants | reasoning effort | 推論設定 | 作成時オプション | Quick Pick | 既存の詳細UIを維持 | Implemented | Skip | `src/model-details.ts`, `src/model-settings.ts` |
 | 動作モード | Common | 1 | agent / plan / ask | SDK は agent/plan、ACP は ask も可 | App Server は default/plan | モードの実行 | `mode` / `collaborationMode` / `session/set_mode` | ドロップダウン | Capabilities で選択肢を制限 | Implemented | Implement | `src/capabilities.ts` |
 | ストリーミング | Common | 1 | chunk 描画 | assistant / thinking / tool | item delta と item snapshot | 生成 | stream / JSON-RPC | Webview | 同一IDの置換 | Implemented | Implement | `ChatController.send`, `providers/events.ts` |
-| Markdown | Common | 1 | 独自パーサとハイライト | テキスト | テキスト | なし | なし | なし | DOM生成。HTMLは解釈しない | Implemented | Implement | `media/chat.js` `renderRich` |
+| Markdown | Common | 1 | 独自パーサとハイライト | テキスト | テキスト | なし | なし | なし | DOM生成。HTMLは解釈しない | Implemented | Implement | `src/webview/markdown.ts` |
 | 入力キュー | Common | 1 | Queue / Send now / Stop保持 | 拡張機能側 | App Server は steer も可 | なし | `turn/steer` は App Server のみ | なし | Stop ではキューを残す | Implemented | Implement | `ChatController.enqueue`, `test/queue-and-review.test.ts` |
 | セッション一覧・再開 | Common | 1 | ACP list/load と SQLite 解析 | SDK `Agent.list/resume`、ACP `session/list/load` | SDK `resumeThread`、App Server `thread/list/resume` | 永続化 | 各プロトコル | なし | 公式APIと拡張機能が作った索引。内部DBは読まない | Partial | Implement | `openSession`, `refreshSessions` |
-| 日本語・英語 | Common | 1 | 独自 ja/en | 共通 | 共通 | なし | なし | `vscode.env.language`, `package.nls` | Webview と新規コマンド | Implemented | Implement | `package.nls.ja.json`, `media/chat.js` |
-| テーマ追従 | Common | 1 | `--vscode-*` | 共通 | 共通 | なし | なし | CSS変数 | 既存方針を維持 | Implemented | Skip | `media/chat.css` |
+| 日本語・英語 | Common | 1 | 独自 ja/en | 共通 | 共通 | なし | なし | `vscode.env.language`, `package.nls` | Webview と新規コマンド | Implemented | Implement | `package.nls.ja.json`, `src/webview/strings.ts` |
+| テーマ追従 | Common | 1 | `--vscode-*` | 共通 | 共通 | なし | なし | CSS変数 | 既存方針を維持 | Implemented | Skip | `src/webview/styles.css` |
 | `@file` / `@folder` | IDE | 2 | ワークスペース検索 | プロンプトへ展開 | 同左 | モデルが読む | なし | `findFiles` | ワークスペース外は拒否 | Implemented | Implement | `src/context-text.ts`, `src/vscode-context.ts` |
 | 選択範囲・問題・Git差分 | IDE | 2 | なし、または限定的 | プロンプトへ添付 | 同左 | なし | なし | Diagnostics / git | 拡張機能がテキスト化 | Implemented | Implement | `vscode-context.ts` |
 | ターミナル出力 | IDE | 2 | なし | 最近のコマンドのみ | 同左 | なし | なし | Shell integration | 画面バッファは API 非公開 | Partial | Integrate | `watchTerminals` |

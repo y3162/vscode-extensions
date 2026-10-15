@@ -54,6 +54,10 @@ process.stdin.on('end', () => {
     emit({ type: 'turn.failed', error: { message: 'fixture backend error' } });
     return;
   }
+  if (prompt.includes('EMIT_DIFF')) {
+    const file = prompt.match(/EMIT_DIFF\s+(\S+)/)?.[1] || 'note.txt';
+    emit({ type: 'item.completed', item: { id: 'item_diff', type: 'file_change', status: 'completed', changes: [{ kind: 'update', path: file, previousText: 'original\n' }] } });
+  }
   emit({ type: 'item.started', item: { id: 'item_0', type: 'command_execution', command: 'read fixture', aggregated_output: '', status: 'in_progress' } });
   emit({ type: 'item.completed', item: { id: 'item_0', type: 'command_execution', command: 'read fixture', aggregated_output: 'fixture content', status: 'completed', exit_code: 0 } });
   emit({ type: 'item.completed', item: { id: 'item_1', type: 'agent_message', text: `fixture answer ${invocations.length}: ${prompt.trim()}` } });

@@ -1,12 +1,27 @@
+# 個人のエディタ設定。共有する起動構成だけ残す
 .vscode/*
 !.vscode/launch.json
 !.vscode/tasks.json
+.history/
+.idea/
+
+# 依存関係と生成物
 node_modules/
 dist/
+out/
+coverage/
 .vscode-test/
 *.vsix
 *.tsbuildinfo
+*.log
+npm-debug.log*
+
+# 確認用の画面キャプチャ。ソースでもドキュメントの一部でもない
+**/docs/screenshots/
+
+# OS と秘密情報
 .DS_Store
+Thumbs.db
 .env
 .env.*
 !.env.example
