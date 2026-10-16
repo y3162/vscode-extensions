@@ -2,7 +2,7 @@ import { renderPending, renderPlanBody, type Post } from './cards.js';
 import { isButton, isElement, type Dom } from './dom.js';
 import { renderMarkdown } from './markdown.js';
 import type { ViewMessage, ViewShell } from '../protocol.js';
-import { countLabel, formatDuration, relativeTime, type Copy, type Locale } from './strings.js';
+import { countLabel, formatDuration, type Copy, type Locale } from './strings.js';
 import { buildTurns, type FileRow, type Segment, type ToolRow, type TurnModel } from './turns.js';
 import type { ToolInfo } from '../types.js';
 
@@ -22,7 +22,6 @@ export class Transcript {
     private readonly dom: Dom,
     private readonly root: HTMLElement,
     private readonly post: Post,
-    private readonly onViewAll: () => void,
     private readonly onRetry: (text: string) => void,
   ) {
     this.pending = dom.el('div', 'pending');
@@ -47,7 +46,7 @@ export class Transcript {
       if (!ids.has(id)) { node.remove(); this.nodes.delete(id); }
     }
     this.root.querySelector('.empty')?.remove();
-    if (!this.turns.length) this.root.insertBefore(this.empty(shell, copy), this.pending);
+    if (!this.turns.length) this.root.insertBefore(this.empty(copy), this.pending);
     for (const turn of this.turns) this.syncTurn(turn, shell.locale, copy);
     renderPending(this.pending, shell, this.dom, copy, this.post);
     if (shell.plan) renderPlanBody(this.pending, (parent, text) => renderMarkdown(parent, text, this.dom, copy.copy), shell.plan.request.overview, shell.plan.request.plan);
@@ -55,24 +54,9 @@ export class Transcript {
     else this.root.append(this.pending);
   }
 
-  private empty(shell: ViewShell, copy: Copy): HTMLElement {
+  private empty(copy: Copy): HTMLElement {
     const wrap = this.dom.el('div', 'empty');
     wrap.append(this.dom.icon('comment-discussion'), this.dom.el('h2', undefined, copy.emptyTitle), this.dom.el('p', 'empty-copy', copy.emptyHint));
-    const sessions = [...shell.sessions].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)).slice(0, 4);
-    if (sessions.length) {
-      const list = this.dom.el('div', 'session-list');
-      for (const session of sessions) {
-        const row = this.dom.el('button', 'session-row');
-        row.type = 'button';
-        row.append(this.dom.el('span', 'session-name', session.title || session.id));
-        row.append(this.dom.el('span', 'session-time', relativeTime(shell.locale, session.updatedAt)));
-        row.addEventListener('click', () => this.post({ type: 'restoreSession', id: session.id }));
-        list.append(row);
-      }
-      const all = this.dom.button('ghost', `${copy.viewAll} (${shell.sessions.length})`);
-      all.addEventListener('click', () => this.onViewAll());
-      wrap.append(list, all);
-    }
     return wrap;
   }
 

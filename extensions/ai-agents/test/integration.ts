@@ -46,6 +46,17 @@ export async function run(): Promise<void> {
   await until(async () => (await readFile(join(cwd, 'invocations.json'), 'utf8')).includes('WAIT_FOR_STOP'));
   await sidebar.handleMessage({ type: 'enqueue', ...selection, prompt: 'queued follow-up' });
   assert.equal(sidebar.controller.snapshot().queue.length, 1);
+  const liveId = sidebar.controller.sessionId();
+  if (liveId) {
+    await sidebar.handleMessage({ type: 'restoreSession', id: liveId });
+    assert.equal(sidebar.controller.snapshot().busy, true);
+  }
+  await assert.rejects(
+    () => sidebar.handleMessage({ type: 'restoreSession', id: 'not-the-live-session' }),
+    /実行が終わってから/,
+  );
+  assert.equal(sidebar.controller.snapshot().busy, true);
+  assert.equal(sidebar.controller.snapshot().queue.length, 1);
   await sidebar.handleMessage({ type: 'stop' });
   await running;
   assert.equal(sidebar.controller.snapshot().busy, false);
@@ -135,6 +146,7 @@ export async function run(): Promise<void> {
   await sidebar.handleMessage({ type: 'refreshSessions' });
   const sessionId = sidebar.controller.snapshot().sessions[0]?.id;
   assert.ok(sessionId);
+  await sidebar.newChat();
   await sidebar.handleMessage({ type: 'restoreSession', id: sessionId });
   assert.ok(sidebar.controller.snapshot().messages.some((message) => message.text.includes('再開') || message.text.includes('resumed') || message.role === 'assistant'));
   await sidebar.handleMessage({ type: 'configure', sandbox: 'read-only' });

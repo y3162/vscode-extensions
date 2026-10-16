@@ -20,9 +20,7 @@ export class Composer {
   private readonly banner: HTMLElement;
   private readonly changes: HTMLElement;
   private readonly mode: HTMLButtonElement;
-  private readonly access: HTMLButtonElement;
   private readonly model: HTMLButtonElement;
-  private readonly effort: HTMLButtonElement;
   private readonly send: HTMLButtonElement;
   private readonly stop: HTMLButtonElement;
   private readonly env: HTMLButtonElement;
@@ -63,26 +61,21 @@ export class Composer {
     this.input.id = 'prompt';
     const row = dom.el('div', 'composer-row');
     const left = dom.el('div', 'row-left');
-    this.attach = dom.button('icon-btn', 'Attach', 'add');
-    this.attach.addEventListener('click', () => this.openAttach(this.attach));
-    this.mode = dom.button('pill', 'Mode', 'sparkle');
+    this.mode = dom.button('pill mode', 'Mode', 'chevron-down');
     this.mode.setAttribute('aria-haspopup', 'menu');
     this.mode.addEventListener('click', () => this.openMode());
-    this.access = dom.button('pill', 'Access', 'shield');
-    this.access.setAttribute('aria-haspopup', 'menu');
-    this.access.addEventListener('click', () => this.openAccess());
-    left.append(this.attach, this.mode, this.access);
+    this.model = dom.button('pill model-name', 'Model', 'chevron-down');
+    this.model.addEventListener('click', () => this.openModel());
+    left.append(this.mode, this.model);
     const right = dom.el('div', 'row-right');
-    this.model = dom.button('pill model-name', 'Model');
-    this.model.addEventListener('click', () => this.post({ type: 'chooseModel' }));
-    this.effort = dom.button('pill effort', 'Details');
-    this.effort.addEventListener('click', () => this.post({ type: 'modelDetails' }));
+    this.attach = dom.button('icon-btn attach', 'Attach', 'attach');
+    this.attach.addEventListener('click', () => this.openAttach(this.attach));
     this.stop = dom.button('icon-btn stop', 'Stop', 'debug-stop');
     this.stop.hidden = true;
     this.stop.addEventListener('click', () => this.post({ type: 'stop' }));
     this.send = dom.button('send', 'Send', 'arrow-up');
     this.send.addEventListener('click', () => this.submit());
-    right.append(this.model, this.effort, this.stop, this.send);
+    right.append(this.attach, this.stop, this.send);
     row.append(left, right);
     form.append(this.chipRow, this.queueRow, this.suggest, label, this.input, row);
     this.env = dom.button('env', 'Local', 'vm');
@@ -154,25 +147,16 @@ export class Composer {
     this.input.placeholder = copy.placeholder;
     this.input.setAttribute('aria-label', copy.placeholder);
     this.togglePill(this.mode, shell.showMode, shell.modes.find((mode) => mode.id === shell.mode)?.label ?? shell.mode, copy.mode);
-    this.togglePill(this.access, true, shell.accessLabel, copy.access);
-    this.access.classList.toggle('risky', shell.risky);
+    const modelText = shell.effortLabel ? `${shell.modelLabel} ${shell.effortLabel}` : shell.modelLabel;
     const modelLabel = this.model.querySelector('.btn-label');
-    if (modelLabel) modelLabel.textContent = shell.modelLabel;
-    this.model.title = shell.modelLabel;
-    this.model.setAttribute('aria-label', shell.modelLabel);
+    if (modelLabel) modelLabel.textContent = modelText;
+    this.model.title = modelText;
+    this.model.setAttribute('aria-label', modelText);
+    this.model.setAttribute('aria-haspopup', shell.effortLabel ? 'menu' : 'false');
     this.model.disabled = shell.busy;
-    this.effort.hidden = !shell.effortLabel;
-    const effortLabel = this.effort.querySelector('.btn-label');
-    if (effortLabel && shell.effortLabel) effortLabel.textContent = shell.effortLabel;
-    if (shell.effortLabel) {
-      this.effort.title = shell.effortLabel;
-      this.effort.setAttribute('aria-label', shell.effortLabel);
-    }
     this.attach.title = copy.attach;
     this.attach.setAttribute('aria-label', copy.attach);
-    this.effort.disabled = shell.busy || !shell.effortLabel;
     this.mode.disabled = shell.busy;
-    this.access.disabled = shell.busy;
     this.send.disabled = !shell.cwd;
     const sendLabel = this.send.querySelector('.btn-label');
     if (sendLabel) sendLabel.textContent = shell.busy ? copy.queue : copy.send;
@@ -384,21 +368,14 @@ export class Composer {
     })));
   }
 
-  private openAccess(): void {
+  private openModel(): void {
     const shell = this.shell;
     const copy = this.copy;
-    if (!shell || !copy) return;
-    this.menu.open(this.access, [
-      ...shell.sandboxChoices.map((item) => ({
-        id: `sandbox:${item.id}`, label: item.label, description: item.description, checked: item.id === shell.sandbox,
-        onSelect: () => this.configure({ sandbox: item.id }),
-      })),
-      ...shell.showApproval ? shell.approvalChoices.map((item) => ({
-        id: `approval:${item.id}`, label: item.label, description: item.description, checked: item.id === shell.approval,
-        onSelect: () => this.configure({ approval: item.id }),
-      })) : [],
-      { id: 'auto', label: copy.autoApprove, description: shell.autoApprove ? 'On' : 'Off', onSelect: () => this.post({ type: 'toggleAutoApprove' }) },
-      { id: 'note', label: copy.sandboxNote },
+    if (!shell || !copy || shell.busy) return;
+    if (!shell.effortLabel) { this.post({ type: 'chooseModel' }); return; }
+    this.menu.open(this.model, [
+      { id: 'model', label: copy.model, description: shell.modelLabel, onSelect: () => this.post({ type: 'chooseModel' }) },
+      { id: 'details', label: copy.modelDetails, description: shell.effortLabel, onSelect: () => this.post({ type: 'modelDetails' }) },
     ]);
   }
 

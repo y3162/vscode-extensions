@@ -1,7 +1,7 @@
 import type { Post } from './cards.js';
 import { Composer } from './composer.js';
 import { createDom } from './dom.js';
-import { Header } from './header.js';
+import { Header, type Page } from './header.js';
 import { HistoryPanel } from './history.js';
 import type { HostToWebview, MessageDiff, ViewMessage, ViewShell, VsCodeApi } from '../protocol.js';
 import { Menu } from './popover.js';
@@ -9,7 +9,7 @@ import { SettingsPanel } from './settings.js';
 import { strings, type Locale } from './strings.js';
 import { Transcript } from './transcript.js';
 
-interface Persisted { draft?: string; expanded?: string[]; stick?: boolean }
+interface Persisted { draft?: string; expanded?: string[]; stick?: boolean; page?: Page }
 
 class MessageLog {
   private readonly byId = new Map<string, ViewMessage>();
@@ -42,6 +42,8 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   const dom = createDom(document);
   const root = document.getElementById('app') ?? document.body;
   root.classList.add('shell');
+  const saved = vscode.getState() as Persisted | null;
+  let page: Page = saved?.page === 'chat' ? 'chat' : 'home';
   const headerHost = dom.el('div');
   const stage = dom.el('div', 'stage');
   const thread = dom.el('main', 'thread');
@@ -52,8 +54,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   const alert = dom.el('p', 'host-error');
   alert.hidden = true;
   alert.setAttribute('role', 'alert');
-  stage.append(thread, jump);
-  dock.append(alert);
+  stage.append(alert, thread, jump);
   root.append(headerHost, stage, dock);
 
   const log = new MessageLog();
@@ -78,36 +79,64 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
         onSelect: () => post({ type: 'select', provider: item.id }),
       })),
     ]);
-  });
-  const history = new HistoryPanel(dom, stage, post, () => show('chat'));
-  const settings = new SettingsPanel(dom, stage, post, () => show('chat'));
-  const composer = new Composer(dom, dock, post, menu, show);
-  const transcript = new Transcript(dom, thread, post, () => show('history'), (text) => { composer.draft = text; composer.focus(); save(); });
+  }, () => { post({ type: 'newChat' }); show('chat'); }, () => show('settings'), () => show('history'));
+  const history = new HistoryPanel(dom, stage, (id) => openSession(id));
+  const settings = new SettingsPanel(dom, stage, post, () => { settings.close(); paint(); });
+  const composer = new Composer(dom, dock, post, menu, (panel) => show(panel));
+  const transcript = new Transcript(dom, thread, post, (text) => { composer.draft = text; composer.focus(); save(); });
+
+  function openSession(id: string): void {
+    if (!shell) return;
+    if (id === shell.sessionId) { show('chat'); return; }
+    if (shell.busy) {
+      alert.hidden = false;
+      alert.textContent = copy.busySwitch;
+      return;
+    }
+    post({ type: 'restoreSession', id });
+    show('chat');
+  }
+
   show = (panel) => {
-    history.close();
-    settings.close();
-    if (panel === 'history') {
-      history.open();
-      post({ type: 'refreshSessions' });
-    } else if (panel === 'settings') settings.open();
+    alert.hidden = true;
+    alert.textContent = '';
     menu.close(false);
+    if (panel === 'settings') {
+      settings.open();
+      paint();
+      return;
+    }
+    settings.close();
+    page = panel === 'history' ? 'home' : 'chat';
+    if (page === 'home') post({ type: 'refreshSessions' });
+    save();
     paint();
+    if (page === 'chat') composer.focus();
   };
 
-  const saved = vscode.getState() as Persisted | null;
   if (saved?.draft) composer.draft = saved.draft;
   if (saved?.expanded) transcript.restoreExpanded(saved.expanded);
   if (saved?.stick === false) stick = false;
 
-  const save = () => vscode.setState({ draft: composer.draft, expanded: transcript.expandedIds(), stick });
+  const save = () => vscode.setState({ draft: composer.draft, expanded: transcript.expandedIds(), stick, page });
   composer.onInput(save);
 
+  const applyChrome = () => {
+    root.dataset.page = page;
+    root.classList.toggle('page-home', page === 'home');
+    root.classList.toggle('page-chat', page === 'chat');
+    thread.hidden = page !== 'chat';
+    dock.hidden = page !== 'chat';
+    history.element.hidden = page !== 'home';
+  };
+
   const paint = () => {
+    applyChrome();
     if (!shell) return;
     copy = strings(shell.locale);
     locale = shell.locale;
     document.documentElement.lang = locale === 'ja' ? 'ja' : 'en';
-    header.render(shell, copy);
+    header.render(shell, copy, page);
     history.render(shell, copy);
     settings.render(shell, copy);
     composer.render(shell, copy);
@@ -118,10 +147,10 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
     const jumpLabel = jump.querySelector('.btn-label');
     if (jumpLabel) jumpLabel.textContent = copy.latest;
     jump.title = copy.latest;
-    const marker = `${log.version}:${shell.statusText}:${history.hidden}:${settings.hidden}`;
-    if (marker !== painted && stick) thread.scrollTop = thread.scrollHeight;
+    const marker = `${page}:${log.version}:${shell.statusText}:${history.hidden}:${settings.hidden}`;
+    if (marker !== painted && stick && page === 'chat') thread.scrollTop = thread.scrollHeight;
     painted = marker;
-    jump.hidden = stick || thread.scrollHeight <= thread.clientHeight + 80;
+    jump.hidden = page !== 'chat' || stick || thread.scrollHeight <= thread.clientHeight + 80;
   };
   const schedule = () => {
     if (scheduled) return;
@@ -152,26 +181,28 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
         type: 'probeResult',
         turns: thread.querySelectorAll('.turn').length,
         pending: Boolean(thread.querySelector('.pending-card')),
-        history: !history.hidden,
+        history: page === 'home',
         settings: !settings.hidden,
       });
     }
   };
   const onKey = (event: KeyboardEvent) => {
     if (event.key !== 'Escape' || menu.isOpen) return;
-    if (!history.hidden || !settings.hidden) show('chat');
+    if (!settings.hidden) { settings.close(); paint(); }
   };
   thread.addEventListener('scroll', () => {
     const distance = thread.scrollHeight - thread.scrollTop - thread.clientHeight;
     stick = thread.clientHeight === 0 || distance < 60;
-    jump.hidden = stick || thread.scrollHeight <= thread.clientHeight + 80;
+    jump.hidden = page !== 'chat' || stick || thread.scrollHeight <= thread.clientHeight + 80;
     save();
   });
   jump.addEventListener('click', () => { stick = true; thread.scrollTop = thread.scrollHeight; jump.hidden = true; save(); });
   const view = document.defaultView ?? globalThis;
   view.addEventListener('keydown', onKey);
   view.addEventListener('message', onMessage);
+  applyChrome();
   vscode.postMessage({ type: 'ready' });
+  if (page === 'home') post({ type: 'refreshSessions' });
 
   return {
     flush: paint,
