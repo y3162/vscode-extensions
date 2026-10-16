@@ -34,7 +34,7 @@
 | レート制限 | Codex | 5 | なし | SDKに課金APIはあるがクラウド中心 | App Server `account/rateLimits/read` | アカウント | RPC | 表示 | App Server 選択時 | Partial | Implement | `rateLimits()` |
 | チェックポイント | Common | 3 | ファイル単位の復元 | baseline | baseline。`thread/revert` はファイルを戻さない | なし | 会話の巻き戻しのみ | ファイル復元 | ターン全体のGit分岐は作らない | Partial | Implement | `change-review.ts` |
 | Git worktree | Common | 3 | なし | `cwd` として利用 | 同左 | なし | `cwd` | フォルダ選択 | ワークスペースフォルダを選ぶ。worktree作成はしない | VSCode-native | Defer | ワークスペースAPIで足りる |
-| 並列セッション | Common | 3 | 単一ビュー | 1実行 + キュー | 同左 | 複数エージェント | セッションAPI | なし | コントローラーの全面改修が必要 | Missing | Defer | `ChatController` は単一実行 |
+| 並列セッション | Common | 3 | SessionRegistry。実行中に別チャットを開ける | 同左。上限は busy な会話数 | 同左 | 複数エージェント | セッションAPI | Home の activity | 既定 3、親ターンのみを数える。子・ターミナル稼働中の会話を表示切替で破棄しない | Partial | Implement | `session-registry.ts` |
 | コードレビュー | Codex | 5 | なし | 差分を添付して依頼 | App Server `review/start` | レビュー | RPC | なし | SDKでは差分添付にフォールバック | Partial | Implement | `ChatController.review` |
 | ACP独自イベント | Cursor | 4 | permission / plan / question。task と generate_image は未接続 | ACPが配信 | なし | ツール | JSON-RPC | カード / 状態 | task は表示。画像生成はパス表示 | Partial | Implement | `src/providers/cursor-acp.ts` |
 | Cursor SDK設定 | Cursor | 4 | なし | rules/skills/hooks/mcp を `settingSources` で有効化 | なし | 読み込み | SDK | なし | クラウド起動ボタンは置かない | Implemented | Implement | `providers/index.ts` |
@@ -44,3 +44,16 @@
 | Inline Edit / 補完 | IDE | 6 | なし | 別API | 別API | 補完モデル | なし | Inline API | エージェント統合とは別 | Missing | Defer | 追加の推論基盤が必要 |
 
 検証欄は `docs/VERIFICATION.md` にまとめます。
+
+### 0.9.0 実機追記（2026-10-16）
+
+| 対象 | 実機結果 | 制限 |
+| --- | --- | --- |
+| App Server 子エージェント | 実子ID 2 件・並列区間・成功結果を確認。親終了後は通知と公開 `thread/read` で状態を更新 | 親 Stop は子 Stop の保証ではない。未確定状態は unknown / running を維持 |
+| Cursor ACP Task | ID 付き要求へ応答し、実 agentId・モデル・処理時間を保持。2 件の区間重複を確認 | モデル選択はランタイム既定のまま |
+| Cursor SDK Task | 通常 Node / Extension Host とも sandbox 非対応で停止 | 並列、子別モデル、継承、Foreground / Background 結果返却は未検証 |
+| App Server Background Terminal | 非空一覧、2 秒更新、自然終了・最終出力、terminate を実機確認 | `process/spawn` による代用なし。取得失敗は既存情報を保持 |
+| Plan / Build | 対応 3 経路で初回・改訂・同一会話 Build・重複防止をライブ確認 | 失敗 / Stop の全 3 経路ライブ再現は未完了。状態回帰テストとは区別 |
+| 差分 / 復元 | Codex の Git baseline、App Server 実 Rename と未コミット原文の復元を確認 | 不明な原文は復元不可。シェルの unstaged move は delete / add の場合あり |
+
+移行判断は **Not Ready**。詳細・画面・残作業は [VERIFICATION.md](VERIFICATION.md) の今回追記を参照。

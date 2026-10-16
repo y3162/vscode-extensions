@@ -79,7 +79,7 @@ export function parseUnifiedDiff(diff: string): ParsedDiffFile[] {
   });
 }
 
-export function normalizeChangeKind(kind: unknown): { kind: FileChange['kind']; oldPath?: string } {
+export function normalizeChangeKind(kind: unknown): { kind: FileChange['kind']; oldPath?: string; movePath?: string } {
   if (typeof kind === 'string') {
     if (kind === 'add' || kind === 'delete' || kind === 'update') return { kind };
     if (kind === 'rename' || kind === 'move') return { kind: 'rename' };
@@ -92,8 +92,25 @@ export function normalizeChangeKind(kind: unknown): { kind: FileChange['kind']; 
     : typeof record.movePath === 'string' ? record.movePath : undefined;
   if (type === 'add') return { kind: 'add' };
   if (type === 'delete') return { kind: 'delete' };
+  if (type === 'update' && move) return { kind: 'rename', movePath: move };
   if (type === 'rename' || type === 'move') return { kind: 'rename', ...(move ? { oldPath: move } : {}) };
   return { kind: 'update', ...(move ? { oldPath: move } : {}) };
+}
+
+/** Full previous text only when the diff is a new file or a pure deletion. Partial hunks are not a baseline. */
+export function previousTextFromDiff(diff: string, kind: FileChange['kind']): string | null | undefined {
+  if (kind === 'add') return null;
+  if (kind !== 'delete') return undefined;
+  const lines: string[] = [];
+  for (const line of diff.split('\n')) {
+    if (!line || line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')
+      || line.startsWith('@@') || line.startsWith('new file') || line.startsWith('deleted file')
+      || line.startsWith('similarity') || line.startsWith('rename ') || line.startsWith('old mode') || line.startsWith('new mode')) continue;
+    if (line.startsWith('-')) lines.push(line.slice(1));
+    else if (line.startsWith('\\')) continue;
+    else return undefined;
+  }
+  return lines.join('\n');
 }
 
 export function extensionBadge(fileName: string): string {

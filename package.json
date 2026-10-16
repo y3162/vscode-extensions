@@ -16,6 +16,7 @@
     "test:protocol": "npm run test:protocol --workspace ai-agents",
     "test:live": "npm run test:live --workspace ai-agents",
     "test:tools": "npm run test:tools --workspace ai-agents",
+    "test:runtime": "npm run test:runtime --workspace ai-agents",
     "package": "npm run package --workspace ai-agents"
   },
   "devDependencies": {

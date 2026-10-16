@@ -2,6 +2,12 @@
 
 ## 0.9.0
 
+- 親ターン終了後も子・Background Terminal の状態と出力を元の会話へ届け、空一覧・自然終了・一覧取得失敗・terminate の結果を反映する。
+- App Server の実際の子IDと ACP の ID 付き `cursor/task` 要求に対応し、起動や wait の終了を子の成功と混同しない。
+- Build 済み Plan の改訂失敗・Stop で再 Build できる問題、複数の同時承認、古い画面から別会話への操作を修正した。
+- Git の変更前全文、特殊文字を含むパス、Rename と復元時のユーザー変更保護を検証し、macOS のパス別名による変更一覧の重複を修正した。
+- ハイコントラストの Build ボタンとファイルアイコンの文字化けを修正した。実機検証と残る制限は `docs/VERIFICATION.md` に追記した。
+
 - Plan モードは計画ができたら止まり、Plan View で本文、To-do、Build 用モデル、Build を表示する。Build は同じ会話の新しいターンで Agent モードになり、計画を作り直さない。
 - Plan のまま追加送信すると計画を更新して再び止まる。Build は準備完了のときだけ有効で、二重実行しない。
 - Cursor SDK と Codex App Server はターンごとにモードとモデルを渡す。App Server のモデル変更は新しいセッションを作らない。Cursor ACP は `session/set_mode` を使い、モデルの途中変更はしない。

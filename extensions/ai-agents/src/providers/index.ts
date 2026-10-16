@@ -1,10 +1,11 @@
 import { mkdir, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { ModelReasoningEffort } from '@openai/codex-sdk';
 import { applyTextStats, captureGitBaselines, readWorkspaceText, type GitBaselines } from '../change-tracker.js';
 import { captureBaseline } from '../change-review.js';
 import { writeImageFiles } from '../images.js';
-import type { AgentSession, FileChange, Selection, SessionSummary, TurnOptions, UpdateMeta } from '../types.js';
+import type { AgentSession, AgentUpdate, FileChange, Selection, SessionSummary, TurnOptions, UpdateMeta } from '../types.js';
 import { createCodexAppServerSession } from './codex-app-server.js';
 import { createCursorAcpSession } from './cursor-acp.js';
 import { codexMeta, cursorMeta } from './details.js';
@@ -56,6 +57,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
     let thread = options.resumeId
       ? codex.resumeThread(options.resumeId, threadOptions())
       : codex.startThread(threadOptions());
+    const backgroundListeners = new Set<(update: AgentUpdate) => void>();
     const retarget = (selection?: Selection) => {
       if (!selection) return;
       const model = selection.model || undefined;
@@ -67,6 +69,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
     };
     return {
       get sessionId() { return thread.id ?? undefined; },
+      subscribeBackgroundUpdates(emit) { backgroundListeners.add(emit); return () => backgroundListeners.delete(emit); },
       setModel(selection) { retarget(selection); },
       async run(prompt, signal, emit, extras, turn) {
         signal.throwIfAborted();
@@ -76,33 +79,42 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
           ? [{ type: 'text' as const, text: prompt }, ...images.map((imagePath) => ({ type: 'local_image' as const, path: imagePath }))]
           : prompt;
         const baselines = await captureGitBaselines(options.cwd);
-        const { events } = await thread.runStreamed(input, { signal });
-        for await (const event of events) {
-          signal.throwIfAborted();
-          if (event.type === 'thread.started') {
-            options.onIdentity?.({ id: event.thread_id, title: prompt.slice(0, 80) || 'Codex', updatedAt: new Date().toISOString(), provider: 'codex', cwd: options.cwd });
+        try {
+          const { events } = await thread.runStreamed(input, { signal });
+          for await (const event of events) {
+            signal.throwIfAborted();
+            if (event.type === 'thread.started') {
+              options.onIdentity?.({ id: event.thread_id, title: prompt.slice(0, 80) || 'Codex', updatedAt: new Date().toISOString(), provider: 'codex', cwd: options.cwd });
+            }
+            if (event.type === 'turn.completed') {
+              emit({ id: `usage-${event.type}`, role: 'status', text: '', meta: { type: 'usage', usage: {
+                inputTokens: event.usage.input_tokens,
+                outputTokens: event.usage.output_tokens,
+                cachedInputTokens: event.usage.cached_input_tokens,
+                cacheWriteInputTokens: event.usage.cache_write_input_tokens,
+                reasoningTokens: event.usage.reasoning_output_tokens,
+                totalTokens: event.usage.input_tokens + event.usage.output_tokens,
+              } } });
+            }
+            if (event.type === 'turn.failed') throw new Error(event.error.message);
+            if (event.type === 'error') throw new Error(event.message);
+            if ('item' in event) {
+              const update = codexUpdate(event.item);
+              const meta = await enrichCodexFiles(codexMeta(event.item), baselines, options.cwd);
+              const tool = codexTool(event.item);
+              if (update) emit({ ...update, ...(meta ? { meta } : {}), ...(tool ? { tool } : {}) });
+            }
           }
-          if (event.type === 'turn.completed') {
-            emit({ id: `usage-${event.type}`, role: 'status', text: '', meta: { type: 'usage', usage: {
-              inputTokens: event.usage.input_tokens,
-              outputTokens: event.usage.output_tokens,
-              cachedInputTokens: event.usage.cached_input_tokens,
-              cacheWriteInputTokens: event.usage.cache_write_input_tokens,
-              reasoningTokens: event.usage.reasoning_output_tokens,
-              totalTokens: event.usage.input_tokens + event.usage.output_tokens,
-            } } });
-          }
-          if (event.type === 'turn.failed') throw new Error(event.error.message);
-          if (event.type === 'error') throw new Error(event.message);
-          if ('item' in event) {
-            const update = codexUpdate(event.item);
-            const meta = await enrichCodexFiles(codexMeta(event.item), baselines, options.cwd);
-            const tool = codexTool(event.item);
-            if (update) emit({ ...update, ...(meta ? { meta } : {}), ...(tool ? { tool } : {}) });
+        } finally {
+          const changes = await baselines?.changes();
+          if (changes?.length) {
+            const update: AgentUpdate = { id: `workspace-changes:${randomUUID()}`, role: 'tool', text: 'diff updated', meta: { type: 'files', files: changes } };
+            if (backgroundListeners.size) for (const listener of backgroundListeners) listener(update);
+            else emit(update);
           }
         }
       },
-      async dispose() { /* The SDK starts a subprocess per turn; AbortSignal stops it. */ },
+      async dispose() { backgroundListeners.clear(); /* The SDK starts a subprocess per turn; AbortSignal stops it. */ },
     };
   }
 
@@ -179,7 +191,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
         model: activeModel,
         onDelta: ({ update }) => {
           if (update.type !== 'tool-call-completed' || update.toolCall.type !== 'createPlan') return;
-          const plan = update.toolCall.args.plan;
+          const plan = typeof update.toolCall.args.plan === 'string' ? update.toolCall.args.plan : '';
           if (!plan.trim() || signal.aborted) return;
           sawPlan = true;
           emit({ id: `plan-${update.callId}`, role: 'status', text: plan, meta: { type: 'plan', plan: { markdown: plan, source: 'sdk-createPlan' } } });
@@ -273,7 +285,7 @@ async function enrichCodexFiles(meta: UpdateMeta | undefined, baselines: GitBase
   if (meta?.type !== 'files' || !meta.files?.length) return meta;
   const files: FileChange[] = [];
   for (const file of meta.files) {
-    const previous = file.previousText !== undefined ? file.previousText : await baselines?.lookup(file.path);
+    const previous = file.previousText !== undefined ? file.previousText : await baselines?.lookup(file.oldPath ?? file.path);
     const current = await readWorkspaceText(cwd, file.path);
     files.push(applyTextStats({ ...file, ...(previous !== undefined ? { previousText: previous } : {}) }, current));
   }

@@ -21,7 +21,7 @@ export function inferIntent(mode: AgentMode, plan: PlanState): TurnIntent {
 
 export function beginPlanning(state: PlanState): PlanState {
   if (state.phase === 'building') return state;
-  return { ...state, phase: state.current ? 'revising' : 'planning', draft: undefined, error: undefined };
+  return { ...state, phase: state.current ? 'revising' : 'planning', revisionBasePhase: state.revisionBasePhase ?? (state.phase === 'implemented' ? 'implemented' : 'ready'), draft: undefined, error: undefined };
 }
 
 export function stageDraft(state: PlanState, draft: PlanDraft, now = Date.now()): PlanState {
@@ -59,16 +59,26 @@ export function commitDraft(state: PlanState, selection: Selection, sessionId?: 
     ...(draft.name ? { name: draft.name } : {}),
     markdown: draft.markdown,
   }].slice(-maxPlanRevisions);
+  const build = state.build
+    ? { selection: cloneSelection(state.build.selection), ...(state.build.label ? { label: state.build.label } : {}) }
+    : { selection: cloneSelection(selection) };
   return {
     phase: 'ready',
     current: document,
     revisions,
-    build: { selection: cloneSelection(selection), ...(state.build?.label ? { label: state.build.label } : {}) },
+    build,
   };
 }
 
+export function applyPlanTodos(state: PlanState, todos: TodoEntry[]): PlanState {
+  if (!todos.length) return state;
+  if (state.draft) return { ...state, draft: { ...state.draft, todos } };
+  if (state.current) return { ...state, current: { ...state.current, todos } };
+  return state;
+}
+
 export function planningFailed(state: PlanState, message?: string): PlanState {
-  if (state.current) return { ...state, phase: 'ready', draft: undefined, ...(message ? { error: message } : {}) };
+  if (state.current) return { ...state, phase: state.revisionBasePhase ?? (state.phase === 'implemented' ? 'implemented' : 'ready'), revisionBasePhase: undefined, draft: undefined, ...(message ? { error: message } : {}) };
   return { ...emptyPlanState(), ...(message ? { error: message } : {}) };
 }
 

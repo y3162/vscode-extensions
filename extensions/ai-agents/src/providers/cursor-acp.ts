@@ -1,6 +1,6 @@
 import { lineChangeCounts } from '../diff-stats.js';
 import type {
-  AgentSession, AgentUpdate, ChatMessage, FileChange, PermissionDecision, PlanRequest, QuestionRequest, SessionSummary, TodoEntry,
+  AgentMode, AgentSession, AgentUpdate, ChatMessage, FileChange, PermissionDecision, PlanRequest, QuestionRequest, SessionSummary, SubagentRecord, TodoEntry,
 } from '../types.js';
 import type { SessionOptions } from './session-options.js';
 import { acpCreatePlanPolicy, acpCreatePlanReleaseOutcome } from './plan-policy.js';
@@ -71,11 +71,17 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
   const segments = { current: new AssistantSegments() };
   const sawPlan = { current: false };
   const emitLive = { current: undefined as ((update: AgentUpdate) => void) | undefined };
+  const backgroundListeners = new Set<(update: AgentUpdate) => void>();
+  const tasks = new Map<string, SubagentRecord>();
   const fail = (error: unknown) => {
     emitLive.current?.({ id: 'acp-error', role: 'error', text: error instanceof Error ? error.message : String(error) });
   };
 
   const emitUpdate = (update: AgentUpdate, transcript: boolean) => {
+    if (update.meta?.type === 'subagent' && backgroundListeners.size) {
+      for (const listener of backgroundListeners) listener(update);
+      return;
+    }
     if (transcript && !emitLive.current) {
       replay.push({ id: update.id, role: update.role === 'tool' || update.role === 'status' || update.role === 'error' ? update.role : 'assistant', text: update.text, meta: update.meta });
       return;
@@ -99,6 +105,10 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     request: async (method, params) => {
       const body = record(params);
       try {
+        if (method === 'cursor/task') {
+          handleTask(body, !emitLive.current);
+          return {};
+        }
         if (method === 'session/request_permission') {
           const tool = record(body.toolCall);
           const title = typeof tool.title === 'string' ? tool.title : typeof body.title === 'string' ? body.title : 'Tool';
@@ -212,6 +222,10 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     if (kind === 'tool_call' || kind === 'tool_call_update') {
       segments.current.interrupt();
       const id = String(update.toolCallId ?? 'tool');
+      if (tasks.has(id) || record(update.rawInput)._toolName === 'task' || (typeof update.title === 'string' && /^Task:/i.test(update.title))) {
+        handleTask({ ...record(update.rawOutput), ...update }, transcript);
+        return;
+      }
       const title = typeof update.title === 'string' ? update.title : 'tool';
       const status = typeof update.status === 'string' ? update.status : kind;
       const files = filesFrom(update);
@@ -261,29 +275,50 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     return files;
   }
 
+  function taskStatus(body: Record<string, unknown>): SubagentRecord['status'] {
+    const raw = typeof body.status === 'string' ? body.status : '';
+    if (/cancel|interrupt/i.test(raw)) return 'cancelled';
+    if (/fail|error/i.test(raw)) return 'error';
+    if (/complete|success|done/i.test(raw) || typeof body.durationMs === 'number') return 'completed';
+    return /pending|progress|running|start/i.test(raw) ? 'running' : 'unknown';
+  }
+
   function handleTask(body: Record<string, unknown>, transcript: boolean): void {
     const id = String(body.toolCallId ?? '');
     if (!id) return;
-    const description = typeof body.description === 'string' ? body.description : 'Subagent';
+    const previous = tasks.get(id);
+    const description = typeof body.description === 'string' ? body.description : previous?.name ?? 'Subagent';
     const subagentType = body.subagentType;
     const name = typeof subagentType === 'string' ? subagentType
       : typeof record(subagentType).custom === 'string' ? String(record(subagentType).custom) : description;
+    const background = typeof body.isBackground === 'boolean' ? body.isBackground : previous?.background ?? 'unknown';
+    const status = taskStatus(body);
+    const subagent: SubagentRecord = {
+      ...previous, id, name, background,
+      status: status === 'unknown' ? previous?.status ?? status : status,
+      ...(typeof body.agentId === 'string' ? { agentId: body.agentId } : {}),
+      ...(typeof body.model === 'string' ? { model: body.model } : {}),
+      ...(typeof body.prompt === 'string' ? { task: body.prompt } : {}),
+      ...(typeof body.durationMs === 'number' ? { durationMs: body.durationMs } : {}),
+      ...(status === 'running' && !previous?.startedAt ? { startedAt: Date.now() } : {}),
+      ...(['completed', 'error', 'cancelled'].includes(status) ? { endedAt: Date.now() } : {}),
+    };
+    tasks.set(id, subagent);
     emitUpdate({
       id,
       role: 'status',
       text: description,
       meta: {
         type: 'subagent',
-        subagent: {
-          id,
-          name,
-          ...(typeof body.prompt === 'string' ? { task: body.prompt } : {}),
-          status: 'completed',
-          background: 'unknown',
-          ...(typeof body.durationMs === 'number' ? { durationMs: body.durationMs } : {}),
-        },
+        subagent,
       },
     }, transcript);
+  }
+
+  async function applyRuntimeMode(next: AgentMode): Promise<void> {
+    await rpc.request('session/set_mode', { sessionId, modeId: next });
+    mode = next;
+    await rpc.request('session/set_config_option', { sessionId, configId: 'mode', value: next }).catch(() => undefined);
   }
 
   try {
@@ -314,10 +349,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       sessionId = typeof created.sessionId === 'string' ? created.sessionId : '';
     }
     if (!sessionId) throw new Error('Cursor ACP did not return a session id.');
-    if (mode !== 'agent') {
-      await rpc.request('session/set_mode', { sessionId, modeId: mode }).catch(() => undefined);
-      await rpc.request('session/set_config_option', { sessionId, configId: 'mode', value: mode }).catch(() => undefined);
-    }
+    if (mode !== 'agent') await applyRuntimeMode(mode);
     options.onIdentity?.({
       id: sessionId,
       title: 'Cursor ACP',
@@ -336,12 +368,9 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
 
   return {
     sessionId,
+    subscribeBackgroundUpdates(emit) { backgroundListeners.add(emit); return () => backgroundListeners.delete(emit); },
     get closed() { return rpc.isClosed; },
-    async setMode(next) {
-      mode = next;
-      await rpc.request('session/set_mode', { sessionId, modeId: next }).catch(() => undefined);
-      await rpc.request('session/set_config_option', { sessionId, configId: 'mode', value: next });
-    },
+    async setMode(next) { await applyRuntimeMode(next); },
     async loadTranscript(emit) {
       for (const message of replay) emit(message);
     },
@@ -366,11 +395,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       thought = '';
       segments.current = new AssistantSegments();
       sawPlan.current = false;
-      if (turn?.mode && turn.mode !== mode) {
-        mode = turn.mode;
-        await rpc.request('session/set_mode', { sessionId, modeId: mode }).catch(() => undefined);
-        await rpc.request('session/set_config_option', { sessionId, configId: 'mode', value: mode }).catch(() => undefined);
-      }
+      if (turn?.mode && turn.mode !== mode) await applyRuntimeMode(turn.mode);
       const blocks: Record<string, unknown>[] = [{ type: 'text', text: prompt }];
       for (const image of extras?.images ?? []) blocks.push({ type: 'image', mimeType: image.mimeType, data: image.data });
       const aborted = () => { void rpc.notify('session/cancel', { sessionId }); };
@@ -388,6 +413,6 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
         emitLive.current = undefined;
       }
     },
-    async dispose() { await rpc.dispose(); },
+    async dispose() { backgroundListeners.clear(); await rpc.dispose(); },
   };
 }

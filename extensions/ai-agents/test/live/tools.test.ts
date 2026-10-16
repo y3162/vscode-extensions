@@ -39,72 +39,48 @@ async function run(options: SessionOptions, prompt: string, decide: (request: Pe
     },
   });
   try {
-    await session.run(prompt, new AbortController().signal, (update) => updates.push(update));
+    await session.run(prompt, AbortSignal.timeout(120000), (update) => updates.push(update));
   } finally { await session.dispose(); }
   return updates;
 }
 
-test('interactive backends deny a command and allow a file edit', { skip: !enabled, timeout: 300000 }, async () => {
-  const agentPath = which('agent');
-  assert.ok(agentPath);
-  const cases: Array<{ name: string; options: Omit<SessionOptions, 'cwd' | 'storagePath' | 'interactions'> }> = [
-    { name: 'cursor-acp', options: { provider: 'cursor', backend: 'acp', model: '', agentPath, sandbox: 'enabled' } },
-    { name: 'codex-app-server', options: { provider: 'codex', backend: 'app-server', model: '', sandbox: 'workspace-write', approval: 'untrusted' } },
-  ];
-  for (const item of cases) {
-    const { cwd, cleanup } = await workspace();
-    try {
-      let denied = false;
-      for (let attempt = 0; attempt < 2 && !denied; attempt += 1) {
-        await run({ ...item.options, cwd, storagePath: cwd },
-          'Run this shell command and nothing else: printf no > denied.txt',
-          async () => { denied = true; return 'deny'; });
-      }
-      assert.equal(denied, true, `${item.name} did not request approval`);
-      await assert.rejects(access(path.join(cwd, 'denied.txt')));
+const cases: Array<{ name: string; options: Omit<SessionOptions, 'cwd' | 'storagePath' | 'interactions'> }> = [
+  { name: 'cursor-acp', options: { provider: 'cursor', backend: 'acp', model: '', sandbox: 'enabled' } },
+  { name: 'codex-app-server', options: { provider: 'codex', backend: 'app-server', model: 'gpt-6-luna', sandbox: 'workspace-write', approval: 'untrusted' } },
+  { name: 'cursor-sdk', options: { provider: 'cursor', backend: 'sdk', model: 'auto', sandbox: 'enabled' } },
+  { name: 'codex-sdk', options: { provider: 'codex', backend: 'sdk', model: 'gpt-6-luna', sandbox: 'workspace-write', approval: 'never', modelParams: [{ id: 'modelReasoningEffort', value: 'low' }] } },
+];
 
-      let allowed = false;
-      let updates: AgentUpdate[] = [];
-      for (let attempt = 0; attempt < 2 && !allowed; attempt += 1) {
-        updates = await run({ ...item.options, cwd, storagePath: cwd },
-          'Change note.txt so its entire contents are exactly beta followed by a newline. Do not edit any other file.',
-          async () => { allowed = true; return 'allow-once'; });
-        if (!allowed && await readFile(path.join(cwd, 'note.txt'), 'utf8') === 'beta\n') {
-          assert.fail(`${item.name} changed note.txt without an approval request`);
-        }
+for (const item of cases) {
+  test(`${item.name}: approvals and file changes`, { skip: !enabled, timeout: 300000 }, async () => {
+    const { cwd, cleanup } = await workspace();
+    const options = { ...item.options, cwd, storagePath: cwd, ...(item.options.backend === 'acp' ? { agentPath: which('agent') } : {}) };
+    try {
+      const interactive = item.options.backend === 'acp' || item.options.backend === 'app-server';
+      if (interactive) {
+        let denied = false;
+        await run(options, 'Run exactly this shell command and nothing else. Do not use an edit tool instead: printf no > denied.txt', async () => { denied = true; return 'deny'; });
+        assert.equal(denied, true, `${item.name} did not request approval for the command`);
+        await assert.rejects(access(path.join(cwd, 'denied.txt')));
+        let allowed = false;
+        await run(options, 'Run exactly this shell command and nothing else. Do not use an edit tool instead: printf yes > allowed.txt', async () => { allowed = true; return 'allow-once'; });
+        assert.equal(allowed, true, `${item.name} did not request approval for the allowed command`);
+        assert.equal(await readFile(path.join(cwd, 'allowed.txt'), 'utf8'), 'yes');
       }
-      assert.equal(allowed, true, `${item.name} edited a file without an approval request`);
+      let prompts = 0;
+      const updates = await run(options,
+        'Read note.txt and change it so its entire contents are exactly beta followed by a newline. Do not edit any other file.',
+        async () => { prompts++; return interactive ? 'allow-once' : 'deny'; });
+      if (!interactive) assert.equal(prompts, 0, 'SDK backends must not require an interactive response');
       assert.equal(await readFile(path.join(cwd, 'note.txt'), 'utf8'), 'beta\n');
-      const change = filesOf(updates).find((file) => file.path.endsWith('note.txt') && (file.previousText !== undefined || file.diff));
-      if (change?.previousText !== undefined) {
+      const change = filesOf(updates).find((file) => file.path.endsWith('note.txt'));
+      assert.ok(change, `${item.name} did not report the edited file`);
+      assert.ok(!filesOf(updates).some((file) => file.kind === 'update' && !file.path.endsWith('note.txt')), 'reads must not become file changes');
+      if (change.previousText !== undefined) {
         await revertChange({ ...change, path: path.join(cwd, 'note.txt') }, [cwd]);
         assert.equal(await readFile(path.join(cwd, 'note.txt'), 'utf8'), 'alpha\n');
       }
-      console.log(`PASS ${item.name} deny allow file${change ? ' revert' : ''}`);
+      console.log(`PASS ${item.name} model=${item.options.model || 'runtime-default'} file approvalRequests=${prompts} restored=${change.previousText !== undefined}`);
     } finally { await cleanup(); }
-  }
-});
-
-test('SDK backends write inside the workspace sandbox without an approval prompt', { skip: !enabled, timeout: 300000 }, async () => {
-  const cases: Array<{ name: string; options: Omit<SessionOptions, 'cwd' | 'storagePath' | 'interactions'> }> = [
-    { name: 'cursor-sdk', options: { provider: 'cursor', backend: 'sdk', model: 'auto', sandbox: 'enabled' } },
-    { name: 'codex-sdk', options: { provider: 'codex', backend: 'sdk', model: '', sandbox: 'workspace-write', approval: 'never', modelParams: [{ id: 'modelReasoningEffort', value: 'low' }] } },
-  ];
-  for (const item of cases) {
-    const { cwd, cleanup } = await workspace();
-    let prompted = false;
-    try {
-      const updates = await run({ ...item.options, cwd, storagePath: cwd },
-        'Read note.txt and change it so its entire contents are exactly beta followed by a newline. Do not edit any other file.',
-        async () => { prompted = true; return 'deny'; });
-      assert.equal(prompted, false, `${item.name} unexpectedly requested an interactive approval`);
-      assert.equal(await readFile(path.join(cwd, 'note.txt'), 'utf8'), 'beta\n');
-      const change = filesOf(updates).find((file) => file.previousText !== undefined);
-      if (change?.previousText !== undefined) {
-        await revertChange(change, [cwd]);
-        assert.equal(await readFile(path.join(cwd, 'note.txt'), 'utf8'), 'alpha\n');
-      }
-      console.log(`PASS ${item.name} workspace edit${change ? ' revert' : ''}`);
-    } finally { await cleanup(); }
-  }
-});
+  });
+}

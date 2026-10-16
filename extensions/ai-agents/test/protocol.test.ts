@@ -1,17 +1,20 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { createCodexAppServerSession } from '../src/providers/codex-app-server.js';
 import { createCursorAcpSession } from '../src/providers/cursor-acp.js';
 import type { AgentUpdate } from '../src/types.js';
+import { ChatController } from '../src/chat-controller.js';
 
 async function fixture(name: string) {
   const cwd = await mkdtemp(path.join(tmpdir(), 'ai-agents-protocol-'));
   const command = path.join(cwd, name);
   const { cp } = await import('node:fs/promises');
   await cp(path.join(__dirname, 'fixtures', name), command);
+  await cp(path.join(__dirname, 'fixtures', 'real', 'runtime-090.json'), path.join(cwd, 'runtime-090.json'));
   await chmod(command, 0o755);
   return { cwd, command, async cleanup() { await rm(cwd, { recursive: true, force: true }); } };
 }
@@ -37,6 +40,13 @@ test('Cursor ACP streams text, file diffs, and answers a permission request', { 
       await session.run('hello', new AbortController().signal, (update) => files.push(update));
       assert.match(files.map((update) => update.text).join('\n'), /acp answer/);
       assert.equal(files.some((update) => update.meta?.type === 'files'), true);
+      assert.ok(session.setMode);
+      await assert.rejects(() => session.setMode!('plan'), /mode rejected/);
+      const afterMode: AgentUpdate[] = [];
+      await session.run('hello', new AbortController().signal, (update) => afterMode.push(update), undefined, {
+        intent: 'chat', mode: 'agent', selection: { provider: 'cursor', cwd, model: '' },
+      });
+      assert.match(afterMode.map((update) => update.text).join('\n'), /modes:0\/1/);
       const listed = await session.listSessions?.();
       assert.equal(listed?.[0]?.id, 'acp-session');
       await session.dispose();
@@ -68,6 +78,18 @@ test('Codex App Server streams deltas, lists threads, and returns an approval de
       await session.run('NEED_APPROVAL', new AbortController().signal, (update) => updates.push(update));
       assert.equal(title, 'npm test');
       assert.match(updates.map((update) => update.text).join('\n'), /approved:accept/);
+      const planUpdates: AgentUpdate[] = [];
+      await session.run('plan please', new AbortController().signal, (update) => planUpdates.push(update), undefined, {
+        intent: 'plan', mode: 'plan', selection: { provider: 'codex', cwd, model: 'fixture-model' },
+      });
+      assert.equal(planUpdates.some((update) => update.meta?.type === 'plan' && update.meta.plan?.source === 'assistant-text' && update.meta.plan.markdown.includes('app server')), true);
+      const spawned: AgentUpdate[] = [];
+      await session.run('SPAWN_AGENT', new AbortController().signal, (update) => spawned.push(update));
+      const child = spawned.filter((update) => update.meta?.type === 'subagent' && update.meta.subagent?.id === 'child-thread').at(-1);
+      assert.equal(child?.meta?.subagent?.status, 'completed');
+      assert.match(child?.meta?.subagent?.resultPreview ?? '', /child result/);
+      assert.equal(spawned.some((update) => update.role === 'assistant' && update.text.includes('child result')), false);
+      assert.equal(new Set(spawned.filter((update) => update.meta?.subagent).map((update) => update.meta!.subagent!.id)).size, 1);
       assert.equal((await session.listSessions?.())?.[0]?.title, 'Fixture');
       assert.match(await session.rateLimits?.() ?? '', /12%/);
       assert.match(await session.instructions?.() ?? '', /fixture-skill/);
@@ -80,4 +102,125 @@ test('Codex App Server streams deltas, lists threads, and returns an approval de
       assert.ok(Date.now() - started < 1000);
     } finally { await session.dispose(); }
   } finally { await cleanup(); }
+});
+
+test('captured App Server activities identify two children instead of wait calls', { timeout: 15000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+  const updates: AgentUpdate[] = [];
+  const session = await createCodexAppServerSession({ provider: 'codex', cwd, model: 'fixture', storagePath: cwd, codexPath: command });
+  const unsubscribe = session.subscribeBackgroundUpdates!((update) => updates.push(update));
+  try {
+    await session.run('REAL_SUBAGENTS', new AbortController().signal, (update) => updates.push(update));
+    const children = new Map(updates.flatMap((update) => update.meta?.subagent ? [[update.meta.subagent.id, update.meta.subagent] as const] : []));
+    assert.equal(children.size, 2);
+    assert.deepEqual([...children.values()].map((item) => item.status), ['completed', 'completed']);
+    assert.ok([...children.values()].every((item) => item.name.startsWith('/root/') && item.model === 'gpt-6-luna'));
+    assert.ok([...children.values()].every((item) => item.resultPreview));
+    assert.equal(updates.some((item) => item.role === 'assistant' && /alpha|beta/.test(item.text)), false);
+  } finally { unsubscribe(); await session.dispose(); await cleanup(); }
+});
+
+test('captured ACP task requests enrich the existing running card', { timeout: 15000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-acp.cjs');
+  const updates: AgentUpdate[] = [];
+  const session = await createCursorAcpSession({ provider: 'cursor', cwd, model: '', storagePath: cwd, agentPath: command });
+  const unsubscribe = session.subscribeBackgroundUpdates!((update) => updates.push(update));
+  try {
+    await session.run('REAL_TASKS', new AbortController().signal, (update) => updates.push(update));
+    const children = new Map(updates.flatMap((update) => update.meta?.subagent ? [[update.meta.subagent.id, update.meta.subagent] as const] : []));
+    assert.equal(children.size, 2);
+    assert.ok([...children.values()].every((child) => child.agentId && child.model === 'composer-2.5-fast' && child.status === 'completed' && child.durationMs && child.background === false));
+    assert.equal(new Set(updates.filter((update) => update.meta?.subagent?.status === 'running').map((update) => update.meta!.subagent!.id)).size, 2);
+  } finally { unsubscribe(); await session.dispose(); await cleanup(); }
+});
+
+for (const scenario of ['BACKGROUND', 'POLL_EXIT', 'LIST_FAIL', 'TERMINATE_FAIL', 'PAGED']) {
+  test(`background terminal lifecycle: ${scenario}`, { timeout: 15000 }, async () => {
+    const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+    const updates: AgentUpdate[] = [];
+    const session = await createCodexAppServerSession({ provider: 'codex', cwd, model: 'fixture', storagePath: cwd, codexPath: command });
+    const unsubscribe = session.subscribeBackgroundUpdates!((update) => updates.push(update));
+    try {
+      await session.run(scenario, new AbortController().signal, () => {});
+      assert.equal(updates.at(-1)?.meta?.terminals?.length, scenario === 'PAGED' ? 2 : 1);
+      if (scenario === 'LIST_FAIL') {
+        await assert.rejects(session.listBackgroundTerminals!(), /unavailable/);
+        assert.equal(updates.at(-1)?.meta?.terminals?.[0]?.status, 'unknown');
+        assert.match(updates.at(-1)?.meta?.terminals?.[0]?.error ?? '', /unavailable/);
+      } else if (scenario === 'TERMINATE_FAIL') {
+        await assert.rejects(session.terminateBackgroundTerminal!('proc-1'), /not terminated/);
+        assert.equal((await session.listBackgroundTerminals!()).length, 1);
+      } else if (scenario === 'PAGED') {
+        await session.terminateBackgroundTerminal!('proc-1');
+        assert.deepEqual((await session.listBackgroundTerminals!()).map((row) => row.processId), ['proc-2']);
+      } else {
+        const deadline = Date.now() + 6000;
+        while (!updates.some((item) => item.meta?.terminals?.length === 0) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
+        assert.ok(updates.some((item) => item.meta?.terminals?.length === 0), 'the empty list must be delivered without a new parent turn');
+        if (scenario === 'BACKGROUND') {
+          const output = updates.find((item) => item.tool?.exitCode === 0);
+          assert.match(output?.text ?? '', /stdout done\nstderr done/);
+          assert.equal(output?.tool?.status, 'completed');
+        }
+      }
+      unsubscribe();
+      const count = updates.length;
+      await session.dispose();
+      assert.equal(updates.length, count);
+    } finally { await session.dispose(); await cleanup(); }
+  });
+}
+
+test('App Server exit after turn/start releases the turn waiter', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+  const session = await createCodexAppServerSession({ provider: 'codex', cwd, model: 'fixture', storagePath: cwd, codexPath: command });
+  try { await assert.rejects(session.run('EXIT_AFTER_START', new AbortController().signal, () => {}), /exited/); }
+  finally { await session.dispose(); await cleanup(); }
+});
+
+test('spawn completion, child failure, interruption, and unknown activity remain distinct', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+  const session = await createCodexAppServerSession({ provider: 'codex', cwd, model: 'fixture', storagePath: cwd, codexPath: command });
+  const updates: AgentUpdate[] = [];
+  try {
+    await session.run('CHILD_FAILURES', new AbortController().signal, (update) => updates.push(update));
+    const children = updates.flatMap((update) => update.meta?.subagent ? [update.meta.subagent] : []);
+    assert.equal(children.filter((child) => child.id === 'child-error')[1]?.status, 'running', 'a completed spawn call does not complete its child');
+    const final = new Map(children.map((child) => [child.id, child.status]));
+    assert.deepEqual([...final.values()], ['error', 'cancelled', 'unknown']);
+    assert.equal(final.has('spawn-call'), false);
+  } finally { await session.dispose(); await cleanup(); }
+});
+
+test('a silent child is reconciled through public thread/read after its parent ends', { timeout: 10000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+  const session = await createCodexAppServerSession({ provider: 'codex', cwd, model: 'fixture', storagePath: cwd, codexPath: command });
+  const updates: AgentUpdate[] = [];
+  const unsubscribe = session.subscribeBackgroundUpdates!((update) => updates.push(update));
+  try {
+    await session.run('SILENT_CHILD', new AbortController().signal, () => {});
+    assert.equal(updates.find((update) => update.meta?.subagent)?.meta?.subagent?.status, 'running');
+    const deadline = Date.now() + 6000;
+    while (!updates.some((update) => update.meta?.subagent?.status === 'cancelled') && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
+    assert.ok(updates.some((update) => update.meta?.subagent?.id === 'silent-child' && update.meta.subagent.status === 'cancelled'));
+  } finally { unsubscribe(); await session.dispose(); await cleanup(); }
+});
+
+test('captured native move_path identifies the destination and preserves the source baseline', { timeout: 10000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+  execFileSync('git', ['init', '-q'], { cwd });
+  await writeFile(path.join(cwd, 'a.txt'), 'alpha\n');
+  const controller = new ChatController({ provider: 'codex', cwd, model: 'fixture' }, async (selection) => createCodexAppServerSession({ ...selection, storagePath: cwd, codexPath: command }), () => {});
+  try {
+    await controller.send('REAL_RENAME');
+    const changes = controller.snapshot().changes;
+    assert.equal(changes.length, 1, 'native rename and Git delete/add must not create duplicate rows');
+    assert.equal(changes[0]?.path, path.join(cwd, 'b.txt'));
+    assert.equal(changes[0]?.oldPath, path.join(cwd, 'a.txt'));
+    assert.equal(changes[0]?.kind, 'rename');
+    assert.equal(changes[0]?.previousText, 'alpha\n');
+    assert.equal(changes[0]?.additions, 1);
+    assert.equal(changes[0]?.deletions, 1);
+    assert.match(changes[0]?.diff ?? '', /-alpha\n\+beta/);
+  } finally { await controller.dispose(); await cleanup(); }
 });

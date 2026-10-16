@@ -16,8 +16,9 @@ coverage/
 *.log
 npm-debug.log*
 
-# 確認用の画面キャプチャ。ソースでもドキュメントの一部でもない
+# 検証用アーティファクト（ローカル保存のみ。リポジトリには含めない）
 **/docs/screenshots/
+**/docs/evidence/
 
 # OS と秘密情報
 .DS_Store

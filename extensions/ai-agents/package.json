@@ -112,6 +112,7 @@
     "test:protocol": "AI_AGENTS_REAL_PROTOCOL=1 tsx --test test/live/protocol.test.ts",
     "test:live": "AI_AGENTS_LIVE_CURSOR_TEST=1 AI_AGENTS_LIVE_ACP_TEST=1 AI_AGENTS_LIVE_TEST=1 AI_AGENTS_LIVE_APP_SERVER_TEST=1 tsx --test test/live/inference.test.ts",
     "test:tools": "AI_AGENTS_LIVE_TOOLS=1 tsx --test test/live/tools.test.ts",
+    "test:runtime": "AI_AGENTS_LIVE_RUNTIME=1 tsx --test test/live/runtime.test.ts",
     "package": "npm run build && node scripts/package.mjs"
   },
   "dependencies": {

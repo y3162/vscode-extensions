@@ -1,13 +1,17 @@
-import { countUnifiedDiff, normalizeChangeKind, parseUnifiedDiff } from '../diff-stats.js';
+import { countUnifiedDiff, normalizeChangeKind, parseUnifiedDiff, previousTextFromDiff } from '../diff-stats.js';
 import { writeImageFiles } from '../images.js';
+import { captureGitBaselines } from '../change-tracker.js';
 import { extensionVersion } from '../version.js';
 import type {
-  AgentSession, AgentUpdate, ChatMessage, FileChange, PermissionDecision, SessionSummary, TodoEntry, UsageStats,
+  AgentSession, AgentUpdate, ChatMessage, FileChange, PermissionDecision, SessionSummary, SubagentRecord, TerminalRecord, TodoEntry, UsageStats,
 } from '../types.js';
 import { codexSpawn } from './codex-binary.js';
 import type { SessionOptions } from './session-options.js';
 import { StdioJsonRpc } from './stdio-rpc.js';
 import { describedTool } from './tools.js';
+import { errorMessage } from '../types.js';
+import path from 'node:path';
+import { realpath } from 'node:fs/promises';
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -59,11 +63,13 @@ function filesOf(item: Record<string, unknown>): FileChange[] {
     const normalized = normalizeChangeKind(entry.kind);
     const diff = typeof entry.diff === 'string' ? entry.diff : undefined;
     const counts = diff ? countUnifiedDiff(diff) : undefined;
+    const previousText = diff ? previousTextFromDiff(diff, normalized.kind) : undefined;
     return [{
-      path: normalized.kind === 'rename' && typeof entry.path === 'string' ? filePath : filePath,
+      path: normalized.movePath ?? filePath,
       kind: normalized.kind,
-      ...(normalized.oldPath ? { oldPath: normalized.oldPath } : {}),
+      ...(normalized.movePath ? { oldPath: filePath } : normalized.oldPath ? { oldPath: normalized.oldPath } : {}),
       ...(diff ? { diff } : {}),
+      ...(previousText !== undefined ? { previousText } : {}),
       ...(counts && (counts.additions || counts.deletions) ? { additions: counts.additions, deletions: counts.deletions } : {}),
     }];
   });
@@ -90,6 +96,42 @@ function namesFrom(value: unknown): string[] {
   });
 }
 
+function normalizedType(type: string): string {
+  return type.toLowerCase().replace(/[_-]/g, '');
+}
+
+function isSubagentType(type: string): boolean {
+  const normalized = normalizedType(type);
+  return normalized.includes('collab') || normalized === 'subagentactivity' || normalized === 'spawnagent' || normalized === 'waitagent';
+}
+
+function isAgentMessage(type: string): boolean {
+  return normalizedType(type).includes('agentmessage');
+}
+
+function subagentStatus(statusText: string): SubagentRecord['status'] {
+  if (/cancel|interrupt|shutdown/i.test(statusText)) return 'cancelled';
+  if (/fail|error/i.test(statusText)) return 'error';
+  if (/progress|running|pending|start/i.test(statusText)) return 'running';
+  if (/complete|success|done/i.test(statusText)) return 'completed';
+  return 'unknown';
+}
+
+function threadIdsIn(value: Record<string, unknown>): string[] {
+  const ids: string[] = [];
+  for (const key of ['newThreadId', 'receiverThreadId', 'childThreadId', 'agentThreadId']) {
+    const id = value[key];
+    if (typeof id === 'string' && id) ids.push(id);
+  }
+  if (Array.isArray(value.receiverThreadIds)) ids.push(...value.receiverThreadIds.filter((id): id is string => typeof id === 'string'));
+  ids.push(...Object.keys(record(value.agentsStates)));
+  return ids;
+}
+
+function sameAgentPath(left: string, right: string): boolean {
+  return left === right || left.endsWith(`/${right}`) || right.endsWith(`/${left}`);
+}
+
 function todosOf(value: unknown): TodoEntry[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
@@ -111,6 +153,17 @@ function messagesFrom(value: unknown): ChatMessage[] {
     for (const raw of items) {
       const item = record(raw);
       const type = itemType(item);
+      if (isSubagentType(type)) {
+        for (const id of threadIdsIn(item)) {
+          const childState = record(record(item.agentsStates)[id]);
+          const child: SubagentRecord = { id, name: typeof item.agentPath === 'string' ? item.agentPath : 'Subagent', status: subagentStatus(String(childState.status ?? item.kind ?? '')), background: 'unknown', ...(typeof item.model === 'string' ? { model: item.model } : {}), ...(typeof childState.message === 'string' ? { resultPreview: childState.message.slice(0, 500) } : {}) };
+          const message: ChatMessage = { id: `subagent:${id}`, role: 'status', text: child.name, meta: { type: 'subagent', subagent: child } };
+          const index = messages.findIndex((entry) => entry.id === message.id);
+          if (index < 0) messages.push(message);
+          else messages[index] = message;
+        }
+        continue;
+      }
       const text = textOf(item);
       if (!text) continue;
       const role = type.toLowerCase().includes('user') ? 'user'
@@ -123,20 +176,122 @@ function messagesFrom(value: unknown): ChatMessage[] {
 }
 
 export async function createCodexAppServerSession(options: SessionOptions): Promise<AgentSession> {
+  const canonicalCwd = await realpath(options.cwd).catch(() => path.resolve(options.cwd));
+  const workspacePath = (name: string): string => {
+    const resolved = path.resolve(options.cwd, name);
+    const relative = path.relative(canonicalCwd, resolved);
+    return !relative.startsWith('..') && !path.isAbsolute(relative) ? path.resolve(options.cwd, relative) : resolved;
+  };
   const key = options.apiKey || process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY;
   const rpc = new StdioJsonRpc(codexSpawn(options.codexPath, ['app-server', '--listen', 'stdio://'], options.cwd, key));
   let threadId = options.resumeId ?? '';
+  let threadModel = options.model || '';
   let turnId = '';
   let mode = options.mode ?? 'agent';
   const childThreads = new Set<string>();
+  const children = new Map<string, SubagentRecord>();
+  const childText = new Map<string, string>();
   const buffers = new Map<string, string>();
+  const agentTexts = new Map<string, string>();
+  const turnFilePaths = new Set<string>();
+  const turnRenames = new Map<string, FileChange>();
+  let sawStructuredPlan = false;
   const finished = new Map<string, Error | null>();
   let stopRequested = false;
   let waiter: { id: string; resolve: () => void; reject: (error: Error) => void } | null = null;
   const replay = messagesFrom({});
   let instructionSources: string[] = [];
   const emitLive = { current: undefined as ((update: AgentUpdate) => void) | undefined };
+  const backgroundListeners = new Set<(update: AgentUpdate) => void>();
+  const commands = new Map<string, TerminalRecord>();
+  let terminals: TerminalRecord[] = [];
+  let terminalListError: string | undefined;
+  let pollTimer: ReturnType<typeof setTimeout> | undefined;
+  let disposed = false;
   const effort = options.modelParams?.find((param) => param.id === 'modelReasoningEffort')?.value;
+
+  function emitBackground(update: AgentUpdate): void {
+    if (disposed) return;
+    if (backgroundListeners.size) for (const listener of backgroundListeners) listener(update);
+    else emitLive.current?.(update);
+  }
+
+  function updateChild(id: string, patch: Partial<SubagentRecord>): void {
+    if (!id || id === threadId) return;
+    childThreads.add(id);
+    const child: SubagentRecord = { id, name: 'Subagent', status: 'unknown', background: 'unknown', ...children.get(id), ...patch };
+    children.set(id, child);
+    emitBackground({ id: `subagent:${id}`, role: 'status', text: child.task || child.name, meta: { type: 'subagent', subagent: child } });
+  }
+
+  function publishTerminals(): void {
+    emitBackground({ id: 'terminals', role: 'status', text: '', meta: { type: 'terminals', terminals: terminals.map((item) => ({ ...item })), terminalError: terminalListError } });
+  }
+
+  function schedulePoll(): void {
+    if (disposed || rpc.isClosed || pollTimer || (!terminals.length && ![...children.values()].some((child) => child.status === 'running' || child.status === 'unknown'))) return;
+    pollTimer = setTimeout(() => {
+      pollTimer = undefined;
+      void (async () => {
+        if (terminals.length || terminalListError) await refreshTerminals().catch(terminalError);
+        if (!emitLive.current) {
+          await Promise.all([...children].filter(([, child]) => child.status === 'running' || child.status === 'unknown').map(async ([id, child]) => {
+            try {
+              const read = record(await rpc.request('thread/read', { threadId: id, includeTurns: true }, AbortSignal.timeout(10000)));
+              const thread = record(read.thread);
+              const turns = Array.isArray(thread.turns) ? thread.turns : [];
+              const last = record(turns.at(-1));
+              const status = subagentStatus(String(last.status ?? ''));
+              if (['completed', 'error', 'cancelled'].includes(status) && record(thread.status).type !== 'active') {
+                const items = Array.isArray(last.items) ? last.items : [];
+                const preview = items.map(record).filter((item) => isAgentMessage(itemType(item))).map(textOf).join('\n');
+                updateChild(id, { status, endedAt: Date.now(), ...(preview ? { resultPreview: preview.slice(0, 500) } : {}) });
+              }
+            } catch {
+              if (child.status !== 'unknown') updateChild(id, { status: 'unknown' });
+            }
+          }));
+        }
+      })().finally(schedulePoll);
+    }, 2000);
+    pollTimer.unref();
+  }
+
+  function terminalError(error: unknown): void {
+    terminalListError = errorMessage(error);
+    terminals = terminals.map((item) => ({ ...item, status: 'unknown', error: terminalListError }));
+    publishTerminals();
+  }
+
+  async function refreshTerminals(): Promise<TerminalRecord[]> {
+    const rows: TerminalRecord[] = [];
+    const cursors = new Set<string>();
+    let cursor: string | undefined;
+    do {
+      const listed = record(await rpc.request('thread/backgroundTerminals/list', { threadId, limit: 20, ...(cursor ? { cursor } : {}) }, AbortSignal.timeout(10000)));
+      const data = Array.isArray(listed.data) ? listed.data : Array.isArray(listed.terminals) ? listed.terminals : undefined;
+      if (!data) throw new Error('Background terminal list did not contain an array.');
+      for (const raw of data) {
+        const entry = record(raw);
+        const processId = String(entry.processId ?? entry.id ?? '');
+        if (!processId) continue;
+        const itemId = typeof entry.itemId === 'string' ? entry.itemId : undefined;
+        const saved = itemId ? commands.get(itemId) : undefined;
+        if (saved?.status && /complete|fail|cancel|interrupt/i.test(saved.status)) continue;
+        rows.push({ ...saved, processId, ...(itemId ? { itemId } : {}), ...(typeof entry.command === 'string' ? { command: entry.command } : {}), status: 'running', error: undefined });
+      }
+      cursor = typeof listed.nextCursor === 'string' && listed.nextCursor ? listed.nextCursor : undefined;
+      if (cursor && cursors.has(cursor)) throw new Error('Background terminal list repeated a cursor.');
+      if (cursor) cursors.add(cursor);
+    } while (cursor);
+    if (disposed) return [];
+    terminals = rows;
+    terminalListError = undefined;
+    publishTerminals();
+    if (!rows.length && pollTimer) { clearTimeout(pollTimer); pollTimer = undefined; }
+    schedulePoll();
+    return rows;
+  }
 
   const finish = (id: string, error: Error | null) => {
     if (!id) return;
@@ -149,13 +304,32 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
   };
 
   const emitItem = (item: Record<string, unknown>) => {
-    const emit = emitLive.current;
-    if (!emit) return;
+    const emit = emitLive.current ?? emitBackground;
     const type = itemType(item).toLowerCase();
     const id = typeof item.id === 'string' ? item.id : type || 'item';
     const text = textOf(item) || buffers.get(id) || '';
+    if (type.includes('command')) {
+      const saved = commands.get(id);
+      const processId = typeof item.processId === 'string' ? item.processId : saved?.processId;
+      const output = typeof item.aggregatedOutput === 'string' ? item.aggregatedOutput : buffers.get(id) ?? saved?.output;
+      const status = typeof item.status === 'string' ? item.status : saved?.status ?? 'unknown';
+      if (processId) {
+        const command: TerminalRecord = { ...saved, processId, itemId: id, status, ...(typeof item.command === 'string' ? { command: item.command } : {}), ...(output !== undefined ? { output: output.slice(-32000) } : {}), ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}) };
+        commands.set(id, command);
+        const active = terminals.findIndex((row) => row.processId === processId);
+        if (active >= 0) {
+          if (/complete|fail|cancel|interrupt/i.test(status)) terminals.splice(active, 1);
+          else terminals[active] = { ...terminals[active], ...command };
+        }
+        emitBackground({ id, role: 'tool', text: [command.command, command.output].filter(Boolean).join('\n'), tool: { ...describedTool('shell', command.command ?? '', status), ...(command.exitCode !== undefined ? { exitCode: command.exitCode } : {}) } });
+        if (active >= 0) publishTerminals();
+        return;
+      }
+    }
     if (type.includes('file')) {
-      const files = filesOf(item);
+      const files = /progress|pending|fail|declin|cancel|interrupt/i.test(String(item.status ?? '')) ? [] : filesOf(item).map((file) => ({ ...file, path: workspacePath(file.path), ...(file.oldPath ? { oldPath: workspacePath(file.oldPath) } : {}) }));
+      for (const file of files) if (file.kind === 'rename') turnRenames.set(file.path, file);
+      for (const file of files) turnFilePaths.add(file.path);
       const body = text || files.map((file) => `${file.kind}: ${file.path}`).join('\n');
       emit({
         id, role: 'tool', text: body, tool: describedTool('edit', body, typeof item.status === 'string' ? item.status : 'completed'),
@@ -164,6 +338,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       return;
     }
     if (type === 'plan') {
+      sawStructuredPlan = true;
       if (text) emit({ id, role: 'status', text, meta: { type: 'plan', plan: { markdown: text, source: 'app-server-plan' } } });
       return;
     }
@@ -172,29 +347,29 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       emit({ id, role: 'status', text: text || todos.map((todo) => `${todo.status}: ${todo.content}`).join('\n'), ...(todos.length ? { meta: { type: 'todo', todos } } : {}) });
       return;
     }
-    if (type.includes('collab')) {
-      const child = typeof item.newThreadId === 'string' ? item.newThreadId : typeof item.receiverThreadId === 'string' ? item.receiverThreadId : '';
-      if (child) childThreads.add(child);
-      const statusText = typeof item.status === 'string' ? item.status : typeof item.agentStatus === 'string' ? item.agentStatus : 'completed';
-      const failed = /fail|error|cancel/i.test(statusText);
-      const running = /progress|running|pending/i.test(statusText);
-      emit({
-        id, role: 'status', text: typeof item.prompt === 'string' ? item.prompt : text || 'Subagent',
-        meta: {
-          type: 'subagent',
-          subagent: {
-            id,
-            name: typeof item.tool === 'string' ? item.tool : 'Subagent',
-            ...(typeof item.prompt === 'string' ? { task: item.prompt } : {}),
-            status: failed ? 'error' : running ? 'running' : 'completed',
-            background: 'unknown',
-          },
-        },
-      });
+    if (isSubagentType(type)) {
+      const activity = normalizedType(type) === 'subagentactivity';
+      for (const child of threadIdsIn(item)) {
+        const state = record(record(item.agentsStates)[child]);
+        const statusText = typeof state.status === 'string' ? state.status : activity ? String(item.kind ?? '')
+          : /spawn/i.test(String(item.tool ?? type)) ? 'pendingInit' : '';
+        const previous = children.get(child);
+        const status = activity && item.kind === 'completed' && previous && ['error', 'cancelled'].includes(previous.status) ? previous.status : subagentStatus(statusText);
+        updateChild(child, {
+          status,
+          ...(typeof item.agentPath === 'string' ? { name: item.agentPath } : {}),
+          ...(typeof item.model === 'string' ? { model: item.model } : {}),
+          ...(typeof item.prompt === 'string' ? { task: item.prompt } : {}),
+          ...(typeof state.message === 'string' ? { resultPreview: state.message.slice(0, 500) } : {}),
+          ...(status === 'running' && !previous?.startedAt ? { startedAt: Date.now() } : {}),
+          ...(['completed', 'error', 'cancelled'].includes(status) ? { endedAt: Date.now() } : {}),
+        });
+      }
       return;
     }
-    if (type.includes('agent') || type.includes('reasoning')) {
+    if (type.includes('reasoning') || isAgentMessage(type)) {
       const phase = typeof item.phase === 'string' ? item.phase : '';
+      if (isAgentMessage(type) && text) agentTexts.set(id, text);
       if (text) emit({
         id, role: type.includes('reasoning') ? 'status' : 'assistant', text,
         ...(phase === 'final_answer' ? { final: true } : {}),
@@ -214,17 +389,33 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
   };
 
   rpc.setHandlers({
+    closed: (error) => {
+      waiter?.reject(error);
+      waiter = null;
+      if (pollTimer) { clearTimeout(pollTimer); pollTimer = undefined; }
+      terminalError(error);
+      for (const [id, child] of children) if (child.status === 'running') updateChild(id, { status: 'unknown' });
+    },
     notification: (method, params) => {
       const body = record(params);
       const item = record(body.item);
       const noted = typeof body.threadId === 'string' ? body.threadId : '';
       if (noted && threadId && noted !== threadId && !childThreads.has(noted)) return;
       if (noted && childThreads.has(noted)) {
-        const status = method === 'turn/completed' ? 'completed' : 'running';
-        emitLive.current?.({
-          id: noted, role: 'status', text: textOf(item) || method,
-          meta: { type: 'subagent', subagent: { id: noted, name: 'Subagent', status, background: 'unknown', ...(textOf(item) ? { resultPreview: textOf(item).slice(0, 500) } : {}) } },
-        });
+        if (isSubagentType(itemType(item))) emitItem(item);
+        const turn = record(body.turn);
+        const status = method === 'turn/completed' ? subagentStatus(String(turn.status ?? '')) : method === 'turn/started' ? 'running' : children.get(noted)?.status ?? 'unknown';
+        const piece = isAgentMessage(itemType(item)) ? textOf(item) : method === 'item/agentMessage/delta' && typeof body.delta === 'string' ? body.delta : '';
+        if (piece && method.includes('delta')) childText.set(noted, `${childText.get(noted) ?? ''}${piece}`);
+        else if (piece) childText.set(noted, piece);
+        const preview = childText.get(noted) ?? '';
+        updateChild(noted, { status, ...(preview ? { resultPreview: preview.slice(0, 500) } : {}), ...(method === 'turn/completed' ? { endedAt: Date.now(), ...(typeof turn.durationMs === 'number' ? { durationMs: turn.durationMs } : {}) } : {}) });
+        const childType = itemType(item).toLowerCase();
+        if (childType.includes('file')) {
+          const files = filesOf(item);
+          for (const file of files) turnFilePaths.add(file.path);
+          if (files.length) emitBackground({ id: `${noted}:files`, role: 'tool', text: 'diff updated', meta: { type: 'files', files } });
+        }
         return;
       }
       if (method === 'item/agentMessage/delta' || method === 'item/commandExecution/outputDelta' || method === 'item/reasoning/summaryTextDelta' || method === 'item/plan/delta') {
@@ -248,14 +439,21 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       if (method === 'turn/completed' || method === 'turn/diff/updated') {
         const id = turnIdOf(body, turnId);
         if (typeof body.diff === 'string' && emitLive.current) {
-          const files = parseUnifiedDiff(body.diff).map((file) => ({
-            path: file.path,
-            kind: file.kind,
-            diff: file.diff,
-            additions: file.additions,
-            deletions: file.deletions,
-            ...(file.oldPath ? { oldPath: file.oldPath } : {}),
-          }));
+          const parsed = parseUnifiedDiff(body.diff).map((file) => {
+            const previousText = previousTextFromDiff(file.diff, file.kind);
+            return {
+              path: file.path,
+              kind: file.kind,
+              diff: file.diff,
+              additions: file.additions,
+              deletions: file.deletions,
+              ...(file.oldPath ? { oldPath: file.oldPath } : {}),
+              ...(previousText !== undefined ? { previousText } : {}),
+            };
+          });
+          const files = turnFilePaths.size
+            ? parsed.filter((file) => [...turnFilePaths].some((item) => sameAgentPath(item, file.path)))
+            : parsed;
           if (files.length) emitLive.current({ id: `${id}:diff`, role: 'tool', text: 'diff updated', meta: { type: 'files', files } });
         }
         const turn = record(body.turn);
@@ -264,7 +462,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
         if (method === 'turn/completed') {
           const status = typeof turn.status === 'string' ? turn.status : 'completed';
           const message = failureText(turn.error) || failureText(body.error);
-          finish(id, status === 'failed' ? new Error(message || 'Codex turn failed.') : null);
+          finish(id, status === 'failed' ? new Error(message || 'Codex turn failed.') : /interrupt|cancel/i.test(status) ? new DOMException('Cancelled', 'AbortError') : null);
         }
       }
       if (method === 'thread/tokenUsage/updated') {
@@ -343,8 +541,14 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       : await rpc.request('thread/start', params, options.signal));
     const thread = record(started.thread);
     threadId = typeof thread.id === 'string' ? thread.id : typeof started.threadId === 'string' ? started.threadId : options.resumeId ?? '';
+    const reportedModel = typeof thread.model === 'string' ? thread.model : typeof started.model === 'string' ? started.model : '';
+    if (reportedModel) threadModel = reportedModel;
     instructionSources = Array.isArray(started.instructionSources) ? started.instructionSources.filter((item): item is string => typeof item === 'string') : [];
     replay.push(...messagesFrom(started));
+    for (const message of replay) if (message.meta?.subagent) {
+      children.set(message.meta.subagent.id, message.meta.subagent);
+      childThreads.add(message.meta.subagent.id);
+    }
     if (!threadId) throw new Error('Codex App Server did not return a thread id.');
     identify('Codex');
   } catch (error) {
@@ -394,6 +598,11 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
 
   return {
     sessionId: threadId,
+    subscribeBackgroundUpdates(emit) {
+      backgroundListeners.add(emit);
+      schedulePoll();
+      return () => backgroundListeners.delete(emit);
+    },
     get closed() { return rpc.isClosed; },
     async setMode(next) { mode = next; },
     async steer(text) {
@@ -440,6 +649,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
         }, signal);
       } finally {
         emitLive.current = undefined;
+        schedulePoll();
       }
     },
     async rateLimits() {
@@ -464,29 +674,30 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       ].join('\n');
     },
     async listBackgroundTerminals() {
-      const listed = record(await rpc.request('thread/backgroundTerminals/list', { threadId, limit: 20 }));
-      const rows = Array.isArray(listed.data) ? listed.data : Array.isArray(listed.terminals) ? listed.terminals : [];
-      return rows.flatMap((item) => {
-        const entry = record(item);
-        const processId = String(entry.processId ?? entry.id ?? '');
-        if (!processId) return [];
-        return [{ processId, ...(typeof entry.command === 'string' ? { command: entry.command } : {}), ...(typeof entry.status === 'string' ? { status: entry.status } : {}) }];
-      });
+      try { return await refreshTerminals(); }
+      catch (error) { terminalError(error); throw error; }
     },
     async terminateBackgroundTerminal(processId: string) {
-      await rpc.request('thread/backgroundTerminals/terminate', { threadId, processId });
+      const result = record(await rpc.request('thread/backgroundTerminals/terminate', { threadId, processId }));
+      await refreshTerminals();
+      if (result.terminated !== true && terminals.some((item) => item.processId === processId)) throw new Error('Background terminal was not terminated.');
     },
     async run(prompt, signal, emit, extras, turn) {
       emitLive.current = emit;
+      agentTexts.clear();
+      turnFilePaths.clear();
+      turnRenames.clear();
+      sawStructuredPlan = false;
       const imagePaths = await writeImageFiles(extras?.images ?? []);
       const input = [
         { type: 'text', text: prompt, text_elements: [] },
         ...imagePaths.map((imagePath) => ({ type: 'localImage', path: imagePath })),
       ];
-      const model = turn?.selection.model || options.model || '';
+      const model = turn?.selection.model || options.model || threadModel;
       const turnEffort = turn?.selection.modelParams?.find((param) => param.id === 'modelReasoningEffort')?.value ?? effort;
       const turnMode = turn?.mode ?? mode;
       mode = turnMode;
+      const baselines = await captureGitBaselines(options.cwd);
       try {
         await startTurn('turn/start', {
           threadId,
@@ -495,25 +706,35 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
           ...(turnEffort ? { effort: turnEffort } : {}),
           collaborationMode: {
             mode: turnMode === 'plan' ? 'plan' : 'default',
-            settings: { model, reasoning_effort: turnEffort ?? null, developer_instructions: null },
+            settings: { model: model || null, reasoning_effort: turnEffort ?? null, developer_instructions: null },
           },
         }, signal);
-        const terminals = await rpc.request('thread/backgroundTerminals/list', { threadId, limit: 20 }).then((value) => {
-          const listed = record(value);
-          const rows = Array.isArray(listed.data) ? listed.data : Array.isArray(listed.terminals) ? listed.terminals : [];
-          return rows.flatMap((item) => {
-            const entry = record(item);
-            const processId = String(entry.processId ?? entry.id ?? '');
-            if (!processId) return [];
-            return [{ processId, ...(typeof entry.command === 'string' ? { command: entry.command } : {}), ...(typeof entry.status === 'string' ? { status: entry.status } : {}) }];
-          });
-        }).catch(() => []);
-        if (terminals?.length) emit({ id: 'terminals', role: 'status', text: '', meta: { type: 'terminals', terminals } });
+        if (turnMode === 'plan' && !sawStructuredPlan && !signal.aborted) {
+          const planText = [...agentTexts.values()].map((item) => item.trim()).filter(Boolean).join('\n\n');
+          if (planText) emit({ id: 'plan-text', role: 'status', text: planText, meta: { type: 'plan', plan: { markdown: planText, source: 'assistant-text' } } });
+        }
         identify(prompt.slice(0, 80) || 'Codex');
       } finally {
+        let changes = await baselines?.changes();
+        for (const file of turnRenames.values()) {
+          const previous = file.oldPath ? await baselines?.lookup(file.oldPath) : undefined;
+          const moved = [file.path, file.oldPath].filter((name): name is string => Boolean(name)).map((name) => path.resolve(options.cwd, name));
+          changes = (changes ?? []).filter((change) => !moved.includes(path.resolve(options.cwd, change.path)));
+          changes.push({ ...file, ...(previous !== undefined ? { previousText: previous } : {}) });
+        }
+        if (changes?.length) emitBackground({ id: `workspace-changes:${turnId}`, role: 'tool', text: 'diff updated', meta: { type: 'files', files: changes } });
+        if (!disposed && !rpc.isClosed) await refreshTerminals().catch(terminalError);
         emitLive.current = undefined;
+        schedulePoll();
       }
     },
-    async dispose() { await rpc.dispose(); },
+    async dispose() {
+      disposed = true;
+      if (pollTimer) clearTimeout(pollTimer);
+      backgroundListeners.clear();
+      waiter?.reject(new Error('Agent process closed.'));
+      waiter = null;
+      await rpc.dispose();
+    },
   };
 }

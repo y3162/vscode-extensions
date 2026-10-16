@@ -6,10 +6,12 @@ import { runTests } from '@vscode/test-electron';
 
 const root = resolve(import.meta.dirname, '..');
 const fixture = await mkdtemp(join(tmpdir(), 'ai-agents-integration-'));
+const profile = await mkdtemp(join(tmpdir(), 'ai-agents-test-profile-'));
 const testBundle = join(root, 'dist', 'integration.js');
 await build({ entryPoints: [join(root, 'test', 'integration.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: testBundle, external: ['vscode'] });
 await cp(join(root, 'test', 'fixtures', 'mock-codex.cjs'), join(fixture, 'mock-codex.cjs'));
 await cp(join(root, 'test', 'fixtures', 'mock-app-server.cjs'), join(fixture, 'mock-app-server.cjs'));
+await cp(join(root, 'test', 'fixtures', 'real', 'runtime-090.json'), join(fixture, 'runtime-090.json'));
 
 let executable = process.env.VSCODE_EXECUTABLE_PATH;
 if (!executable && process.platform === 'darwin') {
@@ -31,10 +33,13 @@ try {
       AI_AGENTS_LIVE_ACP_TEST: process.env.AI_AGENTS_LIVE_ACP_TEST,
       AI_AGENTS_LIVE_APP_SERVER_TEST: process.env.AI_AGENTS_LIVE_APP_SERVER_TEST,
       AI_AGENTS_REAL_PROTOCOL: process.env.AI_AGENTS_REAL_PROTOCOL,
+      AI_AGENTS_LIVE_RUNTIME: process.env.AI_AGENTS_LIVE_RUNTIME,
+      AI_AGENTS_UI_HOLD: process.env.AI_AGENTS_UI_HOLD,
     },
     launchArgs: [fixture, '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes',
-      '--user-data-dir', join(fixture, 'user-data'), '--extensions-dir', join(fixture, 'extensions')],
+      '--user-data-dir', join(profile, 'user-data'), '--extensions-dir', join(profile, 'extensions')],
   });
 } finally {
   await rm(fixture, { recursive: true, force: true });
+  await rm(profile, { recursive: true, force: true });
 }
