@@ -58,6 +58,46 @@ test('markdown stays text and reuses completed blocks', () => {
   assert.match(host.textContent ?? '', /Later/);
 });
 
+test('file links preserve absolute paths and send Markdown destinations and locations', () => {
+  const absolute = '/Users/sekiyuuta/Developer/y3162/vscode-extensions/README.md';
+  const cases = [
+    { text: absolute, label: absolute, path: absolute },
+    { text: `[README.md](${absolute})`, label: 'README.md', path: absolute },
+    { text: `[README.md](${absolute}:12)`, label: 'README.md', path: absolute, line: 12 },
+    { text: '[app.ts](src/app.ts:2:3)', label: 'app.ts', path: 'src/app.ts', line: 2, column: 3 },
+    { text: `[README](file://${absolute}#L12)`, label: 'README', path: `file://${absolute}`, line: 12 },
+    { text: '[Report](</workspace/My Project/README.md:4>)', label: 'Report', path: '/workspace/My Project/README.md', line: 4 },
+    { text: '[Report](docs/My%20Report.md)', label: 'Report', path: 'docs/My Report.md' },
+    { text: 'src/app.ts:2', label: 'src/app.ts:2', path: 'src/app.ts', line: 2 },
+    { text: 'C:\\workspace\\src\\app.ts:2:3', label: 'C:\\workspace\\src\\app.ts:2:3', path: 'C:\\workspace\\src\\app.ts', line: 2, column: 3 },
+  ];
+  for (const item of cases) {
+    const { window, sent, emit } = mount();
+    emit(shell(), [{ id: 'answer', role: 'assistant', text: item.text, at: 1 }]);
+    const links = window.document.querySelectorAll<HTMLButtonElement>('.answer .file-link');
+    assert.equal(links.length, 1, item.text);
+    assert.equal(links[0]?.textContent, item.label, item.text);
+    click(links[0]!);
+    assert.deepEqual(posted(sent, 'openFile'), {
+      provider: 'codex', cwd: '/workspace', type: 'openFile', path: item.path,
+      ...('line' in item ? { line: item.line } : {}),
+      ...('column' in item ? { column: item.column } : {}),
+    }, item.text);
+  }
+});
+
+test('web URLs stay external and unsupported link schemes never become file actions', () => {
+  const window = new Window();
+  const dom = createDom(window.document);
+  const host = dom.el('div');
+  renderMarkdown(host, '[Docs](https://example.com/src/app.ts) https://example.com/src/app.ts', dom);
+  assert.equal(host.querySelectorAll('a').length, 2);
+  assert.equal(host.querySelector('.file-link'), null);
+  renderMarkdown(host, '[Run](command:workbench.action.openSettings) [Bad](javascript:alert) [Remote](vscode://file/workspace/src/app.ts)', dom);
+  assert.equal(host.querySelector('a'), null);
+  assert.equal(host.querySelector('.file-link'), null);
+});
+
 test('Enter allows newlines and IME confirmation, and only the send button sends', () => {
   const { window, sent, input, emit } = mount();
   emit(shell());

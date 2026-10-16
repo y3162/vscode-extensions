@@ -289,7 +289,8 @@ export class Transcript {
     if (action === 'post' && button.dataset.type) { this.post({ type: button.dataset.type }); return; }
     if ((action === 'open-file' || action === 'open-diff') && button.dataset.path) {
       const line = Number(button.dataset.line);
-      this.post({ type: action === 'open-file' ? 'openFile' : 'openDiff', path: button.dataset.path, ...(line ? { line } : {}) });
+      const column = Number(button.dataset.column);
+      this.post({ type: action === 'open-file' ? 'openFile' : 'openDiff', path: button.dataset.path, ...(line ? { line } : {}), ...(column ? { column } : {}) });
     }
   }
 

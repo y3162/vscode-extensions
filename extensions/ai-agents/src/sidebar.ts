@@ -242,7 +242,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       case 'resolveQuestion': this.resolveQuestion(message); return;
       case 'openDiff':
       case 'openFile':
-      case 'revertFile': await this.reviewFile(String(message.type), 'path' in message ? message.path : undefined, 'line' in message ? message.line : undefined); return;
+      case 'revertFile': await this.reviewFile(String(message.type), 'path' in message ? message.path : undefined, 'line' in message ? message.line : undefined, 'column' in message ? message.column : undefined); return;
       case 'restoreSession': await this.restoreSession('id' in message ? message.id : undefined); return;
       case 'addDirectory': await this.addDirectory(); return;
       case 'login': await this.signIn(); return;
@@ -700,18 +700,20 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     if (id) this.controller.resolveAnswers(id, answers, this.tokenOf(message));
   }
 
-  private async reviewFile(type: string, filePath: unknown, line?: unknown): Promise<void> {
+  private async reviewFile(type: string, filePath: unknown, line?: unknown, column?: unknown): Promise<void> {
     if (typeof filePath !== 'string' || !filePath) return;
     const roots = this.folders().map((folder) => folder.path);
     const change = this.controller.snapshot().changes.find((item) => item.path === filePath);
     const synthetic = filePath === 'turn.diff' || filePath === 'patch' || path.basename(filePath) === 'turn.diff';
     if (type === 'openFile') {
-      const resolved = this.resolveInside(filePath);
+      const target = /^file:\/\//i.test(filePath) ? vscode.Uri.parse(filePath).fsPath : filePath;
+      const resolved = this.resolveInside(target);
       if (!resolved) throw new Error('ワークスペース外のファイルは変更できません。');
       const editor = await vscode.window.showTextDocument(vscode.Uri.file(resolved), { preview: true });
       const lineNumber = typeof line === 'number' ? line : Number(line);
-      if (Number.isInteger(lineNumber) && lineNumber > 0) {
-        const position = new vscode.Position(lineNumber - 1, 0);
+      const columnNumber = typeof column === 'number' ? column : Number(column);
+      if (Number.isSafeInteger(lineNumber) && lineNumber > 0) {
+        const position = new vscode.Position(lineNumber - 1, Number.isSafeInteger(columnNumber) && columnNumber > 0 ? columnNumber - 1 : 0);
         editor.selection = new vscode.Selection(position, position);
         editor.revealRange(new vscode.Range(position, position));
       }

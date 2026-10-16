@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, readFile, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import * as vscode from 'vscode';
 import type { AgentsSidebar } from '../src/sidebar.js';
@@ -42,6 +42,22 @@ export async function run(): Promise<void> {
   const invocations = JSON.parse(await readFile(join(cwd, 'invocations.json'), 'utf8')) as { args: string[] }[];
   assert.ok(invocations[1]?.args.includes('resume'), 'The second turn resumes the SDK thread');
   console.log('PASS: sidebar → Codex SDK → subprocess → responses, tool output, and follow-up');
+
+  const linkedFile = join(cwd, 'My Project', 'README.md');
+  await mkdir(join(cwd, 'My Project'));
+  await writeFile(linkedFile, 'First line\nSecond line\n');
+  for (const reference of [linkedFile, 'My Project/README.md', vscode.Uri.file(linkedFile).toString()]) {
+    await sidebar.handleMessage({ type: 'openFile', path: reference, line: 2, column: 3 });
+    const editor = vscode.window.activeTextEditor;
+    assert.equal(editor?.document.uri.fsPath, linkedFile);
+    assert.equal(editor?.selection.active.line, 1);
+    assert.equal(editor?.selection.active.character, 2);
+  }
+  await assert.rejects(
+    () => sidebar.handleMessage({ type: 'openFile', path: vscode.Uri.file(join(cwd, '..', 'outside.md')).toString() }),
+    /ワークスペース外/,
+  );
+  console.log('PASS: absolute, relative, and encoded file URI links open the same file at the requested line and column');
 
   await send('SIMULATE_ERROR');
   assert.equal(sidebar.controller.snapshot().messages.at(-1)?.text, 'fixture backend error');
