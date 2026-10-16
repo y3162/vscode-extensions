@@ -16,7 +16,7 @@ import { catalogIsCurrent, ModelSettingsDraft, sameModelParams, toCatalogModel }
 import { createSession, listCursorSdkSessions, writeBaselineFile } from './providers/index.js';
 import { listModels } from './providers/models.js';
 import type { ProbeResult } from './protocol.js';
-import { upsertSession } from './session-index.js';
+import { mergeRegistrySessions, upsertSession } from './session-index.js';
 import { extensionBadge } from './diff-stats.js';
 import { resolveThemeIcon, type IconThemeDocument } from './icon-theme.js';
 import { SessionRegistry } from './session-registry.js';
@@ -93,8 +93,11 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   }
 
   private makeController(selection: Selection): ChatController {
-    return new ChatController(selection, async (next, sessionContext) => {
+    const owner: { controller?: ChatController } = {};
+    const controller = new ChatController(selection, async (next, sessionContext) => {
       this.requireWorkspace(next.cwd);
+      const current = owner.controller;
+      if (!current) throw new Error('会話の準備ができていません。');
       const controls = { ...this.controls[next.provider], mode: this.registry?.mode() ?? this.controls[next.provider].mode };
       return createSession({
         ...next,
@@ -105,10 +108,12 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
         agentPath: vscode.workspace.getConfiguration('ai-agents').get<string>('cursor.agentPath') || 'agent',
         resumeId: sessionContext?.resumeId,
         signal: sessionContext?.signal,
-        interactions: this.controller.interactions,
-        onIdentity: (summary) => this.remember(summary),
+        interactions: current.interactions,
+        onIdentity: (summary) => this.rememberFor(current, summary),
       });
     }, () => this.postState());
+    owner.controller = controller;
+    return controller;
   }
 
   private requireWorkspace(cwd: string): void {
@@ -153,9 +158,10 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
 
   private flushNow(): void {
     if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = undefined; }
+    this.persistPlan();
     if (!this.readyViews.size) return;
     const state = this.controller.snapshot();
-    state.sessions = state.sessions.map((session) => ({ ...session, activity: this.registry.activityFor(session.id) ?? session.activity }));
+    state.sessions = mergeRegistrySessions(state.sessions, this.registry.liveSummaries());
     if (state.busy !== this.lastBusy) {
       this.lastBusy = state.busy;
       void vscode.commands.executeCommand('setContext', 'ai-agents.busy', state.busy);
@@ -192,9 +198,8 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       const waiting = Boolean(shell.permission || shell.plan || shell.question);
       view.badge = waiting ? { value: 1, tooltip: shell.statusText } : undefined;
     }
-    this.persistPlan();
     for (const entry of this.registry.background()) {
-      if (!entry.controller.snapshot().busy) void entry.controller.hibernate();
+      if (!entry.controller.snapshot().busy && !entry.controller.hasLiveTerminals() && !entry.controller.hasLiveChildren()) void entry.controller.hibernate();
     }
   }
 
@@ -213,6 +218,10 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
 
   async handleMessage(message: unknown, source?: vscode.WebviewView): Promise<void> {
     if (!message || typeof message !== 'object' || !('type' in message)) return;
+    // Actions from an older render must never fall through to the new front conversation.
+    if ('conversationId' in message && typeof message.conversationId === 'string' && !this.registry.get(message.conversationId)) return;
+    const targeted = ['stop', 'resolvePermission', 'resolvePlan', 'resolveQuestion', 'terminateTerminal'];
+    if (!targeted.includes(String(message.type)) && !this.isFront(message)) return;
     switch (message.type) {
       case 'ready':
         if (source) {
@@ -575,7 +584,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
 
   async newChat(): Promise<void> {
     const current = this.controller;
-    if (current.snapshot().busy) {
+    if (current.snapshot().busy || current.hasLiveTerminals() || current.hasLiveChildren()) {
       const next = this.makeController(current.snapshot().selection);
       const key = randomUUID();
       this.registry.add({ key, controller: next, mode: this.registry.mode() });
@@ -613,9 +622,10 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     return `@${token.includes(' ') ? `"${token}"` : token} `;
   }
 
-  private remember(summary: SessionSummary): void {
-    this.controller.rememberSession(summary);
-    void this.context.workspaceState.update('ai-agents.sessionIndex', this.controller.snapshot().sessions);
+  private rememberFor(owner: ChatController, summary: SessionSummary): void {
+    owner.rememberSession(summary);
+    if (owner !== this.controller) this.controller.rememberSession(summary);
+    void this.context.workspaceState.update('ai-agents.sessionIndex', mergeRegistrySessions([], this.registry.liveSummaries()));
   }
 
   private contextLabel(kind: 'file' | 'selection' | 'problems' | 'git' | 'terminal'): string {
@@ -651,9 +661,16 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     else if (builtin?.name === 'terminal') text = `${builtin.rest}\n\n${recentTerminalText()}`.trim();
     const expanded = await expandPrompt(text, cwd, await workspaceCommands(cwd));
     const extras = { displayText: prompt, ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}) };
-    const running = this.registry.runningCount();
+    const running = this.registry.entries().filter((entry) => entry.controller.snapshot().busy);
     const limit = vscode.workspace.getConfiguration('ai-agents').get<number>('maxBackgroundSessions', 3);
-    if (!this.controller.snapshot().busy && running >= limit) throw new Error('同時に実行できる会話の上限です。どれかを停止してください。');
+    if (!this.controller.snapshot().busy && running.length >= limit) {
+      const titles = running.map((entry) => {
+        const id = entry.controller.sessionId();
+        const known = id ? entry.controller.snapshot().sessions.find((item) => item.id === id) : undefined;
+        return known?.title || entry.controller.snapshot().messages.find((message) => message.role === 'user')?.text.slice(0, 40) || id || 'running';
+      });
+      throw new Error(`同時に実行できる会話の上限です。どれかを停止してください。（${titles.join(', ')}）`);
+    }
     if (forceQueue || this.controller.snapshot().busy) {
       this.controller.enqueue(expanded, extras);
       return;
@@ -802,7 +819,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     const entries: [vscode.Uri, vscode.Uri | undefined, vscode.Uri | undefined][] = [];
     for (const change of changes) {
       const target = this.resolveInside(change.path);
-      if (!target || change.previousText === undefined && !change.diff) continue;
+      if (!target || change.previousText === undefined) continue;
       const baseline = await writeBaselineFile(path.join(this.context.globalStorageUri.fsPath, 'review'), { ...change, path: target, previousText: change.previousText ?? '' });
       entries.push([vscode.Uri.file(target), vscode.Uri.file(baseline), change.kind === 'delete' ? undefined : vscode.Uri.file(target)]);
     }
@@ -818,17 +835,25 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   private async terminateTerminal(message: object): Promise<void> {
     const processId = 'processId' in message && typeof message.processId === 'string' ? message.processId : '';
     if (!processId) return;
-    await this.controller.currentSession()?.terminateBackgroundTerminal?.(processId);
-    this.controller.snapshot();
-    this.postState();
+    const controller = this.targetController(message);
+    const session = controller.currentSession();
+    await session?.terminateBackgroundTerminal?.(processId);
+    const listed = await session?.listBackgroundTerminals?.();
+    if (listed) controller.setTerminals(listed);
+    else this.postState();
   }
 
   private persistPlan(): void {
-    const id = this.controller.sessionId();
-    const plan = this.controller.planSnapshot();
-    if (!id || !plan.current || (plan.phase !== 'ready' && plan.phase !== 'implemented')) return;
-    if (this.savedPlans[id]?.current?.revision === plan.current.revision && this.savedPlans[id]?.phase === plan.phase) return;
-    this.savedPlans[id] = plan;
+    let changed = false;
+    for (const entry of this.registry.entries()) {
+      const id = entry.controller.sessionId();
+      const plan = entry.controller.planSnapshot();
+      if (!id || !plan.current || (plan.phase !== 'ready' && plan.phase !== 'implemented')) continue;
+      if (this.savedPlans[id]?.current?.revision === plan.current.revision && this.savedPlans[id]?.phase === plan.phase) continue;
+      this.savedPlans[id] = plan;
+      changed = true;
+    }
+    if (!changed) return;
     const ids = Object.keys(this.savedPlans);
     while (ids.length > 20) {
       const oldest = ids.shift();
@@ -918,7 +943,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     }
     const target = this.resolveInside(change.path) ?? (roots.some((root) => change.path.startsWith(root)) ? change.path : '');
     if (!target) return;
-    if (change.previousText === undefined && !change.diff) {
+    if (change.previousText === undefined) {
       await vscode.window.showTextDocument(vscode.Uri.file(target));
       return;
     }
@@ -941,16 +966,18 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     if (typeof id !== 'string') return;
     if (id === this.controller.sessionId()) return;
     const provider = this.controller.snapshot().selection.provider;
-    const summary = this.controller.snapshot().sessions.find((session) => session.id === id && session.provider === provider);
+    const summary = mergeRegistrySessions(this.controller.snapshot().sessions, this.registry.liveSummaries())
+      .find((session) => session.id === id && session.provider === provider);
     if (!summary) return;
     const existing = this.registry.findBySession(summary.id);
     if (existing) {
       this.registry.focus(existing.key);
       existing.controller.setModePreference(existing.mode);
+      await existing.controller.currentSession()?.listBackgroundTerminals?.().catch(() => undefined);
       this.postState();
       return;
     }
-    const busy = this.controller.snapshot().busy;
+    const busy = this.controller.snapshot().busy || this.controller.hasLiveTerminals() || this.controller.hasLiveChildren();
     const target = busy ? this.makeController(this.controller.snapshot().selection) : this.controller;
     const key = busy ? randomUUID() : this.registry.frontKey;
     if (busy) this.registry.add({ key, controller: target, mode: this.registry.mode() });
@@ -1105,7 +1132,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     this.modelPicker?.hide();
     this.detailsRequest?.abort();
     this.detailsEditor?.hide();
-    await this.controller.dispose();
+    await Promise.all(this.registry.entries().map((entry) => entry.controller.dispose()));
   }
 
   private html(webview: vscode.Webview): string {

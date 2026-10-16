@@ -135,3 +135,36 @@ test('image attachments are limited to four safe base64 images', () => {
   assert.equal(capabilitiesFor('codex', 'sdk').steer, false);
   assert.equal(upsertSession([{ id: 'a', title: 'old', updatedAt: '', provider: 'codex' }], { id: 'a', title: 'new', updatedAt: 'now', provider: 'codex' })[0]?.title, 'new');
 });
+
+test('rename restoration moves the captured text back and never overwrites a recreated original', async () => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'ai-agents-rename-review-'));
+  const original = path.join(cwd, 'old.txt');
+  const moved = path.join(cwd, 'new.txt');
+  const change = { path: moved, oldPath: original, kind: 'rename' as const, previousText: 'user original\n' };
+  try {
+    await writeFile(moved, 'agent edit\n');
+    await writeFile(original, 'new user content\n');
+    await assert.rejects(revertChange(change, [cwd]), /EEXIST/);
+    assert.equal(await readFile(original, 'utf8'), 'new user content\n');
+    assert.equal(await readFile(moved, 'utf8'), 'agent edit\n');
+    await rm(original);
+    await revertChange(change, [cwd]);
+    assert.equal(await readFile(original, 'utf8'), 'user original\n');
+    await assert.rejects(readFile(moved));
+    await writeFile(moved, 'agent edit\n');
+    await assert.rejects(revertChange({ ...change, oldPath: path.join(cwd, '..', 'outside.txt') }, [cwd]), /ワークスペース外/);
+  } finally { await rm(cwd, { recursive: true, force: true }); }
+});
+
+test('relative and absolute file events update one change row', async () => {
+  const controller = new ChatController(selection, async () => ({
+    async run(_prompt, _signal, emit) {
+      emit({ id: 'native', role: 'tool', text: '', meta: { type: 'files', files: [{ path: '/workspace/note.txt', kind: 'update', previousText: 'old' }] } });
+      emit({ id: 'git', role: 'tool', text: '', meta: { type: 'files', files: [{ path: 'note.txt', kind: 'update', additions: 1, deletions: 1 }] } });
+    }, async dispose() {},
+  }), () => {});
+  await controller.send('edit');
+  assert.equal(controller.snapshot().changes.length, 1);
+  assert.equal(controller.snapshot().changes[0]?.previousText, 'old');
+  await controller.dispose();
+});

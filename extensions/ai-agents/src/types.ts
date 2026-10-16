@@ -132,6 +132,7 @@ export interface PlanBuild {
 
 export interface PlanState {
   phase: PlanPhase;
+  revisionBasePhase?: 'ready' | 'implemented';
   current?: PlanDocument;
   draft?: PlanDocument;
   revisions: PlanRevision[];
@@ -159,10 +160,12 @@ export interface TurnOptions {
 
 export interface SubagentRecord {
   id: string;
+  agentId?: string;
+  model?: string;
   parentTurnId?: string;
   name: string;
   task?: string;
-  status: 'running' | 'completed' | 'error' | 'cancelled';
+  status: 'running' | 'completed' | 'error' | 'cancelled' | 'unknown';
   startedAt?: number;
   endedAt?: number;
   durationMs?: number;
@@ -172,8 +175,12 @@ export interface SubagentRecord {
 
 export interface TerminalRecord {
   processId: string;
+  itemId?: string;
   command?: string;
   status?: string;
+  output?: string;
+  exitCode?: number;
+  error?: string;
 }
 
 export interface UpdateMeta {
@@ -187,6 +194,7 @@ export interface UpdateMeta {
   plan?: { name?: string; overview?: string; markdown: string; todos?: TodoEntry[]; files?: string[]; source: PlanSource };
   subagent?: SubagentRecord;
   terminals?: TerminalRecord[];
+  terminalError?: string;
   final?: boolean;
 }
 
@@ -251,6 +259,7 @@ export interface AgentInteractions {
 }
 
 export interface AgentSession {
+  subscribeBackgroundUpdates?(emit: (update: AgentUpdate) => void): () => void;
   run(prompt: string, signal: AbortSignal, emit: (update: AgentUpdate) => void, extras?: SendExtras, turn?: TurnOptions): Promise<void>;
   dispose(): Promise<void>;
   setMode?(mode: AgentMode): Promise<void>;
@@ -271,6 +280,7 @@ export interface AgentSession {
 }
 
 export interface ChatState {
+  terminalError?: string;
   selection: Selection;
   busy: boolean;
   messages: ChatMessage[];

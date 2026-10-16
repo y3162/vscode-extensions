@@ -1,14 +1,16 @@
 import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+import { realpath } from 'node:fs/promises';
 import { refreshChangeStats } from './change-tracker.js';
 import { sameModelParams } from './model-settings.js';
-import { beginPlanning, buildPrompt, cloneSelection, commitDraft, finishBuild, inferIntent, planningFailed, requestBuild, setBuildSelection, stageDraft } from './plan-state.js';
+import { applyPlanTodos, beginPlanning, buildPrompt, cloneSelection, commitDraft, finishBuild, inferIntent, planningFailed, requestBuild, setBuildSelection, stageDraft } from './plan-state.js';
 import { upsertSession } from './session-index.js';
 import { addUsage, lightMeta } from './providers/details.js';
 import { mergeFileChanges } from './change-review.js';
 import {
   emptyPlanState, errorMessage, type AgentInteractions, type AgentMode, type AgentSession, type AgentUpdate, type ChatMessage,
   type ChatState, type ConnectionStatus, type PermissionDecision, type PermissionRequest, type PlanRequest, type PlanState,
-  type QuestionRequest, type Selection, type SendExtras, type SessionSummary, type TurnOptions, type TurnRecord,
+  type QuestionRequest, type Selection, type SendExtras, type SessionSummary, type TerminalRecord, type TurnOptions, type TurnRecord,
 } from './types.js';
 
 type SessionFactory = (selection: Selection, context?: { signal?: AbortSignal; resumeId?: string }) => Promise<AgentSession>;
@@ -19,6 +21,9 @@ interface QuestionWait { request: QuestionRequest; token: string; resolve: (answ
 
 export class ChatController {
   private session?: AgentSession;
+  private unsubscribeBackground?: () => void;
+  private readonly updateTurns = new Map<string, string>();
+  private workspaceRealPath?: string;
   private active?: { abort: AbortController; done: Promise<void> };
   private resetting?: Promise<void>;
   private autoDrain = false;
@@ -27,6 +32,7 @@ export class ChatController {
   private retainedId?: string;
   private readonly allowSession: { kind: string; title: string; detail: string }[] = [];
   private permissionWait: PermissionWait | null = null;
+  private readonly permissionQueue: PermissionWait[] = [];
   private planWait: PlanWait | null = null;
   private questionWait: QuestionWait | null = null;
   private modePreference: AgentMode = 'agent';
@@ -60,6 +66,18 @@ export class ChatController {
   setModePreference(mode: AgentMode): void { this.modePreference = mode; }
   prepareResume(id: string): void { this.retainedId = id; }
   planSnapshot(): PlanState { return structuredClone(this.state.plan); }
+
+  setTerminals(terminals: TerminalRecord[]): void {
+    this.state.terminals = terminals;
+    this.publish();
+  }
+
+  hasLiveTerminals(): boolean {
+    return this.state.terminals.some((item) => !item.status || !/complete|exit|done|terminat|kill|dead|fail/i.test(item.status));
+  }
+  hasLiveChildren(): boolean {
+    return this.state.subagents.some((item) => item.status === 'running' || item.status === 'unknown');
+  }
   interactionTokens(): { permission: string | null; plan: string | null; question: string | null } {
     return {
       permission: this.permissionWait?.token ?? null,
@@ -180,17 +198,20 @@ export class ChatController {
 
   restorePlan(plan: PlanState): void {
     if (!plan.current || this.state.plan.current) return;
-    this.state.plan = { ...plan, phase: 'ready', draft: undefined, current: { ...plan.current, restored: true } };
+    const phase = plan.phase === 'implemented' ? 'implemented' : 'ready';
+    this.state.plan = { ...plan, phase, draft: undefined, current: { ...plan.current, restored: true } };
     this.state.todos = plan.current.todos;
     this.publish();
   }
 
   async hibernate(): Promise<void> {
-    if (this.active || this.resetting || this.permissionWait || this.planWait || this.questionWait) return;
+    if (this.active || this.resetting || this.permissionWait || this.planWait || this.questionWait || this.hasLiveTerminals() || this.hasLiveChildren()) return;
     const session = this.session;
     if (!session) return;
     this.retainedId = session.sessionId || this.retainedId;
     this.session = undefined;
+    this.unsubscribeBackground?.();
+    this.unsubscribeBackground = undefined;
     await session.dispose();
   }
 
@@ -205,7 +226,15 @@ export class ChatController {
     this.modePreference = 'agent';
     this.session?.setModel?.(selection);
     this.publish();
-    await this.send(buildPrompt(plan), { displayText: `Build · ${selection.model || 'default'}` }, { intent: 'build', mode: 'agent', selection });
+    try {
+      await this.send(buildPrompt(plan), { displayText: `Build · ${selection.model || 'default'}` }, { intent: 'build', mode: 'agent', selection });
+    } catch (error) {
+      if (this.state.plan.phase === 'building') {
+        this.state.plan = finishBuild(this.state.plan, 'failed');
+        this.publish();
+      }
+      throw error;
+    }
   }
 
   enqueue(prompt: string, extras?: SendExtras): void {
@@ -283,17 +312,7 @@ export class ChatController {
         signal.throwIfAborted();
         await this.session?.run(prompt, signal, (update) => {
           if (operation.abort.signal.aborted) return;
-          this.absorb(update);
-          if (update.meta?.type === 'usage' && !update.text) {
-            this.publish();
-            return;
-          }
-          const message = this.stamp(turnId, update);
-          const existing = this.state.messages.findIndex((item) => item.id === message.id);
-          if (existing < 0) this.state.messages.push(message);
-          else this.state.messages[existing] = { ...message, at: this.state.messages[existing]?.at ?? message.at, ...(message.final ? { final: true } : {}) };
-          this.state.messages = this.state.messages.slice(-300);
-          this.publish();
+          this.receiveUpdate(turnId, update);
         }, extras, turnOptions);
         if (signal.aborted) this.addStatus('停止しました。');
         this.finishTurn(turnId, signal.aborted ? 'cancelled' : 'completed', intent);
@@ -313,6 +332,8 @@ export class ChatController {
           this.retainedId = this.session.sessionId || this.retainedId;
           const dead = this.session;
           this.session = undefined;
+          this.unsubscribeBackground?.();
+          this.unsubscribeBackground = undefined;
           await dead.dispose();
         } else if (this.session?.sessionId) this.retainedId = this.session.sessionId;
         if (this.state.selection.cwd && this.state.changes.length) {
@@ -347,14 +368,25 @@ export class ChatController {
     }
   }
 
-  private async openAgent(signal: AbortSignal): Promise<void> {
+  private async openAgent(signal?: AbortSignal): Promise<void> {
     if (this.session?.closed) {
       this.retainedId = this.session.sessionId || this.retainedId;
       const dead = this.session;
       this.session = undefined;
+      this.unsubscribeBackground?.();
+      this.unsubscribeBackground = undefined;
       await dead.dispose();
     }
-    this.session ??= await this.factory({ ...this.state.selection }, { signal, resumeId: this.retainedId });
+    if (!this.session) {
+      this.workspaceRealPath = await realpath(this.state.selection.cwd).catch(() => path.resolve(this.state.selection.cwd));
+      const session = await this.factory({ ...this.state.selection }, { signal, resumeId: this.retainedId });
+      this.session = session;
+      this.unsubscribeBackground = session.subscribeBackgroundUpdates?.((update) => {
+        if (this.session !== session || this.resetting) return;
+        const origin = this.updateTurns.get(update.id) ?? this.currentTurn ?? this.state.turns.at(-1)?.id ?? session.sessionId ?? 'background';
+        this.receiveUpdate(origin, update);
+      });
+    }
     if (this.session.sessionId) this.retainedId = this.session.sessionId;
   }
 
@@ -374,18 +406,51 @@ export class ChatController {
     };
   }
 
-  private absorb(update: AgentUpdate): void {
+  private receiveUpdate(turnId: string, update: AgentUpdate): void {
+    const origin = this.updateTurns.get(update.id) ?? turnId;
+    if (update.meta?.type === 'subagent' || update.meta?.type === 'terminals' || update.tool?.kind === 'shell') this.updateTurns.set(update.id, origin);
+    this.absorb(update);
+    if (update.meta?.type !== 'terminals' && !(update.meta?.type === 'usage' && !update.text)) {
+      const message = this.stamp(origin, update);
+      let index = this.state.messages.findIndex((item) => item.id === message.id);
+      if (index < 0 && update.meta?.subagent) index = this.state.messages.findIndex((item) => item.meta?.subagent?.id === update.meta?.subagent?.id);
+      if (index < 0) this.state.messages.push(message);
+      else this.state.messages[index] = { ...message, id: this.state.messages[index]!.id, at: this.state.messages[index]?.at ?? message.at };
+      this.state.messages = this.state.messages.slice(-300);
+    }
+    this.publish();
+  }
+
+  private absorb(update: Pick<AgentUpdate, 'id' | 'meta'>): void {
     if (update.meta?.type === 'usage' && update.meta.usage) this.state.usage = addUsage(this.state.usage, update.meta.usage);
-    if (update.meta?.type === 'files' && update.meta.files) this.state.changes = mergeFileChanges(this.state.changes, update.meta.files);
-    if (update.meta?.type === 'todo' && update.meta.todos) this.state.todos = update.meta.todos;
+    const workspacePath = (name: string): string => {
+      const resolved = path.resolve(this.state.selection.cwd, name);
+      if (!this.workspaceRealPath) return resolved;
+      const relative = path.relative(this.workspaceRealPath, resolved);
+      return !relative.startsWith('..') && !path.isAbsolute(relative) ? path.resolve(this.state.selection.cwd, relative) : resolved;
+    };
+    if (update.meta?.type === 'files' && update.meta.files) this.state.changes = mergeFileChanges(this.state.changes, update.meta.files.map((file) => ({
+      ...file,
+      path: file.path === 'patch' || file.path === 'turn.diff' ? file.path : workspacePath(file.path),
+      ...(file.oldPath ? { oldPath: workspacePath(file.oldPath) } : {}),
+    })));
+    if (update.meta?.type === 'todo' && update.meta.todos) {
+      this.state.todos = update.meta.todos;
+      this.state.plan = applyPlanTodos(this.state.plan, update.meta.todos);
+    }
     if (update.meta?.type === 'plan' && update.meta.plan?.markdown) this.state.plan = stageDraft(this.state.plan, update.meta.plan);
     if (update.meta?.type === 'subagent' && update.meta.subagent) {
-      const incoming = { ...update.meta.subagent, ...(this.currentTurn ? { parentTurnId: this.currentTurn } : {}) };
+      const previous = this.state.subagents.find((item) => item.id === update.meta?.subagent?.id);
+      const parentTurnId = previous?.parentTurnId ?? this.updateTurns.get(update.id) ?? this.currentTurn;
+      const incoming = { ...update.meta.subagent, ...(parentTurnId ? { parentTurnId } : {}) };
       const index = this.state.subagents.findIndex((item) => item.id === incoming.id);
       if (index < 0) this.state.subagents.push(incoming);
       else this.state.subagents[index] = { ...this.state.subagents[index], ...incoming };
     }
-    if (update.meta?.type === 'terminals' && update.meta.terminals) this.state.terminals = update.meta.terminals;
+    if (update.meta?.type === 'terminals' && update.meta.terminals) {
+      this.state.terminals = update.meta.terminals;
+      this.state.terminalError = update.meta.terminalError;
+    }
   }
 
   private finishTurn(turnId: string, status: TurnRecord['status'], intent: TurnOptions['intent']): void {
@@ -403,7 +468,8 @@ export class ChatController {
     if (turn) turn.finalMessageId = this.state.messages.find((message) => message.final && message.id.startsWith(`${turnId}:`))?.id;
     if (intent === 'build') this.state.plan = finishBuild(this.state.plan, status === 'completed' ? 'completed' : status === 'cancelled' ? 'cancelled' : 'failed');
     else if (intent === 'plan' || intent === 'revise') {
-      this.state.plan = this.state.plan.draft?.markdown
+      const draft = this.state.plan.draft?.markdown;
+      this.state.plan = status === 'completed' && draft
         ? commitDraft(this.state.plan, this.state.selection, this.sessionId())
         : planningFailed(this.state.plan, status === 'completed' ? '計画は作成されませんでした。' : undefined);
     }
@@ -436,7 +502,9 @@ export class ChatController {
     }
     return new Promise((resolve) => {
       this.armWait();
-      this.permissionWait = { request, token: randomUUID(), resolve };
+      const wait = { request, token: randomUUID(), resolve };
+      if (this.permissionWait) { this.permissionQueue.push(wait); return; }
+      this.permissionWait = wait;
       this.state.pendingPermission = request;
       this.state.status = 'waiting_approval';
       this.publish();
@@ -449,9 +517,9 @@ export class ChatController {
     if (decision === 'allow-session') {
       this.allowSession.push({ kind: pending.request.kind, title: pending.request.title, detail: pending.request.detail });
     }
-    this.permissionWait = null;
-    this.state.pendingPermission = null;
-    if (this.state.status === 'waiting_approval') this.state.status = this.active ? 'running' : 'idle';
+    this.permissionWait = this.permissionQueue.shift() ?? null;
+    this.state.pendingPermission = this.permissionWait?.request ?? null;
+    if (!this.permissionWait && this.state.status === 'waiting_approval') this.state.status = this.active ? 'running' : 'idle';
     pending.resolve(decision === 'allow-session' ? 'allow-session' : decision);
     this.releaseWait();
     this.publish();
@@ -505,6 +573,7 @@ export class ChatController {
     this.permissionWait = null;
     this.state.pendingPermission = null;
     permission?.resolve('deny');
+    for (const wait of this.permissionQueue.splice(0)) wait.resolve('deny');
     const plan = this.planWait;
     this.planWait = null;
     this.state.pendingPlan = null;
@@ -521,15 +590,20 @@ export class ChatController {
     this.state.status = 'restoring';
     this.publish();
     try {
-      this.session ??= await this.factory({ ...this.state.selection }, { resumeId: this.retainedId });
+      await this.openAgent();
+      if (!this.session) throw new Error('セッションを再開できませんでした。');
       if (this.session.sessionId) this.retainedId = this.session.sessionId;
       if (this.session.loadTranscript && !this.replayed) {
         this.replayed = true;
         const replay: ChatMessage[] = [];
         await this.session.loadTranscript((message) => replay.push(message));
-        if (replay.length) this.state.messages.push(...replay);
+        if (replay.length) {
+          for (const message of replay) this.absorb(message);
+          this.state.messages.push(...replay);
+        }
         else this.addStatus('セッションは再開しましたが、このバックエンドは表示用の履歴を返しません。続きを入力できます。');
       } else this.addStatus('セッションを再開しました。');
+      await this.session.listBackgroundTerminals?.().catch(() => undefined);
       this.state.status = 'idle';
     } catch (error) {
       this.state.status = 'error';
@@ -552,6 +626,9 @@ export class ChatController {
         await this.active?.done;
         const session = this.session;
         this.session = undefined;
+        this.unsubscribeBackground?.();
+        this.unsubscribeBackground = undefined;
+        this.updateTurns.clear();
         this.replayed = false;
         this.allowSession.length = 0;
         await session?.dispose();
@@ -566,6 +643,7 @@ export class ChatController {
         this.state.turns = [];
         this.state.subagents = [];
         this.state.terminals = [];
+        this.state.terminalError = undefined;
         this.currentTurn = undefined;
         this.state.status = 'idle';
       } finally {

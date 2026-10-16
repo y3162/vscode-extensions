@@ -19,3 +19,22 @@ test('an approval answer is ignored when its token belongs to another wait', asy
   assert.equal(await second, 'allow-once');
   assert.equal(controller.snapshot().pendingPermission, null);
 });
+
+test('parallel child approvals are queued, retain their tokens, and Stop releases every request', async () => {
+  const controller = new ChatController(selection, async () => ({ async run() {}, async dispose() {} }), () => {});
+  const request = { id: 'shared-tool-id', title: 'child command', detail: 'safe', kind: 'shell' as const };
+  const first = controller.requestPermission(request);
+  const firstToken = controller.interactionTokens().permission!;
+  const second = controller.requestPermission({ ...request, title: 'second child' });
+  controller.resolvePermission(request.id, 'allow-once', firstToken);
+  assert.equal(await first, 'allow-once');
+  assert.equal(controller.snapshot().pendingPermission?.title, 'second child');
+  assert.notEqual(controller.interactionTokens().permission, firstToken);
+  controller.resolvePermission(request.id, 'allow-once', firstToken);
+  assert.equal(controller.snapshot().pendingPermission?.title, 'second child');
+  const third = controller.requestPermission({ ...request, title: 'third child' });
+  controller.stop();
+  assert.deepEqual(await Promise.all([second, third]), ['deny', 'deny']);
+  assert.equal(controller.snapshot().pendingPermission, null);
+  await controller.dispose();
+});

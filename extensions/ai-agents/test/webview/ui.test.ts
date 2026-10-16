@@ -481,6 +481,49 @@ test('a recreated webview restores the chat page', () => {
   second.destroy();
 });
 
+test('terminals render without file changes and unknown subagents are not labeled background', () => {
+  const { window, sent, emit } = mount();
+  emit(shell({
+    busy: true,
+    presence: 'running',
+    changes: [],
+    terminals: [{ processId: 'p1', command: 'sleep 30', status: 'running' }],
+    planView: {
+      id: 'plan-1', revision: 1, phase: 'ready', markdown: 'Do the thing', todos: [], source: 'assistant-text',
+      buildModelId: 'composer-2.5', buildModelLabel: 'Composer 2.5', buildParams: [], showBuildModel: true, canBuild: true, history: [],
+    },
+  }), [
+    { id: 'user', role: 'user', text: 'look', at: 1 },
+    { id: 'sub', role: 'status', text: 'Explore', meta: { type: 'subagent', subagent: { id: 's1', name: 'explore', status: 'running', background: 'unknown', task: 'read files', resultPreview: 'found' } } },
+  ]);
+  const app = window.document.getElementById('app') as HTMLElement;
+  app.style.width = '300px';
+  assert.match(window.document.querySelector('.terminal-row')?.textContent ?? '', /sleep 30/);
+  assert.equal(window.document.querySelector('.change-file'), null);
+  (window.document.querySelector('.terminal-row button') as HTMLButtonElement).click();
+  assert.equal(posted(sent, 'terminateTerminal')?.processId, 'p1');
+  const subagent = window.document.querySelector('.subagent');
+  assert.match(subagent?.textContent ?? '', /explore/);
+  assert.match(subagent?.textContent ?? '', /found/);
+  assert.doesNotMatch(subagent?.textContent ?? '', /Background/);
+  const build = window.document.querySelector('.build') as HTMLButtonElement;
+  assert.equal(build.disabled, false);
+  app.style.width = '390px';
+  assert.ok(window.document.querySelector('.composer-row'));
+  assert.ok(window.document.querySelector('.plan-actions'));
+  const css = readFileSync(path.join(__dirname, '../../src/webview/styles.css'), 'utf8');
+  assert.match(css, /\.plan-actions, \.terminal-row, \.change-head \{ flex-wrap: wrap; \}/);
+});
+
+test('file theme CSS escapes render as glyphs and invalid code points fall back safely', () => {
+  const { window, emit } = mount();
+  for (const [fontCharacter, expected] of [['\\E023', '\uE023'], ['\uE023', '\uE023'], ['\\110000', 'NO'], ['\\D800', 'NO']]) {
+    emit(shell({ changes: [{ path: 'note.txt', name: 'note.txt', kind: 'update', canRevert: false, canDiff: false, synthetic: false,
+      icon: { type: 'font', fontCharacter, fontFamily: 'seti' } }] }));
+    assert.equal(window.document.querySelector('.change-file .file-icon, .change-file .file-badge')?.textContent, expected);
+  }
+});
+
 test('the view title does not duplicate home and chat actions', () => {
   const manifest = JSON.parse(readFileSync(path.join(__dirname, '../../package.json'), 'utf8')) as {
     contributes: { commands: { command: string }[]; menus?: { 'view/title'?: { command: string }[] } };

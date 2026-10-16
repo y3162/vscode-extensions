@@ -179,10 +179,14 @@ export class Transcript {
         group.append(this.dom.el('p', 'subagent-label', copy.subagents));
         for (const item of segment.items) {
           const row = this.dom.el('div', `subagent ${item.status}`);
-          const mark = item.status === 'completed' ? '✓' : item.status === 'error' || item.status === 'cancelled' ? '✕' : '◌';
+          const mark = item.status === 'unknown' ? '?' : item.status === 'completed' ? '✓' : item.status === 'error' || item.status === 'cancelled' ? '✕' : '◌';
           const time = item.durationMs ? ` ${formatDuration(item.durationMs)}` : '';
           row.append(this.dom.el('span', undefined, `${mark} ${item.name}${time}`));
+          row.title = `${item.agentId ?? item.id}${item.model ? ` · ${item.model}` : ''} · ${item.status}`;
+          if (item.model) row.append(this.dom.el('span', 'tool-target', item.model));
+          if (item.background === true) row.append(this.dom.el('span', 'tool-target', copy.backgroundAgent));
           if (item.task) row.append(this.dom.el('span', 'tool-target', item.task));
+          if (item.resultPreview) row.append(this.dom.el('span', 'tool-target', item.resultPreview));
           group.append(row);
         }
         return group;

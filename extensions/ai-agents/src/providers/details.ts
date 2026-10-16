@@ -48,9 +48,9 @@ export function codexMeta(item: ThreadItem): UpdateMeta | undefined {
       const extra = change as { diff?: unknown; previousText?: unknown; kind: unknown };
       const normalized = normalizeChangeKind(extra.kind);
       return {
-        path: change.path,
+        path: normalized.movePath ?? change.path,
         kind: normalized.kind,
-        ...(normalized.oldPath ? { oldPath: normalized.oldPath } : {}),
+        ...(normalized.movePath ? { oldPath: change.path } : normalized.oldPath ? { oldPath: normalized.oldPath } : {}),
         ...(typeof extra.diff === 'string' ? { diff: extra.diff } : {}),
         ...(typeof extra.previousText === 'string' || extra.previousText === null ? { previousText: extra.previousText } : {}),
       };

@@ -24,27 +24,60 @@ export async function readWorkspaceText(cwd: string, filePath: string): Promise<
 
 export interface GitBaselines {
   lookup(filePath: string): Promise<string | null | undefined>;
+  changes(): Promise<FileChange[]>;
+}
+
+function statusEntries(status: string): Array<{ name: string; oldPath?: string; untracked: boolean }> {
+  const parts = status.split('\0');
+  const entries: Array<{ name: string; oldPath?: string; untracked: boolean }> = [];
+  for (let index = 0; index < parts.length; index++) {
+    const line = parts[index]!;
+    if (line.length < 4) continue;
+    const oldPath = /[RC]/.test(line.slice(0, 2)) ? parts[++index] : undefined;
+    entries.push({ name: line.slice(3), untracked: line.startsWith('??'), ...(oldPath ? { oldPath } : {}) });
+  }
+  return entries;
 }
 
 export async function captureGitBaselines(cwd: string): Promise<GitBaselines | undefined> {
-  const status = await git(cwd, ['status', '--porcelain', '--untracked-files=all']);
+  const status = await git(cwd, ['status', '--porcelain', '-z', '--untracked-files=all']);
   if (status === undefined) return undefined;
+  const revision = (await git(cwd, ['rev-parse', '--verify', 'HEAD']))?.trim();
   const dirty = new Map<string, string | null | undefined>();
-  for (const line of status.split('\n')) {
-    if (line.length < 4) continue;
-    const name = line.slice(3).trim().replace(/^"|"$/g, '');
-    if (!name || name.includes(' -> ')) continue;
+  for (const { name } of statusEntries(status)) {
     dirty.set(name, await readWorkspaceText(cwd, name));
   }
-  return {
+  const baselines: GitBaselines = {
     async lookup(filePath: string) {
-      const relative = path.isAbsolute(filePath) ? path.relative(cwd, filePath) : filePath;
+      const resolved = path.resolve(cwd, filePath);
+      if (!isInsideWorkspace(resolved, [cwd])) return undefined;
+      const relative = path.relative(cwd, resolved);
       if (dirty.has(relative)) return dirty.get(relative);
       if (dirty.has(filePath)) return dirty.get(filePath);
-      const head = await git(cwd, ['show', `HEAD:${relative.replace(/\\/g, '/')}`]);
-      return head === undefined ? null : head;
+      // An absent Git object does not prove the file was absent: it could be ignored.
+      // Keep such files non-restorable rather than deleting pre-existing user content.
+      const text = revision ? await git(cwd, ['show', `${revision}:${relative.split(path.sep).join('/')}`]) : undefined;
+      return text !== undefined && Buffer.byteLength(text, 'utf8') <= maxSnapshot && !text.includes('\0') ? text : undefined;
+    },
+    async changes() {
+      const status = await git(cwd, ['status', '--porcelain', '-z', '--untracked-files=all']);
+      if (status === undefined) return [];
+      const current = new Map(statusEntries(status).map((entry) => [entry.name, entry]));
+      const changes: FileChange[] = [];
+      for (const name of new Set([...dirty.keys(), ...current.keys()])) {
+        const entry = current.get(name);
+        const before = await baselines.lookup(dirty.has(name) ? name : entry?.oldPath ?? name);
+        const after = await readWorkspaceText(cwd, name);
+        const renamed = Boolean(entry?.oldPath && !dirty.has(name));
+        if (after === undefined || before === after && !renamed) continue;
+        if (before === undefined && !entry?.untracked) continue;
+        const kind = renamed ? 'rename' : after === null ? 'delete' : before === null || entry?.untracked && before === undefined ? 'add' : 'update';
+        changes.push({ path: name, kind, ...(kind === 'rename' ? { oldPath: entry!.oldPath } : {}), ...(before !== undefined ? { previousText: before } : {}), ...lineChangeCounts(before ?? '', after ?? '') });
+      }
+      return changes;
     },
   };
+  return baselines;
 }
 
 export function applyTextStats(change: FileChange, current: string | null | undefined): FileChange {

@@ -274,9 +274,16 @@ textarea {
 .plan-head h2, .plan-view h3 { margin: 0; font-size: 1em; }
 .plan-phase, .subagent-label, .todo-progress { color: var(--vscode-descriptionForeground); }
 .plan-error { color: var(--vscode-errorForeground); margin: 0; }
+.plan-head, .plan-actions, .terminal-row, .change-head { min-width: 0; }
+.plan-head h2, .terminal-row span, .change-head span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.plan-actions, .terminal-row, .change-head { flex-wrap: wrap; }
 .plan-actions { justify-content: space-between; }
-.build { border: 0; border-radius: .4em; padding: .35em .8em; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+@container (max-width: 340px) {
+  .plan-actions .pill { max-width: 100%; }
+}
+.build { border: 1px solid var(--vscode-contrastBorder, transparent); border-radius: .4em; padding: .35em .8em; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
 .subagents, .terminals { display: flex; flex-direction: column; gap: .2em; }
+.terminal-detail { flex-basis: 100%; max-height: 10em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
 .subagent-label, .todo-progress { margin: 0; font-size: .85em; }
 .todos { margin: .2em 0; padding-left: 1.1em; }
 .todos li.done { color: var(--vscode-descriptionForeground); }

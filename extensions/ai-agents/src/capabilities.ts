@@ -29,7 +29,10 @@ export interface ProviderCapabilities {
   skills: boolean;
   rules: boolean;
   todos: boolean;
-  /** observe = show runtime events. The extension does not launch subagents itself. */
+  /**
+   * observe = show runtime events. The extension does not launch subagents or wait for them.
+   * Stopping the parent turn does not interrupt child threads unless the runtime does that itself.
+   */
   subagentTracking: 'none' | 'observe';
   backgroundTerminals: 'none' | 'experimental';
   plan: 'none' | 'events' | 'approval';
@@ -72,7 +75,7 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
       compact: false,
       steer: false,
       interactiveApproval: true,
-      planApproval: true,
+      planApproval: false,
       questions: true,
       review: false,
       usage: false,
@@ -83,7 +86,7 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
       todos: true,
       subagentTracking: 'observe',
       backgroundTerminals: 'none',
-      plan: 'approval',
+      plan: 'events',
       buildModel: 'unsupported',
       networkToggle: false,
       additionalDirectories: false,
@@ -155,7 +158,7 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
       compact: true,
       steer: true,
       interactiveApproval: true,
-      planApproval: true,
+      planApproval: false,
       questions: true,
       review: true,
       usage: true,

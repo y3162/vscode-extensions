@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createRequire } from 'node:module';
+import { execFileSync } from 'node:child_process';
+import { errorMessage } from '../src/types.js';
 import * as vscode from 'vscode';
 import type { AgentsSidebar } from '../src/sidebar.js';
 
@@ -90,6 +93,28 @@ export async function run(): Promise<void> {
   await sidebar.newChat();
   assert.deepEqual(sidebar.controller.snapshot().messages, []);
   console.log('PASS: Stop terminates a running SDK subprocess; a queued prompt survives Stop and can be sent; New Chat clears the conversation');
+
+  const background = send('WAIT_FOR_STOP');
+  await until(() => sidebar.controller.snapshot().busy && Boolean(sidebar.controller.sessionId()));
+  const backgroundId = sidebar.controller.sessionId();
+  assert.ok(backgroundId);
+  await sidebar.newChat();
+  const foregroundBeforeStale = sidebar.controller.snapshot();
+  await sidebar.handleMessage({ type: 'sendNow', conversationId: 'missing-conversation', id: 'missing' });
+  await sidebar.handleMessage({ type: 'stop', conversationId: 'missing-conversation' });
+  await sidebar.handleMessage({ type: 'buildPlan', conversationId: 'missing-conversation', planId: 'stale', revision: 1 });
+  assert.deepEqual(sidebar.controller.snapshot(), foregroundBeforeStale);
+  assert.equal(sidebar.controller.snapshot().busy, false);
+  assert.notEqual(sidebar.controller.sessionId(), backgroundId);
+  await sidebar.handleMessage({ type: 'restoreSession', id: backgroundId });
+  assert.equal(sidebar.controller.sessionId(), backgroundId);
+  assert.equal(sidebar.controller.snapshot().busy, true);
+  await sidebar.handleMessage({ type: 'stop' });
+  await background;
+  assert.equal(sidebar.controller.snapshot().busy, false);
+  console.log('PASS: a running chat stays reachable after New Chat and can be stopped from the restored view');
+
+
 
   const models = await sidebar.listAvailableModels();
   assert.deepEqual(models.map((model) => model.id), ['fixture-model', 'fixture-second']);
@@ -196,6 +221,16 @@ export async function run(): Promise<void> {
   await sidebar.handleMessage({ type: 'resolvePermission', id: sidebar.controller.snapshot().pendingPermission?.id, decision: 'allow-once', token });
   await approving;
   assert.ok(sidebar.controller.snapshot().messages.some((message) => message.text.includes('approved:accept')));
+  const terminalOwner = sidebar.controller;
+  await send('BACKGROUND');
+  assert.equal(terminalOwner.snapshot().terminals.length, 1);
+  const terminalSession = terminalOwner.sessionId();
+  await sidebar.newChat();
+  assert.notEqual(sidebar.controller, terminalOwner, 'New Chat must retain an idle parent with a live terminal');
+  await sidebar.handleMessage({ type: 'restoreSession', id: terminalSession });
+  assert.equal(sidebar.controller, terminalOwner);
+  await until(() => terminalOwner.snapshot().terminals.length === 0);
+  assert.ok(terminalOwner.snapshot().messages.some((message) => message.tool?.exitCode === 0 && message.text.includes('stdout done')));
   await config.update('codex.executablePath', mockPath, vscode.ConfigurationTarget.Global);
   await sidebar.handleMessage({ type: 'configure', backend: 'sdk' });
   await vscode.commands.executeCommand('ai-agents.showHistory');
@@ -204,6 +239,23 @@ export async function run(): Promise<void> {
   assert.equal(probed.history, true);
   assert.equal(typeof probed.turns, 'number');
   console.log('PASS: provider switch, history, sandbox reset, diff revert, approval token, and webview probe');
+
+  assert.equal(config.get<number>('maxBackgroundSessions', 3), 3);
+  await config.update('maxBackgroundSessions', 1, vscode.ConfigurationTarget.Global);
+  const limitedController = sidebar.controller;
+  const limited = send('WAIT_FOR_STOP');
+  await until(() => limitedController.snapshot().busy && Boolean(limitedController.sessionId()));
+  try {
+    await sidebar.newChat();
+    await assert.rejects(send('must not execute'), /上限/);
+    assert.equal(sidebar.controller.snapshot().busy, false);
+    assert.equal(limitedController.snapshot().busy, true);
+  } finally {
+    limitedController.stop();
+    await limited;
+    await config.update('maxBackgroundSessions', undefined, vscode.ConfigurationTarget.Global);
+  }
+  console.log('PASS: default concurrency is 3; reaching the configured limit blocks a new run without stopping another conversation');
 
   if (process.env.AI_AGENTS_LIVE_MODELS_TEST === '1') {
     await config.update('codex.executablePath', '', vscode.ConfigurationTarget.Global);
@@ -237,5 +289,32 @@ export async function run(): Promise<void> {
     } finally { clearTimeout(timer); }
   }
 
+  if (process.env.AI_AGENTS_LIVE_RUNTIME === '1') {
+    const { Agent, JsonlLocalAgentStore } = createRequire(join(extension.extensionPath, 'package.json'))('@cursor/sdk') as typeof import('@cursor/sdk');
+    const agent = await Agent.create({ model: { id: 'composer-2.5' }, local: { cwd, store: new JsonlLocalAgentStore(join(cwd, 'sdk-host-store')), sandboxOptions: { enabled: true }, settingSources: [] } });
+    try {
+      const run = await agent.send('Explicit verification: use Task to launch two independent children concurrently. Each child must run a shell command printing its name, sleeping 3 seconds, then printing done. No file changes. Return actual results. Do not simulate children.');
+      const deadline = setTimeout(() => { void run.cancel(); }, 90000);
+      try {
+        const tasks: { id: string; status: string }[] = [];
+        for await (const event of run.stream()) if (event.type === 'tool_call' && event.name.toLowerCase() === 'task') tasks.push({ id: event.call_id, status: event.status });
+        const result = await run.wait();
+        console.log('SDK_HOST_RUNTIME', JSON.stringify({ node: process.versions.node, status: result.status, error: result.error ? errorMessage(new Error(result.error.message)) : undefined, tasks }));
+      } finally { clearTimeout(deadline); }
+    } catch (error) { console.log('SDK_HOST_LIMITATION', process.versions.node, errorMessage(error)); }
+    finally { await agent[Symbol.asyncDispose](); }
+  }
+
+  if (process.env.AI_AGENTS_UI_HOLD === '1') {
+    execFileSync('git', ['init', '-q'], { cwd });
+    await config.update('codex.executablePath', '', vscode.ConfigurationTarget.Global);
+    await sidebar.handleMessage({ type: 'configure', backend: 'app-server', mode: 'plan', sandbox: 'workspace-write', approval: 'never' });
+    await sidebar.handleMessage({ type: 'loadModelCatalog', refresh: true, requestId: 990 });
+    await sidebar.handleMessage({ type: 'setModel', modelId: 'gpt-6-luna' });
+    await sidebar.controller.send('Create a concise plan to change note.txt to hello followed by a newline. Do not edit or implement. Stop after the plan.');
+    await vscode.commands.executeCommand('ai-agents.open');
+    console.log('UI_HOST_READY', cwd);
+    await until(async () => { try { await readFile(join(cwd, 'ui-done')); return true; } catch { return false; } }, 1200000);
+  }
   await sidebar.dispose();
 }

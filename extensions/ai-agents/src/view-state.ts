@@ -63,14 +63,14 @@ export function presentChange(change: FileChange, roots: string[]): ViewChange {
   const counted = change.additions !== undefined || change.deletions !== undefined
     ? { ...(change.additions !== undefined ? { additions: change.additions } : {}), ...(change.deletions !== undefined ? { deletions: change.deletions } : {}) }
     : change.diff ? countDiff(change.diff) : {};
-  const backed = change.previousText !== undefined || Boolean(change.diff);
+  const hasBaseline = change.previousText !== undefined;
   return {
     path: change.path,
     name: synthetic ? 'Patch' : base,
     kind: change.kind,
     ...counted,
-    canRevert: !synthetic && backed,
-    canDiff: !synthetic && backed,
+    canRevert: !synthetic && hasBaseline,
+    canDiff: !synthetic && hasBaseline,
     synthetic,
     ...(synthetic && change.diff ? { patch: change.diff.slice(0, 4000) } : {}),
   };
@@ -238,6 +238,8 @@ export function buildShell(source: ShellSource): ViewShell {
     })),
     subagents: state.subagents.map((item): ViewSubagent => ({
       id: item.id,
+      ...(item.agentId ? { agentId: item.agentId } : {}),
+      ...(item.model ? { model: item.model } : {}),
       name: item.name,
       ...(item.task ? { task: item.task } : {}),
       status: item.status,
@@ -247,9 +249,13 @@ export function buildShell(source: ShellSource): ViewShell {
     })),
     terminals: state.terminals.map((item): ViewTerminal => ({
       processId: item.processId,
+      ...(item.output ? { output: item.output } : {}),
+      ...(item.exitCode !== undefined ? { exitCode: item.exitCode } : {}),
+      ...(item.error ? { error: item.error } : {}),
       ...(item.command ? { command: item.command } : {}),
       ...(item.status ? { status: item.status } : {}),
     })),
+    ...(state.terminalError ? { terminalError: state.terminalError } : {}),
     additions: changes.reduce((sum, change) => sum + (change.additions ?? 0), 0),
     deletions: changes.reduce((sum, change) => sum + (change.deletions ?? 0), 0),
     sessions,

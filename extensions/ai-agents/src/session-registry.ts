@@ -1,5 +1,5 @@
 import type { ChatController } from './chat-controller.js';
-import type { AgentMode } from './types.js';
+import type { AgentMode, SessionSummary } from './types.js';
 
 export interface Conversation {
   key: string;
@@ -39,7 +39,7 @@ export class SessionRegistry {
       const state = entry.controller.snapshot();
       if (entry.controller.sessionId() !== sessionId) continue;
       if (state.pendingPermission || state.pendingPlan || state.pendingQuestion) return 'waiting';
-      if (state.busy || state.status === 'running' || state.status === 'cancelling') return 'running';
+      if (state.busy || state.status === 'running' || state.status === 'cancelling' || entry.controller.hasLiveChildren() || entry.controller.hasLiveTerminals()) return 'running';
       if (state.status === 'error') return 'error';
       return 'idle';
     }
@@ -55,6 +55,29 @@ export class SessionRegistry {
 
   focus(key: string): void {
     if (this.items.has(key)) this.frontId = key;
+  }
+
+  entries(): Conversation[] { return [...this.items.values()]; }
+
+  liveSummaries(): SessionSummary[] {
+    const rows: SessionSummary[] = [];
+    for (const entry of this.items.values()) {
+      const id = entry.controller.sessionId();
+      if (!id) continue;
+      const state = entry.controller.snapshot();
+      const known = state.sessions.find((item) => item.id === id);
+      const title = known?.title || state.messages.find((message) => message.role === 'user')?.text.slice(0, 80) || id;
+      const activity = this.activityFor(id);
+      rows.push({
+        id,
+        title,
+        updatedAt: known?.updatedAt || new Date().toISOString(),
+        provider: state.selection.provider,
+        cwd: state.selection.cwd,
+        ...(activity ? { activity } : {}),
+      });
+    }
+    return rows;
   }
 
   *background(): Iterable<Conversation> {

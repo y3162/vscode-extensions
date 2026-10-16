@@ -25,7 +25,8 @@ export function mergeFileChanges(current: FileChange[], incoming: FileChange[]):
     const existing = next[index]!;
     next[index] = {
       ...existing,
-      kind: change.kind || existing.kind,
+      kind: existing.kind === 'rename' && change.kind === 'update' ? 'rename' : change.kind || existing.kind,
+      ...(change.oldPath ? { oldPath: existing.oldPath ?? change.oldPath } : {}),
       previousText: existing.previousText !== undefined ? existing.previousText : change.previousText,
       diff: change.diff || existing.diff,
       additions: change.additions ?? existing.additions,
@@ -88,6 +89,16 @@ function diffPaths(diff: string): string[] {
 export async function revertChange(change: FileChange, roots: string[]): Promise<void> {
   const resolved = path.resolve(change.path);
   if (!await realInside(resolved, roots)) throw new Error('ワークスペース外のファイルは変更できません。');
+  if (change.kind === 'rename') {
+    if (!change.oldPath || typeof change.previousText !== 'string') throw new Error('変更前のパスと内容が無いため、この移動は復元できません。');
+    const root = roots.find((item) => isInsideWorkspace(resolved, [item]));
+    const original = path.resolve(root ?? '', change.oldPath);
+    if (!await realInside(original, roots)) throw new Error('ワークスペース外のファイルは変更できません。');
+    // Never replace a user-created file at the original name.
+    await writeFile(original, change.previousText, { encoding: 'utf8', flag: 'wx' });
+    await rm(resolved);
+    return;
+  }
   if (change.previousText === null) {
     await rm(resolved, { force: true });
     return;

@@ -23,6 +23,7 @@ export class StdioJsonRpc {
   private lastError = new Error('Agent process exited.');
   private onNotification: (method: string, params: unknown) => void = () => undefined;
   private onServerRequest: (method: string, params: unknown) => Promise<unknown> = async () => ({});
+  private onClose: (error: Error) => void = () => undefined;
 
   constructor(spec: SpawnSpec) {
     const command = spec.command.endsWith('.cjs') || spec.command.endsWith('.mjs') || spec.command.endsWith('.js')
@@ -49,9 +50,11 @@ export class StdioJsonRpc {
   setHandlers(handlers: {
     notification?: (method: string, params: unknown) => void;
     request?: (method: string, params: unknown) => Promise<unknown>;
+    closed?: (error: Error) => void;
   }): void {
     if (handlers.notification) this.onNotification = handlers.notification;
     if (handlers.request) this.onServerRequest = handlers.request;
+    if (handlers.closed) this.onClose = handlers.closed;
   }
 
   get isClosed(): boolean { return this.closed; }
@@ -122,16 +125,17 @@ export class StdioJsonRpc {
   }
 
   private fail(error: unknown): void {
+    if (this.closed) return;
     const wrapped = error instanceof Error ? error : new Error(redactSecrets(String(error)));
     const waiters = [...this.pending.values()];
     this.pending.clear();
     this.closed = true;
     this.lastError = wrapped;
     for (const pending of waiters) pending.reject(wrapped);
+    this.onClose(wrapped);
   }
 
   async dispose(): Promise<void> {
-    this.closed = true;
     this.fail(new Error('Agent process closed.'));
     this.child.stdin?.end();
     this.child.kill();

@@ -223,29 +223,35 @@ export class Composer {
 
   private renderChanges(shell: ViewShell, copy: Copy): void {
     const count = shell.changes.length;
-    this.changes.hidden = !count;
+    const terminals = shell.terminals ?? [];
+    this.changes.hidden = !count && !terminals.length && !shell.terminalError;
+    if (shell.terminalError) this.changes.append(this.dom.el('p', 'error-block', `${copy.backgroundTerminals}: ${shell.terminalError}`));
     this.changes.replaceChildren();
-    if (!count) return;
-    const head = this.dom.el('div', 'change-head');
-    const stats = `${shell.additions || shell.deletions ? ` +${shell.additions} −${shell.deletions}` : ''}`;
-    head.append(this.dom.el('span', undefined, `${count} ${copy.files}${stats}`));
-    const review = this.dom.button('ghost', copy.review);
-    review.addEventListener('click', () => this.post({ type: 'reviewChanges' }));
-    head.append(review);
-    this.changes.append(head);
-    for (const change of shell.changes) this.changes.append(this.changeRow(change, copy));
-    if (shell.terminals?.length) {
-      const terminals = this.dom.el('div', 'terminals');
-      terminals.append(this.dom.el('p', 'subagent-label', copy.backgroundTerminals));
-      for (const terminal of shell.terminals) {
+    if (count) {
+      const head = this.dom.el('div', 'change-head');
+      const stats = `${shell.additions || shell.deletions ? ` +${shell.additions} −${shell.deletions}` : ''}`;
+      head.append(this.dom.el('span', undefined, `${count} ${copy.files}${stats}`));
+      const review = this.dom.button('ghost', copy.review);
+      review.addEventListener('click', () => this.post({ type: 'reviewChanges' }));
+      head.append(review);
+      this.changes.append(head);
+      for (const change of shell.changes) this.changes.append(this.changeRow(change, copy));
+    }
+    if (terminals.length) {
+      const list = this.dom.el('div', 'terminals');
+      list.append(this.dom.el('p', 'subagent-label', copy.backgroundTerminals));
+      for (const terminal of terminals) {
         const row = this.dom.el('div', 'terminal-row');
-        row.append(this.dom.el('span', undefined, terminal.command || terminal.processId));
+        const label = terminal.status ? `${terminal.command || terminal.processId} · ${terminal.status}` : terminal.command || terminal.processId;
+        row.append(this.dom.el('span', undefined, label));
         const stop = this.dom.button('ghost tiny', copy.terminate);
         stop.addEventListener('click', () => this.post({ type: 'terminateTerminal', processId: terminal.processId }));
         row.append(stop);
-        terminals.append(row);
+        if (terminal.error) row.append(this.dom.el('p', 'terminal-detail error-block', terminal.error));
+        if (terminal.output) row.append(this.dom.el('pre', 'terminal-detail', terminal.output));
+        list.append(row);
       }
-      this.changes.append(terminals);
+      this.changes.append(list);
     }
   }
 
@@ -580,7 +586,10 @@ function fileIcon(dom: Dom, change: ViewChange): HTMLElement {
     return image;
   }
   if (icon?.type === 'font' && icon.fontCharacter) {
-    const span = dom.el('span', 'file-icon font-icon', icon.fontCharacter);
+    const escaped = /^\\([0-9a-f]{1,6})\s?$/i.exec(icon.fontCharacter);
+    const point = escaped ? Number.parseInt(escaped[1]!, 16) : undefined;
+    if (point !== undefined && (point > 0x10ffff || point >= 0xd800 && point <= 0xdfff)) return dom.el('span', 'file-badge', change.name.slice(0, 2).toUpperCase());
+    const span = dom.el('span', 'file-icon font-icon', point === undefined ? icon.fontCharacter : String.fromCodePoint(point));
     if (icon.fontFamily) span.style.fontFamily = icon.fontFamily;
     if (icon.fontColor) span.style.color = icon.fontColor;
     return span;

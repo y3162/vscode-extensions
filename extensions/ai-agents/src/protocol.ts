@@ -90,9 +90,11 @@ export interface ViewTurnTiming {
 
 export interface ViewSubagent {
   id: string;
+  agentId?: string;
+  model?: string;
   name: string;
   task?: string;
-  status: 'running' | 'completed' | 'error' | 'cancelled';
+  status: 'running' | 'completed' | 'error' | 'cancelled' | 'unknown';
   background: SubagentBackground;
   durationMs?: number;
   resultPreview?: string;
@@ -102,6 +104,9 @@ export interface ViewTerminal {
   processId: string;
   command?: string;
   status?: string;
+  output?: string;
+  exitCode?: number;
+  error?: string;
 }
 
 export interface ViewBanner {
@@ -154,6 +159,7 @@ export interface ViewShell {
   timings: ViewTurnTiming[];
   subagents: ViewSubagent[];
   terminals: ViewTerminal[];
+  terminalError?: string;
   additions: number;
   deletions: number;
   sessions: SessionSummary[];
