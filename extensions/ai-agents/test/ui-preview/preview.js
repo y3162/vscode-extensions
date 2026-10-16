@@ -9,11 +9,11 @@ function shell(extra) {
   const ja = locale === 'ja';
   return {
     provider: 'codex', providerLabel: 'Codex · SDK', cwd: '/workspace', busy: false, presence: 'idle',
-    statusText: ja ? '準備完了' : 'Ready', sessionTitle: ja ? 'READMEの誤字を直す' : 'Fix the README',
-    modelLabel: 'gpt-5', effortLabel: 'high', accessLabel: 'Workspace write', risky: false, banner: null,
+    statusText: ja ? '準備完了' : 'Ready', sessionTitle: ja ? 'PRの修正' : 'Fix the PR',
+    modelLabel: 'Grok 4.7', effortLabel: 'ExtraHigh', accessLabel: 'Workspace write', risky: false, banner: null,
     backendLabel: 'SDK', folderName: 'vscode-extensions',
     folders: [{ name: 'vscode-extensions', path: '/workspace' }],
-    modes: [{ id: 'agent', label: 'Agent' }, { id: 'plan', label: 'Plan' }], mode: 'agent', showMode: true,
+    modes: [{ id: 'agent', label: 'Agent' }, { id: 'plan', label: 'Plan' }, { id: 'ask', label: 'Ask' }], mode: 'agent', showMode: true,
     sandboxChoices: [
       { id: 'read-only', label: 'Read-only' },
       { id: 'workspace-write', label: 'Workspace write' },
@@ -25,15 +25,26 @@ function shell(extra) {
     additionalDirectories: [], autoApprove: false, steer: false, interactiveApproval: false, queue: [],
     changes: [{ path: '/workspace/README.md', name: 'README.md', kind: 'update', additions: 4, deletions: 1, canRevert: true, canDiff: true, synthetic: false }],
     additions: 4, deletions: 1,
-    sessions: [
-      { id: 'a', title: ja ? 'READMEの誤字を直す' : 'Fix the README', updatedAt: new Date(Date.now() - 3600_000).toISOString(), provider: 'codex', cwd: '/workspace' },
-      { id: 'b', title: ja ? '拡張機能の構成を設計' : 'Design the extension', updatedAt: new Date(Date.now() - 86400_000 * 3).toISOString(), provider: 'codex', cwd: '/workspace' },
-      { id: 'c', title: ja ? '容量不足の整理候補を探す' : 'Find disk usage', updatedAt: new Date(Date.now() - 86400_000 * 5).toISOString(), provider: 'codex', cwd: '/workspace' },
-    ],
+    sessions: homeSessions(),
     usage: null, permission: null, plan: null, question: null, activeFile: null, locale,
     providers: [{ id: 'codex', label: 'Codex', detail: 'SDK' }, { id: 'cursor', label: 'Cursor', detail: 'SDK' }],
+    sessionId: 'pr',
     ...extra,
   };
+}
+
+function homeSessions() {
+  const ja = locale === 'ja';
+  const titles = ja
+    ? ['プロジェクト概要について', 'PRの修正', 'src/testsのリファクタリング', 'OpenCVライブラリの依存関係']
+    : ['Project overview', 'Fix the PR', 'Refactor src/tests', 'OpenCV dependencies'];
+  return titles.map((title, index) => ({
+    id: ['overview', 'pr', 'tests', 'opencv'][index],
+    title,
+    updatedAt: new Date(Date.now() - index * 86400_000).toISOString(),
+    provider: 'codex',
+    cwd: '/workspace',
+  }));
 }
 
 const answer = locale === 'ja'
@@ -51,7 +62,9 @@ function messages(running) {
 }
 
 const scenes = {
-  empty: () => ({ type: 'state', revision: 1, full: true, shell: shell({ sessionTitle: locale === 'ja' ? '新しいチャット' : 'New chat', changes: [], additions: 0, deletions: 0 }), messages: { removed: [], upserts: [], order: [] } }),
+  home: () => state(shell({ changes: [], additions: 0, deletions: 0 }), []),
+  empty: () => state(shell({ sessions: [], sessionTitle: locale === 'ja' ? '新しいチャット' : 'New chat', changes: [], additions: 0, deletions: 0, sessionId: undefined }), []),
+  fresh: () => state(shell({ sessionTitle: locale === 'ja' ? '新しいチャット' : 'New chat', changes: [], additions: 0, deletions: 0, sessionId: undefined }), []),
   chat: () => state(shell(), messages(false)),
   running: () => state(shell({ busy: true, presence: 'running', statusText: locale === 'ja' ? '実行中…' : 'Running…' }), messages(true)),
   approval: () => state(shell({
@@ -62,7 +75,8 @@ const scenes = {
     accessLabel: 'Full access', risky: true, sandbox: 'danger-full-access',
     banner: { id: 'banner', title: locale === 'ja' ? 'フルアクセスがオンです' : 'Full access is on', body: locale === 'ja' ? 'サンドボックスが無効です。確認なしにファイルの変更やコマンドの実行が許可されることがあります。' : 'The sandbox is off. File changes and commands may run without a prompt.' },
   }), messages(false)),
-  history: () => state(shell(), messages(false)),
+  history: () => state(shell({ changes: [], additions: 0, deletions: 0 }), []),
+  composer: () => state(shell({ changes: [], additions: 0, deletions: 0 }), messages(false)),
   settings: () => state(shell({ showApproval: true, approvalChoices: [{ id: 'never', label: 'Never' }, { id: 'on-request', label: 'On request' }], approval: 'on-request', providerLabel: 'Codex · App Server', backend: 'app-server', backendLabel: 'App Server' }), messages(false)),
 };
 
@@ -70,14 +84,28 @@ function state(current, items) {
   return { type: 'state', revision: 1, full: true, shell: current, messages: { removed: [], upserts: items, order: items.map((item) => item.id) } };
 }
 
+const chatScenes = new Set(['chat', 'fresh', 'running', 'approval', 'banner', 'composer', 'settings']);
+const frameWidth = Number(params.get('width') || 0);
+const frameHeight = Number(params.get('height') || 0);
+const frame = document.getElementById('app');
+if (frame && frameWidth) {
+  frame.style.width = `${frameWidth}px`;
+  frame.style.height = `${frameHeight || window.innerHeight}px`;
+  frame.style.overflow = 'hidden';
+}
+
 window.acquireVsCodeApi = () => ({
   postMessage(message) {
     if (message.type !== 'ready') return;
-    window.dispatchEvent(new MessageEvent('message', { data: scenes[scene]?.() || scenes.chat() }));
-    if (scene === 'history' || scene === 'settings') {
-      window.dispatchEvent(new MessageEvent('message', { data: { type: 'navigate', panel: scene } }));
+    window.dispatchEvent(new MessageEvent('message', { data: scenes[scene]?.() || scenes.home() }));
+    if (scene === 'settings') {
+      window.dispatchEvent(new MessageEvent('message', { data: { type: 'navigate', panel: 'settings' } }));
     }
   },
-  getState() { return null; },
+  getState() {
+    if (scene === 'composer') return { page: 'chat', draft: locale === 'ja' ? 'このPRのテストを直して' : 'Fix the tests on this PR' };
+    if (chatScenes.has(scene)) return { page: 'chat' };
+    return null;
+  },
   setState() {},
 });

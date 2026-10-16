@@ -611,6 +611,8 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
 
   private async restoreSession(id: unknown): Promise<void> {
     if (typeof id !== 'string') return;
+    if (id === this.controller.sessionId()) return;
+    if (this.controller.snapshot().busy) throw new Error('実行が終わってからエージェントを切り替えてください。');
     const provider = this.controller.snapshot().selection.provider;
     const summary = this.controller.snapshot().sessions.find((session) => session.id === id && session.provider === provider);
     if (!summary) return;

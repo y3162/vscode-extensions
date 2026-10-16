@@ -74,19 +74,36 @@ Cursor ACP のファイル復元は、変更前テキストを書き戻して `a
 
 ## 画面
 
-`docs/screenshots/` の PNG は 0.5.0 の Webview プレビューである。Extension Development Host の撮影ではない。今回も実ウィンドウの撮影はしていない。`host-*.png` は無い。
+0.6.0 の記録: `docs/screenshots/` にあった PNG は 0.5.0 の Webview プレビューだった。Extension Development Host の撮影ではなかった。
 
-統合テストは、実 VS Code の Extension Host でサイドバー Webview の起動、履歴、ターン数、Diff Editor、承認トークンを確認した。幅、テーマ、IME、画像の貼り付けは見ていない。
+### 0.7.0
+
+2026-10-16。Home と Chat の見た目は、ビルド済み Webview をブラウザで 390×499（狭い画面は 300×499）に固定して撮った。Extension Development Host のサイドバーそのものは撮影していない。
+
+| ファイル | 内容 |
+| --- | --- |
+| `home.png` | ダークテーマの Home。4件のセッションカード |
+| `dark.png` | 上と同じダークの Home |
+| `home-empty.png` | 履歴がない Home |
+| `chat-new.png` | 新規チャット |
+| `chat.png` | 過去の会話。Composer は下に固定 |
+| `running.png` | 実行中。停止ボタン |
+| `approval.png` | 承認カード |
+| `composer.png` | 入力中の Composer |
+| `narrow.png` | 幅 300px。モデル名は省略され、ボタンは重ならない |
+| `light.png` | ライトテーマの Home |
+
+統合テストは実 VS Code の Extension Host で、Webview の起動、`showHistory` のプローブ、実行中に別セッションへ戻そうとすると拒否して実行とキューが残ること、実行後のセッション復元、Diff Editor、承認トークンを確認した。幅 390px、IME、画像の貼り付け、ハイコントラストは Host の画面では見ていない。
 
 ### 手動確認
 
 Extension Development Host（`.vscode/launch.json` の Run AI Agents）で、次は未実施である。
 
-- [ ] Primary Side Bar と Secondary Side Bar
+- [ ] Primary Side Bar と Secondary Side Bar で Home と Chat を行き来する
 - [ ] 幅 300px と 390px で、入力欄とツールカードがはみ出さない
 - [ ] ダーク、ライト、ハイコントラスト
 - [ ] 長い履歴、ストリーミング中、承認待ち、複数ツール、ファイル変更一覧
-- [ ] セッション切替
+- [ ] 実行中に Back して同じチャットへ戻る
 - [ ] 日本語 IME、画像の貼り付け
 - [ ] キーボード操作、スクロール、フォーカス、入力欄の高さ
 
