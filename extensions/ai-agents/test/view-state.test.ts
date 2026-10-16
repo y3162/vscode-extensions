@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { capabilitiesFor, defaultControls } from '../src/capabilities.js';
 import { buildShell, countDiff, diffMessages, presentChange, toViewMessage } from '../src/view-state.js';
-import type { ChatState } from '../src/types.js';
+import { emptyPlanState, type ChatState } from '../src/types.js';
 
 function state(extra: Partial<ChatState> = {}): ChatState {
   return {
     selection: { provider: 'codex', cwd: '/workspace', model: 'gpt', modelParams: [{ id: 'modelReasoningEffort', value: 'high' }] },
     busy: false, messages: [], queue: [], status: 'idle', usage: null, changes: [], todos: [], sessions: [],
-    autoApprove: false, pendingPermission: null, pendingPlan: null, pendingQuestion: null, ...extra,
+    autoApprove: false, pendingPermission: null, pendingPlan: null, pendingQuestion: null,
+    plan: emptyPlanState(), turns: [], subagents: [], terminals: [], ...extra,
   };
 }
 
@@ -41,7 +42,7 @@ test('the access banner follows the real sandbox and can be dismissed', () => {
   assert.equal(shell.risky, true);
   assert.equal(shell.banner?.title, 'フルアクセスがオンです');
   assert.equal(shell.effortLabel, 'High');
-  assert.equal(shell.modelSettings, 'new-session');
+  assert.equal(shell.modelSettings, 'next-send');
   assert.equal(shell.showMode, true);
   const hidden = buildShell({ ...source, dismissedWarning: shell.banner?.id });
   assert.equal(hidden.banner, null);

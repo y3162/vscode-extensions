@@ -1,13 +1,15 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { ModelReasoningEffort } from '@openai/codex-sdk';
+import { applyTextStats, captureGitBaselines, readWorkspaceText, type GitBaselines } from '../change-tracker.js';
 import { captureBaseline } from '../change-review.js';
 import { writeImageFiles } from '../images.js';
-import type { AgentSession, FileChange, SessionSummary } from '../types.js';
+import type { AgentSession, FileChange, Selection, SessionSummary, TurnOptions, UpdateMeta } from '../types.js';
 import { createCodexAppServerSession } from './codex-app-server.js';
 import { createCursorAcpSession } from './cursor-acp.js';
 import { codexMeta, cursorMeta } from './details.js';
 import { codexUpdate, cursorUpdate } from './events.js';
+import { AssistantSegments } from './segments.js';
 import { mergeStreamText } from './stream-text.js';
 import { codexTool, cursorTool } from './tools.js';
 import type { SessionOptions } from './session-options.js';
@@ -38,30 +40,42 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
     });
     const sandboxMode: 'read-only' | 'workspace-write' | 'danger-full-access' = options.sandbox === 'read-only' || options.sandbox === 'danger-full-access'
       ? options.sandbox : 'workspace-write';
-    const thread = options.resumeId
+    let threadModel = options.model || undefined;
+    let threadEffort = options.modelParams?.find((param) => param.id === 'modelReasoningEffort')?.value as ModelReasoningEffort | undefined;
+    const threadOptions = () => ({
+      workingDirectory: options.cwd,
+      model: threadModel,
+      modelReasoningEffort: threadEffort,
+      sandboxMode,
+      approvalPolicy: 'never' as const,
+      skipGitRepoCheck: true,
+      ...(options.network ? { networkAccessEnabled: true } : {}),
+      ...(options.webSearch ? { webSearchMode: options.webSearch as 'disabled' | 'cached' | 'live' } : {}),
+      ...(options.additionalDirectories?.length ? { additionalDirectories: options.additionalDirectories } : {}),
+    });
+    let thread = options.resumeId
       ? codex.resumeThread(options.resumeId, threadOptions())
       : codex.startThread(threadOptions());
-    function threadOptions() {
-      return {
-        workingDirectory: options.cwd,
-        model: options.model || undefined,
-        modelReasoningEffort: options.modelParams?.find((param) => param.id === 'modelReasoningEffort')?.value as ModelReasoningEffort | undefined,
-        sandboxMode,
-        approvalPolicy: 'never' as const,
-        skipGitRepoCheck: true,
-        ...(options.network ? { networkAccessEnabled: true } : {}),
-        ...(options.webSearch ? { webSearchMode: options.webSearch as 'disabled' | 'cached' | 'live' } : {}),
-        ...(options.additionalDirectories?.length ? { additionalDirectories: options.additionalDirectories } : {}),
-      };
-    }
+    const retarget = (selection?: Selection) => {
+      if (!selection) return;
+      const model = selection.model || undefined;
+      const effort = selection.modelParams?.find((param) => param.id === 'modelReasoningEffort')?.value as ModelReasoningEffort | undefined;
+      if (model === threadModel && effort === threadEffort) return;
+      threadModel = model;
+      threadEffort = effort;
+      thread = thread.id ? codex.resumeThread(thread.id, threadOptions()) : codex.startThread(threadOptions());
+    };
     return {
       get sessionId() { return thread.id ?? undefined; },
-      async run(prompt, signal, emit, extras) {
+      setModel(selection) { retarget(selection); },
+      async run(prompt, signal, emit, extras, turn) {
         signal.throwIfAborted();
+        retarget(turn?.selection);
         const images = await writeImageFiles(extras?.images ?? []);
         const input = images.length
           ? [{ type: 'text' as const, text: prompt }, ...images.map((imagePath) => ({ type: 'local_image' as const, path: imagePath }))]
           : prompt;
+        const baselines = await captureGitBaselines(options.cwd);
         const { events } = await thread.runStreamed(input, { signal });
         for await (const event of events) {
           signal.throwIfAborted();
@@ -82,7 +96,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
           if (event.type === 'error') throw new Error(event.message);
           if ('item' in event) {
             const update = codexUpdate(event.item);
-            const meta = codexMeta(event.item);
+            const meta = await enrichCodexFiles(codexMeta(event.item), baselines, options.cwd);
             const tool = codexTool(event.item);
             if (update) emit({ ...update, ...(meta ? { meta } : {}), ...(tool ? { tool } : {}) });
           }
@@ -148,12 +162,29 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
         emit({ id: message.uuid, role: message.type === 'user' ? 'user' : 'assistant', text });
       }
     },
-    async run(prompt, signal, emit, extras) {
+    async run(prompt, signal, emit, extras, turn) {
       signal.throwIfAborted();
       const payload = extras?.images?.length
         ? { text: prompt, images: extras.images.map((image) => ({ data: image.data, mimeType: image.mimeType })) }
         : prompt;
-      const run = await agent.send(payload, { mode: activeMode, model: activeModel });
+      const requested = turn?.mode === 'plan' ? 'plan' : turn?.mode === 'agent' ? 'agent' : activeMode;
+      activeMode = requested;
+      if (turn?.selection) {
+        activeModel = { id: turn.selection.model || 'auto', ...(turn.selection.modelParams?.length ? { params: turn.selection.modelParams } : {}) };
+      }
+      const segments = new AssistantSegments();
+      let sawPlan = false;
+      const run = await agent.send(payload, {
+        mode: requested,
+        model: activeModel,
+        onDelta: ({ update }) => {
+          if (update.type !== 'tool-call-completed' || update.toolCall.type !== 'createPlan') return;
+          const plan = update.toolCall.args.plan;
+          if (!plan.trim() || signal.aborted) return;
+          sawPlan = true;
+          emit({ id: `plan-${update.callId}`, role: 'status', text: plan, meta: { type: 'plan', plan: { markdown: plan, source: 'sdk-createPlan' } } });
+        },
+      });
       let cancellation: Promise<void> | undefined;
       const cancel = () => {
         cancellation ??= run.cancel();
@@ -177,12 +208,14 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
             emit({ id: 'thinking', role: 'status', text: thinkingText, meta: { type: 'thinking' } });
             continue;
           }
+          if (event.type === 'tool_call') segments.interrupt();
           if (event.type === 'assistant' && !signal.aborted) {
             const chunk = event.message.content.filter((block) => block.type === 'text').map((block) => block.text).join('');
-            if (chunk) {
-              assistantText = mergeStreamText(assistantText, chunk);
+            const segment = chunk ? segments.push(chunk) : undefined;
+            if (segment) {
+              assistantText = segment.text;
               hasAssistant = true;
-              emit({ id: 'assistant', role: 'assistant', text: assistantText });
+              emit({ id: segment.id, role: 'assistant', text: segment.text });
             }
             continue;
           }
@@ -192,6 +225,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
           }
           const update = cursorUpdate(event, index++);
           const meta = withBaseline(cursorMeta(event), baselines, options.cwd);
+          if (meta?.type === 'plan') sawPlan = true;
           const tool = cursorTool(event);
           if (update?.text && !signal.aborted) {
             hasAssistant ||= update.role === 'assistant';
@@ -207,6 +241,10 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
         if (result.status === 'cancelled') throw new DOMException('Cancelled', 'AbortError');
         if (!hasAssistant && result.result && !signal.aborted) {
           emit({ id: 'result', role: 'assistant', text: result.result });
+        }
+        const planText = segments.fullText().trim() || (!hasAssistant ? result.result?.trim() ?? '' : '');
+        if (requested === 'plan' && !sawPlan && planText && !signal.aborted) {
+          emit({ id: 'plan-text', role: 'status', text: planText, meta: { type: 'plan', plan: { markdown: planText, source: 'assistant-text' } } });
         }
         options.onIdentity?.({ id: agent.agentId, title: prompt.slice(0, 80) || 'Cursor', updatedAt: new Date().toISOString(), provider: 'cursor', cwd: options.cwd });
       } finally {
@@ -224,9 +262,22 @@ function withBaseline(meta: ReturnType<typeof cursorMeta>, baselines: Map<string
     ...meta,
     files: meta.files.map((file) => {
       const saved = baselines.get(path.resolve(cwd, file.path));
-      return saved?.previousText !== undefined ? { ...file, previousText: saved.previousText } : file;
+      if (saved?.previousText === undefined) return file;
+      const kind: FileChange['kind'] = saved.previousText === null ? 'add' : file.kind === 'delete' ? 'delete' : 'update';
+      return { ...file, previousText: saved.previousText, kind };
     }),
   };
+}
+
+async function enrichCodexFiles(meta: UpdateMeta | undefined, baselines: GitBaselines | undefined, cwd: string): Promise<UpdateMeta | undefined> {
+  if (meta?.type !== 'files' || !meta.files?.length) return meta;
+  const files: FileChange[] = [];
+  for (const file of meta.files) {
+    const previous = file.previousText !== undefined ? file.previousText : await baselines?.lookup(file.path);
+    const current = await readWorkspaceText(cwd, file.path);
+    files.push(applyTextStats({ ...file, ...(previous !== undefined ? { previousText: previous } : {}) }, current));
+  }
+  return { ...meta, files };
 }
 
 function transcriptText(message: unknown): string {

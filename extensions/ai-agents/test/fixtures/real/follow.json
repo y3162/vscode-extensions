@@ -1,0 +1,69 @@
+{
+  "at": "2026-10-16T05:23:10.950Z",
+  "steps": [
+    {
+      "step": "s1-set-mode-plan",
+      "ok": true,
+      "modelIds": [
+        "default[]",
+        "grok-4.7[context=256k,reasoning_effort=high,fast=true]",
+        "grok-4.6[effort=high,fast=true]",
+        "composer-2.5[fast=true]",
+        "claude-opus-5-5[context=300k,effort=medium,fast=false]",
+        "claude-opus-5[thinking=true,context=300k,effort=high,fast=false]",
+        "claude-opus-4-8[thinking=true,context=300k,effort=high,fast=false]",
+        "gemini-4-argon[reasoning_effort=medium]"
+      ],
+      "plan": {
+        "name": "Hello",
+        "todos": 3,
+        "plan": true
+      },
+      "stop": "end_turn",
+      "methods": [
+        "session/update",
+        "cursor/create_plan"
+      ]
+    },
+    {
+      "step": "s2-plan-then-model",
+      "ok": true,
+      "tools": [
+        "glob:running",
+        "grep:running",
+        "grep:completed",
+        "glob:completed",
+        "createPlan:running",
+        "createPlan:running",
+        "createPlan:running",
+        "createPlan:completed"
+      ],
+      "status": "finished",
+      "followModel": "composer-2",
+      "followStatus": "finished",
+      "saidBuild": true
+    },
+    {
+      "step": "s4-collab",
+      "ok": true,
+      "planTurn": "01a14329-f249-7231-b973-9352b4130a31",
+      "agentTurn": "01a1432a-0485-7e93-80ed-8a39a91c72d6",
+      "methods": [
+        "remoteControl/status/changed",
+        "account/updated",
+        "thread/started",
+        "mcpServer/startupStatus/updated",
+        "thread/settings/updated",
+        "thread/status/changed",
+        "turn/started",
+        "item/started",
+        "item/completed",
+        "item/agentMessage/delta",
+        "turn/moderationMetadata",
+        "thread/tokenUsage/updated",
+        "account/rateLimits/updated",
+        "turn/completed"
+      ]
+    }
+  ]
+}

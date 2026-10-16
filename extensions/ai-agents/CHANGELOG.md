@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.0
+
+- Plan モードは計画ができたら止まり、Plan View で本文、To-do、Build 用モデル、Build を表示する。Build は同じ会話の新しいターンで Agent モードになり、計画を作り直さない。
+- Plan のまま追加送信すると計画を更新して再び止まる。Build は準備完了のときだけ有効で、二重実行しない。
+- Cursor SDK と Codex App Server はターンごとにモードとモデルを渡す。App Server のモデル変更は新しいセッションを作らない。Cursor ACP は `session/set_mode` を使い、モデルの途中変更はしない。
+- 最終回答はツールより前の文章と分け、作業時間はターンの開始から完了まで（承認待ちを除く）で数える。
+- ファイル変更は書き込みだけを数える。Cursor SDK は `result.value` の行数、Codex App Server は `fileChange.kind` と `turn/diff`、Codex SDK はターン開始時の Git 状態から正味の行数を出す。
+- サブエージェントは識別子ごとに状態を出す。Background とは、結果にそう書かれているときだけ表示する。
+- 実行中でも Home から別のセッションを開ける。同時実行数は `ai-agents.maxBackgroundSessions`（既定 3）。
+- 変更ファイルは Review からまとめて開き、アイコンテーマが読めるときはそのアイコンを使う。
+
 ## 0.8.2
 
 - AI出力のファイルリンクで絶対パスの先頭の `/` が失われ、作業フォルダが重複する問題を修正した。

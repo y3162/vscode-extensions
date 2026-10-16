@@ -259,3 +259,25 @@ textarea {
   .mode .btn-label { max-width: 4.2em; }
   .env .btn-label { max-width: 100%; }
 }
+.change-bar { flex-direction: column; align-items: stretch; gap: .25em; padding: .35em .7em 0; }
+.change-head, .change-file, .terminal-row, .plan-head, .plan-actions { display: flex; align-items: center; gap: .4em; }
+.change-head { justify-content: space-between; }
+.change-file { min-width: 0; }
+.file-link { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-badge, .file-icon { width: 1.5em; height: 1.5em; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; font-size: .62em; border-radius: .2em; background: var(--vscode-badge-background, transparent); color: var(--vscode-badge-foreground, inherit); }
+.file-icon { object-fit: contain; background: transparent; }
+.stats .add { color: var(--vscode-gitDecoration-addedResourceForeground, var(--vscode-charts-green)); margin-right: .35em; }
+.stats .del { color: var(--vscode-gitDecoration-deletedResourceForeground, var(--vscode-charts-red)); }
+.plan-slot { margin-top: .4em; }
+.plan-view { border: 1px solid var(--vscode-panel-border, transparent); border-radius: .6em; padding: .7em .8em; display: flex; flex-direction: column; gap: .55em; }
+.plan-head { justify-content: space-between; }
+.plan-head h2, .plan-view h3 { margin: 0; font-size: 1em; }
+.plan-phase, .subagent-label, .todo-progress { color: var(--vscode-descriptionForeground); }
+.plan-error { color: var(--vscode-errorForeground); margin: 0; }
+.plan-actions { justify-content: space-between; }
+.build { border: 0; border-radius: .4em; padding: .35em .8em; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+.subagents, .terminals { display: flex; flex-direction: column; gap: .2em; }
+.subagent-label, .todo-progress { margin: 0; font-size: .85em; }
+.todos { margin: .2em 0; padding-left: 1.1em; }
+.todos li.done { color: var(--vscode-descriptionForeground); }
+.todos li.active { color: var(--vscode-progressBar-background); }

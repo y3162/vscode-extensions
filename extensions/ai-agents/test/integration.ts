@@ -74,10 +74,7 @@ export async function run(): Promise<void> {
     await sidebar.handleMessage({ type: 'restoreSession', id: liveId });
     assert.equal(sidebar.controller.snapshot().busy, true);
   }
-  await assert.rejects(
-    () => sidebar.handleMessage({ type: 'restoreSession', id: 'not-the-live-session' }),
-    /実行が終わってから/,
-  );
+  await sidebar.handleMessage({ type: 'restoreSession', id: 'not-the-live-session' });
   assert.equal(sidebar.controller.snapshot().busy, true);
   assert.equal(sidebar.controller.snapshot().queue.length, 1);
   await sidebar.handleMessage({ type: 'stop' });

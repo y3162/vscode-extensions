@@ -1,5 +1,6 @@
 import type { SDKMessage } from '@cursor/sdk';
 import type { ThreadItem } from '@openai/codex-sdk';
+import { normalizeChangeKind } from '../diff-stats.js';
 import type { FileChange, TodoEntry, UpdateMeta, UsageStats } from '../types.js';
 
 export function addUsage(current: UsageStats | null, next: UsageStats): UsageStats {
@@ -44,10 +45,12 @@ function filePathOf(value: unknown): string | undefined {
 export function codexMeta(item: ThreadItem): UpdateMeta | undefined {
   if (item.type === 'file_change') {
     const files: FileChange[] = item.changes.map((change) => {
-      const extra = change as { diff?: unknown; previousText?: unknown };
+      const extra = change as { diff?: unknown; previousText?: unknown; kind: unknown };
+      const normalized = normalizeChangeKind(extra.kind);
       return {
         path: change.path,
-        kind: change.kind === 'add' || change.kind === 'delete' ? change.kind : 'update',
+        kind: normalized.kind,
+        ...(normalized.oldPath ? { oldPath: normalized.oldPath } : {}),
         ...(typeof extra.diff === 'string' ? { diff: extra.diff } : {}),
         ...(typeof extra.previousText === 'string' || extra.previousText === null ? { previousText: extra.previousText } : {}),
       };
@@ -59,6 +62,17 @@ export function codexMeta(item: ThreadItem): UpdateMeta | undefined {
     return { type: 'todo', todos };
   }
   return undefined;
+}
+
+const fileMutations = new Set(['edit', 'write', 'delete', 'applyagentdiff']);
+
+function toolSuccess(result: unknown): Record<string, unknown> | undefined {
+  const record = asRecord(result);
+  if (!record) return undefined;
+  if (record.status === 'success') return asRecord(record.value);
+  const success = asRecord(record.success);
+  if (success?.status === 'success') return asRecord(success.value);
+  return asRecord(record.value) ?? (success ? asRecord(success.value) : undefined);
 }
 
 export function cursorMeta(event: SDKMessage): UpdateMeta | undefined {
@@ -78,10 +92,12 @@ export function cursorMeta(event: SDKMessage): UpdateMeta | undefined {
   }
   if (event.type === 'task' && event.text) return { type: 'task', task: event.text };
   if (event.type !== 'tool_call') return undefined;
+  const name = event.name.toLowerCase();
   const args = asRecord(event.args);
   const result = asRecord(event.result);
-  if (event.name === 'updateTodos' || event.name === 'update_todos') {
-    const raw = Array.isArray(args?.todos) ? args.todos : Array.isArray(result?.todos) ? result.todos : [];
+  const value = toolSuccess(event.result);
+  if (name === 'updatetodos' || name === 'update_todos') {
+    const raw = Array.isArray(args?.todos) ? args.todos : Array.isArray(value?.todos) ? value.todos : Array.isArray(result?.todos) ? result.todos : [];
     const todos = raw.flatMap((item) => {
       const todo = asRecord(item);
       const content = typeof todo?.content === 'string' ? todo.content : typeof todo?.text === 'string' ? todo.text : '';
@@ -91,24 +107,43 @@ export function cursorMeta(event: SDKMessage): UpdateMeta | undefined {
     });
     return todos.length ? { type: 'todo', todos } : undefined;
   }
-  const path = filePathOf(args) ?? filePathOf(result);
-  const diff = typeof result?.diffString === 'string' ? result.diffString
-    : typeof asRecord(result?.success)?.diffString === 'string' ? String(asRecord(result?.success)?.diffString) : undefined;
-  const fileResult = asRecord(result?.value) ?? asRecord(asRecord(result?.success)?.value);
-  const imagePath = event.name === 'generateImage' ? filePathOf(fileResult) ?? filePathOf(result) ?? path : undefined;
-  if (imagePath) return { type: 'image', imagePath };
-  if (event.name === 'task') {
-    const description = typeof args?.description === 'string' ? args.description : event.name;
-    return { type: 'task', task: description };
+  if (name === 'createplan') {
+    const plan = typeof args?.plan === 'string' ? args.plan : typeof value?.plan === 'string' ? value.plan : '';
+    return plan.trim() ? { type: 'plan', plan: { markdown: plan, source: 'sdk-createPlan' } } : undefined;
   }
-  if (!path && !diff) return undefined;
-  const additions = typeof result?.linesAdded === 'number' ? result.linesAdded : undefined;
-  const deletions = typeof result?.linesRemoved === 'number' ? result.linesRemoved : undefined;
+  if (name === 'task') {
+    const description = typeof args?.description === 'string' ? args.description : event.name;
+    const subagentType = asRecord(args?.subagentType);
+    const typeName = typeof subagentType?.name === 'string' ? subagentType.name : typeof subagentType?.kind === 'string' ? subagentType.kind : description;
+    const background = typeof value?.isBackground === 'boolean' ? value.isBackground : 'unknown' as const;
+    return {
+      type: 'subagent',
+      subagent: {
+        id: event.call_id,
+        name: typeName,
+        ...(typeof args?.prompt === 'string' ? { task: args.prompt } : { task: description }),
+        status: event.status === 'running' ? 'running' : event.status === 'error' ? 'error' : 'completed',
+        background,
+        ...(typeof value?.durationMs === 'number' ? { durationMs: value.durationMs } : {}),
+        ...(typeof value?.resultSuffix === 'string' ? { resultPreview: value.resultSuffix.slice(0, 500) } : {}),
+      },
+    };
+  }
+  const imagePath = name === 'generateimage' ? filePathOf(value) ?? filePathOf(result) ?? filePathOf(args) : undefined;
+  if (imagePath) return { type: 'image', imagePath };
+  if (!fileMutations.has(name)) return undefined;
+  const filePath = filePathOf(args) ?? filePathOf(value) ?? filePathOf(result);
+  const diff = typeof value?.diffString === 'string' ? value.diffString
+    : typeof result?.diffString === 'string' ? result.diffString : undefined;
+  const additions = typeof value?.linesAdded === 'number' ? value.linesAdded
+    : typeof value?.linesCreated === 'number' ? value.linesCreated : undefined;
+  const deletions = typeof value?.linesRemoved === 'number' ? value.linesRemoved : undefined;
+  if (!filePath && !diff) return undefined;
   return {
     type: 'files',
     files: [{
-      path: path ?? 'patch',
-      kind: event.name === 'delete' ? 'delete' : 'update',
+      path: filePath ?? 'patch',
+      kind: name === 'delete' ? 'delete' : name === 'write' ? 'add' : 'update',
       ...(diff ? { diff } : {}),
       ...(additions !== undefined ? { additions } : {}),
       ...(deletions !== undefined ? { deletions } : {}),

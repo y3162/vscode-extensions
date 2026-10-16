@@ -1,4 +1,4 @@
-import type { ViewFile, ViewMessage } from '../protocol.js';
+import type { ViewFile, ViewMessage, ViewSubagent, ViewTurnTiming } from '../protocol.js';
 import { classifyTool, toolStatus } from '../tool-kind.js';
 import type { ToolInfo } from '../types.js';
 
@@ -26,7 +26,8 @@ export type Segment =
   | { type: 'files'; id: string; files: FileRow[] }
   | { type: 'todo'; id: string; items: { content: string; status: string }[] }
   | { type: 'note'; id: string; text: string }
-  | { type: 'text'; id: string; text: string };
+  | { type: 'text'; id: string; text: string; final?: boolean }
+  | { type: 'subagent'; id: string; items: ViewSubagent[] };
 
 export interface TurnModel {
   id: string;
@@ -36,7 +37,20 @@ export interface TurnModel {
   errors: { id: string; text: string }[];
   startedAt?: number;
   endedAt?: number;
+  waitMs?: number;
   done: boolean;
+}
+
+function takeAnswer(segments: Segment[]): { id: string; text: string } | undefined {
+  let finalIndex = -1;
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const segment = segments[index];
+    if (segment?.type === 'text' && segment.final) { finalIndex = index; break; }
+  }
+  const index = finalIndex >= 0 ? finalIndex : segments.at(-1)?.type === 'text' ? segments.length - 1 : -1;
+  if (index < 0) return undefined;
+  const [segment] = segments.splice(index, 1);
+  return segment?.type === 'text' ? { id: segment.id, text: segment.text } : undefined;
 }
 
 function basename(file: string): string {
@@ -71,12 +85,14 @@ function toolRow(message: ViewMessage): ToolRow | undefined {
 }
 
 function segmentFrom(message: ViewMessage): Segment | null {
+  if (message.meta?.type === 'plan' || message.meta?.type === 'terminals') return null;
+  if (message.meta?.type === 'subagent' && message.meta.subagent) return { type: 'subagent', id: message.id, items: [message.meta.subagent] };
   if (message.meta?.type === 'thinking') return { type: 'thinking', id: message.id, text: message.text };
   if (message.meta?.type === 'todo' && message.meta.todos?.length) return { type: 'todo', id: message.id, items: message.meta.todos };
   if (message.meta?.type === 'files' && message.meta.files?.length) return { type: 'files', id: message.id, files: message.meta.files.map(fileRow) };
   if (message.meta?.type === 'image' && message.meta.imagePath) return { type: 'note', id: message.id, text: message.meta.imagePath };
   if (message.meta?.type === 'task') return { type: 'note', id: message.id, text: message.meta.task || message.text };
-  if (message.role === 'assistant' && message.text) return { type: 'text', id: message.id, text: message.text };
+  if (message.role === 'assistant' && message.text) return { type: 'text', id: message.id, text: message.text, ...(message.final ? { final: true } : {}) };
   if (message.role === 'tool' || message.tool) {
     const row = toolRow(message);
     return row ? { type: 'tools', id: message.id, tools: [row] } : null;
@@ -89,6 +105,7 @@ function pushSegment(list: Segment[], segment: Segment): void {
   const last = list.at(-1);
   if (last?.type === 'tools' && segment.type === 'tools') { last.tools.push(...segment.tools); return; }
   if (last?.type === 'files' && segment.type === 'files') { last.files.push(...segment.files); return; }
+  if (last?.type === 'subagent' && segment.type === 'subagent') { last.items.push(...segment.items); return; }
   if (last?.type === 'thinking' && segment.type === 'thinking') {
     last.text = segment.text.startsWith(last.text) ? segment.text : `${last.text}${last.text.endsWith(segment.text) ? '' : `\n${segment.text}`}`;
     return;
@@ -97,7 +114,7 @@ function pushSegment(list: Segment[], segment: Segment): void {
   list.push(segment);
 }
 
-export function buildTurns(messages: readonly ViewMessage[], busy: boolean, pending: boolean): TurnModel[] {
+export function buildTurns(messages: readonly ViewMessage[], busy: boolean, pending: boolean, timings: readonly ViewTurnTiming[] = []): TurnModel[] {
   const turns: TurnModel[] = [];
   let segments: Segment[] = [];
   let errors: { id: string; text: string }[] = [];
@@ -107,11 +124,16 @@ export function buildTurns(messages: readonly ViewMessage[], busy: boolean, pend
   let endedAt: number | undefined;
   const finish = () => {
     if (!id) return;
-    const answer = segments.at(-1)?.type === 'text' ? segments.pop() : undefined;
+    const answer = takeAnswer(segments);
+    const timing = timings.find((item) => item.id === id);
     turns.push({
       id, ...(user ? { user } : {}), log: segments,
-      ...(answer && answer.type === 'text' ? { answer: { id: answer.id, text: answer.text } } : {}),
-      errors, ...(startedAt !== undefined ? { startedAt } : {}), ...(endedAt !== undefined ? { endedAt } : {}), done: false,
+      ...(answer ? { answer } : {}),
+      errors,
+      ...(timing?.startedAt !== undefined || startedAt !== undefined ? { startedAt: timing?.startedAt ?? startedAt } : {}),
+      ...(timing?.endedAt !== undefined || endedAt !== undefined ? { endedAt: timing?.endedAt ?? endedAt } : {}),
+      ...(timing ? { waitMs: timing.waitMs } : {}),
+      done: false,
     });
   };
   for (const message of messages) {

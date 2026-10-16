@@ -31,8 +31,8 @@ export class HistoryPanel {
       card.title = title;
       card.setAttribute('aria-label', title);
       if (session.id === shell.sessionId) card.setAttribute('aria-current', 'true');
-      const active = session.id === shell.sessionId && (shell.presence === 'running' || shell.presence === 'waiting');
-      if (active) card.append(this.dom.el('span', `presence ${shell.presence}`));
+      const activity = session.activity && session.activity !== 'idle' ? session.activity : session.id === shell.sessionId && (shell.presence === 'running' || shell.presence === 'waiting') ? shell.presence : '';
+      if (activity) card.append(this.dom.el('span', `presence ${activity}`));
       card.append(this.dom.el('span', 'session-name', title));
       card.addEventListener('click', () => this.onSelect(session.id));
       this.list.append(card);

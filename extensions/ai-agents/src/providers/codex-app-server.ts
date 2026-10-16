@@ -1,3 +1,4 @@
+import { countUnifiedDiff, normalizeChangeKind, parseUnifiedDiff } from '../diff-stats.js';
 import { writeImageFiles } from '../images.js';
 import { extensionVersion } from '../version.js';
 import type {
@@ -55,8 +56,16 @@ function filesOf(item: Record<string, unknown>): FileChange[] {
     const entry = record(change);
     const filePath = typeof entry.path === 'string' ? entry.path : '';
     if (!filePath) return [];
-    const kind = entry.kind === 'add' || entry.kind === 'delete' ? entry.kind : 'update';
-    return [{ path: filePath, kind, ...(typeof entry.diff === 'string' ? { diff: entry.diff } : {}) }];
+    const normalized = normalizeChangeKind(entry.kind);
+    const diff = typeof entry.diff === 'string' ? entry.diff : undefined;
+    const counts = diff ? countUnifiedDiff(diff) : undefined;
+    return [{
+      path: normalized.kind === 'rename' && typeof entry.path === 'string' ? filePath : filePath,
+      kind: normalized.kind,
+      ...(normalized.oldPath ? { oldPath: normalized.oldPath } : {}),
+      ...(diff ? { diff } : {}),
+      ...(counts && (counts.additions || counts.deletions) ? { additions: counts.additions, deletions: counts.deletions } : {}),
+    }];
   });
 }
 
@@ -119,6 +128,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
   let threadId = options.resumeId ?? '';
   let turnId = '';
   let mode = options.mode ?? 'agent';
+  const childThreads = new Set<string>();
   const buffers = new Map<string, string>();
   const finished = new Map<string, Error | null>();
   let stopRequested = false;
@@ -153,13 +163,43 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       });
       return;
     }
-    if (type.includes('todo') || type === 'plan') {
+    if (type === 'plan') {
+      if (text) emit({ id, role: 'status', text, meta: { type: 'plan', plan: { markdown: text, source: 'app-server-plan' } } });
+      return;
+    }
+    if (type.includes('todo')) {
       const todos = todosOf(item.items ?? item.todos ?? item.plan);
       emit({ id, role: 'status', text: text || todos.map((todo) => `${todo.status}: ${todo.content}`).join('\n'), ...(todos.length ? { meta: { type: 'todo', todos } } : {}) });
       return;
     }
+    if (type.includes('collab')) {
+      const child = typeof item.newThreadId === 'string' ? item.newThreadId : typeof item.receiverThreadId === 'string' ? item.receiverThreadId : '';
+      if (child) childThreads.add(child);
+      const statusText = typeof item.status === 'string' ? item.status : typeof item.agentStatus === 'string' ? item.agentStatus : 'completed';
+      const failed = /fail|error|cancel/i.test(statusText);
+      const running = /progress|running|pending/i.test(statusText);
+      emit({
+        id, role: 'status', text: typeof item.prompt === 'string' ? item.prompt : text || 'Subagent',
+        meta: {
+          type: 'subagent',
+          subagent: {
+            id,
+            name: typeof item.tool === 'string' ? item.tool : 'Subagent',
+            ...(typeof item.prompt === 'string' ? { task: item.prompt } : {}),
+            status: failed ? 'error' : running ? 'running' : 'completed',
+            background: 'unknown',
+          },
+        },
+      });
+      return;
+    }
     if (type.includes('agent') || type.includes('reasoning')) {
-      if (text) emit({ id, role: type.includes('reasoning') ? 'status' : 'assistant', text, ...(type.includes('reasoning') ? { meta: { type: 'thinking' as const } } : {}) });
+      const phase = typeof item.phase === 'string' ? item.phase : '';
+      if (text) emit({
+        id, role: type.includes('reasoning') ? 'status' : 'assistant', text,
+        ...(phase === 'final_answer' ? { final: true } : {}),
+        ...(type.includes('reasoning') ? { meta: { type: 'thinking' as const } } : {}),
+      });
       return;
     }
     if (type.includes('error')) {
@@ -177,6 +217,16 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
     notification: (method, params) => {
       const body = record(params);
       const item = record(body.item);
+      const noted = typeof body.threadId === 'string' ? body.threadId : '';
+      if (noted && threadId && noted !== threadId && !childThreads.has(noted)) return;
+      if (noted && childThreads.has(noted)) {
+        const status = method === 'turn/completed' ? 'completed' : 'running';
+        emitLive.current?.({
+          id: noted, role: 'status', text: textOf(item) || method,
+          meta: { type: 'subagent', subagent: { id: noted, name: 'Subagent', status, background: 'unknown', ...(textOf(item) ? { resultPreview: textOf(item).slice(0, 500) } : {}) } },
+        });
+        return;
+      }
       if (method === 'item/agentMessage/delta' || method === 'item/commandExecution/outputDelta' || method === 'item/reasoning/summaryTextDelta' || method === 'item/plan/delta') {
         const id = typeof body.itemId === 'string' ? body.itemId : 'stream';
         const delta = typeof body.delta === 'string' ? body.delta : '';
@@ -198,7 +248,15 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       if (method === 'turn/completed' || method === 'turn/diff/updated') {
         const id = turnIdOf(body, turnId);
         if (typeof body.diff === 'string' && emitLive.current) {
-          emitLive.current({ id: `${id}:diff`, role: 'tool', text: 'diff updated', meta: { type: 'files', files: [{ path: 'turn.diff', kind: 'update', diff: body.diff }] } });
+          const files = parseUnifiedDiff(body.diff).map((file) => ({
+            path: file.path,
+            kind: file.kind,
+            diff: file.diff,
+            additions: file.additions,
+            deletions: file.deletions,
+            ...(file.oldPath ? { oldPath: file.oldPath } : {}),
+          }));
+          if (files.length) emitLive.current({ id: `${id}:diff`, role: 'tool', text: 'diff updated', meta: { type: 'files', files } });
         }
         const turn = record(body.turn);
         const usage = usageOf(body.usage ?? body.tokenUsage ?? turn.usage);
@@ -405,19 +463,52 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
         `MCP: ${servers.join(', ') || 'none'}`,
       ].join('\n');
     },
-    async run(prompt, signal, emit, extras) {
+    async listBackgroundTerminals() {
+      const listed = record(await rpc.request('thread/backgroundTerminals/list', { threadId, limit: 20 }));
+      const rows = Array.isArray(listed.data) ? listed.data : Array.isArray(listed.terminals) ? listed.terminals : [];
+      return rows.flatMap((item) => {
+        const entry = record(item);
+        const processId = String(entry.processId ?? entry.id ?? '');
+        if (!processId) return [];
+        return [{ processId, ...(typeof entry.command === 'string' ? { command: entry.command } : {}), ...(typeof entry.status === 'string' ? { status: entry.status } : {}) }];
+      });
+    },
+    async terminateBackgroundTerminal(processId: string) {
+      await rpc.request('thread/backgroundTerminals/terminate', { threadId, processId });
+    },
+    async run(prompt, signal, emit, extras, turn) {
       emitLive.current = emit;
       const imagePaths = await writeImageFiles(extras?.images ?? []);
       const input = [
         { type: 'text', text: prompt, text_elements: [] },
         ...imagePaths.map((imagePath) => ({ type: 'localImage', path: imagePath })),
       ];
+      const model = turn?.selection.model || options.model || '';
+      const turnEffort = turn?.selection.modelParams?.find((param) => param.id === 'modelReasoningEffort')?.value ?? effort;
+      const turnMode = turn?.mode ?? mode;
+      mode = turnMode;
       try {
         await startTurn('turn/start', {
           threadId,
           input,
-          ...(mode === 'plan' ? { collaborationMode: { mode: 'plan', settings: { model: options.model || '', reasoning_effort: effort ?? null, developer_instructions: null } } } : {}),
+          ...(model ? { model } : {}),
+          ...(turnEffort ? { effort: turnEffort } : {}),
+          collaborationMode: {
+            mode: turnMode === 'plan' ? 'plan' : 'default',
+            settings: { model, reasoning_effort: turnEffort ?? null, developer_instructions: null },
+          },
         }, signal);
+        const terminals = await rpc.request('thread/backgroundTerminals/list', { threadId, limit: 20 }).then((value) => {
+          const listed = record(value);
+          const rows = Array.isArray(listed.data) ? listed.data : Array.isArray(listed.terminals) ? listed.terminals : [];
+          return rows.flatMap((item) => {
+            const entry = record(item);
+            const processId = String(entry.processId ?? entry.id ?? '');
+            if (!processId) return [];
+            return [{ processId, ...(typeof entry.command === 'string' ? { command: entry.command } : {}), ...(typeof entry.status === 'string' ? { status: entry.status } : {}) }];
+          });
+        }).catch(() => []);
+        if (terminals?.length) emit({ id: 'terminals', role: 'status', text: '', meta: { type: 'terminals', terminals } });
         identify(prompt.slice(0, 80) || 'Codex');
       } finally {
         emitLive.current = undefined;

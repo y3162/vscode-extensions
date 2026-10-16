@@ -32,6 +32,7 @@ export class Composer {
   private catalog: ModelCatalogMessage | null = null;
   private catalogRequest = 0;
   private seenIdentity = '';
+  private buildMenu = false;
   private composing = false;
   private suggestRequest = 0;
   private suggestItems: { label: string; description?: string; token: string }[] = [];
@@ -158,7 +159,8 @@ export class Composer {
   render(shell: ViewShell, copy: Copy): void {
     this.shell = shell;
     this.copy = copy;
-    this.input.placeholder = copy.placeholder;
+    const revising = shell.mode === 'plan' && (shell.planView?.phase === 'ready' || shell.planView?.phase === 'revising');
+    this.input.placeholder = revising ? copy.revisePlaceholder : copy.placeholder;
     this.input.setAttribute('aria-label', copy.placeholder);
     this.togglePill(this.mode, shell.showMode, shell.modes.find((mode) => mode.id === shell.mode)?.label ?? shell.mode, copy.mode);
     if (this.catalog && (this.catalog.provider !== shell.provider || this.catalog.cwd !== shell.cwd)) this.catalog = null;
@@ -224,9 +226,54 @@ export class Composer {
     this.changes.hidden = !count;
     this.changes.replaceChildren();
     if (!count) return;
-    const button = this.dom.button('change-summary', `${count} ${copy.changes}  +${shell.additions}  −${shell.deletions}`, 'diff');
-    button.addEventListener('click', () => this.openChanges(button, shell, copy));
-    this.changes.append(button);
+    const head = this.dom.el('div', 'change-head');
+    const stats = `${shell.additions || shell.deletions ? ` +${shell.additions} −${shell.deletions}` : ''}`;
+    head.append(this.dom.el('span', undefined, `${count} ${copy.files}${stats}`));
+    const review = this.dom.button('ghost', copy.review);
+    review.addEventListener('click', () => this.post({ type: 'reviewChanges' }));
+    head.append(review);
+    this.changes.append(head);
+    for (const change of shell.changes) this.changes.append(this.changeRow(change, copy));
+    if (shell.terminals?.length) {
+      const terminals = this.dom.el('div', 'terminals');
+      terminals.append(this.dom.el('p', 'subagent-label', copy.backgroundTerminals));
+      for (const terminal of shell.terminals) {
+        const row = this.dom.el('div', 'terminal-row');
+        row.append(this.dom.el('span', undefined, terminal.command || terminal.processId));
+        const stop = this.dom.button('ghost tiny', copy.terminate);
+        stop.addEventListener('click', () => this.post({ type: 'terminateTerminal', processId: terminal.processId }));
+        row.append(stop);
+        terminals.append(row);
+      }
+      this.changes.append(terminals);
+    }
+  }
+
+  private changeRow(change: ViewChange, copy: Copy): HTMLElement {
+    const row = this.dom.el('div', 'change-file');
+    row.append(fileIcon(this.dom, change));
+    const open = this.dom.el('button', 'file-link', change.name);
+    open.type = 'button';
+    open.addEventListener('click', () => this.post({ type: change.canDiff ? 'openDiff' : 'openFile', path: change.path }));
+    const counts = this.dom.el('span', 'stats');
+    if (change.additions !== undefined) counts.append(this.dom.el('span', 'add', `+${change.additions}`));
+    if (change.deletions !== undefined) counts.append(this.dom.el('span', 'del', `−${change.deletions}`));
+    row.append(open, counts);
+    if (change.canRevert) {
+      const revert = this.dom.button('ghost tiny', copy.revert);
+      revert.addEventListener('click', () => this.post({ type: 'revertFile', path: change.path }));
+      row.append(revert);
+    }
+    return row;
+  }
+
+  openBuildModel(anchor: HTMLElement): void {
+    const shell = this.shell;
+    if (!shell || shell.modelSettings === 'unsupported' || !shell.planView?.showBuildModel) return;
+    this.menu.close(false);
+    this.buildMenu = true;
+    this.requestCatalog(false);
+    this.modelMenu.open(anchor, this.modelPage());
   }
 
   private renderQueue(shell: ViewShell, copy: Copy): void {
@@ -389,6 +436,7 @@ export class Composer {
     const shell = this.shell;
     if (!shell || shell.busy || shell.modelSettings === 'unsupported') return;
     this.menu.close(false);
+    this.buildMenu = false;
     this.requestCatalog(false);
     this.modelMenu.open(this.model, this.modelPage());
   }
@@ -420,7 +468,8 @@ export class Composer {
         ],
       };
     }
-    const selected = catalog.models.find((model) => model.id === catalog.selectedModelId || model.aliases?.includes(catalog.selectedModelId));
+    const selectedId = this.buildMenu && shell.planView ? shell.planView.buildModelId : catalog.selectedModelId;
+    const selected = catalog.models.find((model) => model.id === selectedId || model.aliases?.includes(selectedId));
     const items: ModelMenuItem[] = orderedParameters(selected?.parameters).flatMap((parameter) => this.parameterItem(parameter, catalog));
     items.push({
       id: 'model', label: copy.model, valueLabel: selected?.label || shell.modelLabel,
@@ -431,7 +480,8 @@ export class Composer {
   }
 
   private parameterItem(parameter: ModelParameter, catalog: ModelCatalogMessage): ModelMenuItem[] {
-    const current = catalog.selectedParams.find((param) => param.id === parameter.id)?.value ?? parameter.defaultValue;
+    const selectedParams = this.buildMenu && this.shell?.planView ? this.shell.planView.buildParams : catalog.selectedParams;
+    const current = selectedParams.find((param) => param.id === parameter.id)?.value ?? parameter.defaultValue;
     const currentValue = parameter.values.find((value) => value.value === current);
     if (parameter.presentation === 'toggle') {
       const onValue = toggleOnValue(parameter.values);
@@ -440,7 +490,7 @@ export class Composer {
       const on = isToggleOn(current);
       return [{
         id: parameter.id, label: parameter.label, toggle: true, checked: on,
-        onSelect: () => this.post({ type: 'setModelParam', id: parameter.id, value: on ? offValue : onValue }),
+        onSelect: () => this.post({ type: this.buildMenu ? 'setBuildParam' : 'setModelParam', id: parameter.id, value: on ? offValue : onValue }),
       }];
     }
     return [{
@@ -451,7 +501,7 @@ export class Composer {
         items: parameter.values.map((value) => ({
           id: `${parameter.id}:${value.value}`, label: value.label, description: value.description,
           checked: value.value === current,
-          onSelect: () => this.post({ type: 'setModelParam', id: parameter.id, value: value.value }),
+          onSelect: () => this.post({ type: this.buildMenu ? 'setBuildParam' : 'setModelParam', id: parameter.id, value: value.value }),
         })),
       }),
     }];
@@ -472,8 +522,9 @@ export class Composer {
           label: model.label,
           description: model.description,
           searchText: [model.id, ...(model.aliases ?? [])].filter(Boolean).join(' '),
-          checked: model.id === catalog.selectedModelId || Boolean(model.aliases?.includes(catalog.selectedModelId)),
-          onSelect: () => this.post({ type: 'setModel', modelId: model.id }),
+          checked: model.id === (this.buildMenu && this.shell?.planView ? this.shell.planView.buildModelId : catalog.selectedModelId)
+            || Boolean(model.aliases?.includes(this.buildMenu && this.shell?.planView ? this.shell.planView.buildModelId : catalog.selectedModelId)),
+          onSelect: () => this.post({ type: this.buildMenu ? 'setBuildModel' : 'setModel', modelId: model.id }),
         })),
         { id: 'refresh', label: copy?.refreshModels ?? 'Refresh', pinned: true, onSelect: () => this.requestCatalog(true) },
       ],
@@ -518,6 +569,23 @@ export class Composer {
       backend: shell.backend, network: shell.network, webSearch: shell.webSearch, ...extra,
     });
   }
+}
+
+function fileIcon(dom: Dom, change: ViewChange): HTMLElement {
+  const icon = change.icon;
+  if (icon?.type === 'image' && icon.src) {
+    const image = dom.el('img', 'file-icon');
+    image.alt = '';
+    image.src = icon.src;
+    return image;
+  }
+  if (icon?.type === 'font' && icon.fontCharacter) {
+    const span = dom.el('span', 'file-icon font-icon', icon.fontCharacter);
+    if (icon.fontFamily) span.style.fontFamily = icon.fontFamily;
+    if (icon.fontColor) span.style.color = icon.fontColor;
+    return span;
+  }
+  return dom.el('span', 'file-badge', icon?.badge || change.name.slice(0, 2).toUpperCase());
 }
 
 export function caretToken(value: string, caret: number): CaretToken | undefined {
