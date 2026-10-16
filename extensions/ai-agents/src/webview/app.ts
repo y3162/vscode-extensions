@@ -66,7 +66,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   let painted = '';
 
   const post: Post = (message) => {
-    vscode.postMessage(shell ? { provider: shell.provider, cwd: shell.cwd, ...message } : message);
+    vscode.postMessage(shell ? { provider: shell.provider, cwd: shell.cwd, ...(shell.conversationId ? { conversationId: shell.conversationId } : {}), ...message } : message);
   };
   const menu = new Menu(dom, root);
   let show = (_panel: 'history' | 'settings' | 'chat') => {};
@@ -83,16 +83,12 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   const history = new HistoryPanel(dom, stage, (id) => openSession(id));
   const settings = new SettingsPanel(dom, stage, post, () => { settings.close(); paint(); });
   const composer = new Composer(dom, dock, post, menu, (panel) => show(panel));
-  const transcript = new Transcript(dom, thread, post, (text) => { composer.draft = text; composer.focus(); save(); });
+  const transcript = new Transcript(dom, thread, post, (text) => { composer.draft = text; composer.focus(); save(); }, (anchor) => composer.openBuildModel(anchor));
 
   function openSession(id: string): void {
     if (!shell) return;
     if (id === shell.sessionId) { show('chat'); return; }
-    if (shell.busy) {
-      alert.hidden = false;
-      alert.textContent = copy.busySwitch;
-      return;
-    }
+    alert.hidden = true;
     post({ type: 'restoreSession', id });
     show('chat');
   }

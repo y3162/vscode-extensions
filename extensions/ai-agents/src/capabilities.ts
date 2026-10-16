@@ -29,7 +29,11 @@ export interface ProviderCapabilities {
   skills: boolean;
   rules: boolean;
   todos: boolean;
-  subagents: boolean;
+  /** observe = show runtime events. The extension does not launch subagents itself. */
+  subagentTracking: 'none' | 'observe';
+  backgroundTerminals: 'none' | 'experimental';
+  plan: 'none' | 'events' | 'approval';
+  buildModel: ModelApplyMode;
   networkToggle: boolean;
   additionalDirectories: boolean;
   modelSettings: ModelApplyMode;
@@ -77,7 +81,10 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
       skills: true,
       rules: true,
       todos: true,
-      subagents: true,
+      subagentTracking: 'observe',
+      backgroundTerminals: 'none',
+      plan: 'approval',
+      buildModel: 'unsupported',
       networkToggle: false,
       additionalDirectories: false,
       modelSettings: 'unsupported',
@@ -109,7 +116,10 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
       skills: true,
       rules: true,
       todos: true,
-      subagents: true,
+      subagentTracking: 'observe',
+      backgroundTerminals: 'none',
+      plan: 'events',
+      buildModel: 'next-send',
       networkToggle: false,
       additionalDirectories: true,
       modelSettings: 'next-send',
@@ -154,10 +164,13 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
       skills: true,
       rules: true,
       todos: true,
-      subagents: true,
+      subagentTracking: 'observe',
+      backgroundTerminals: 'experimental',
+      plan: 'events',
+      buildModel: 'next-send',
       networkToggle: true,
       additionalDirectories: true,
-      modelSettings: 'new-session',
+      modelSettings: 'next-send',
     };
   }
   return {
@@ -193,7 +206,10 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
     skills: true,
     rules: true,
     todos: true,
-    subagents: false,
+    subagentTracking: 'none',
+    backgroundTerminals: 'none',
+    plan: 'none',
+    buildModel: 'new-session',
     networkToggle: true,
     additionalDirectories: true,
     modelSettings: 'new-session',

@@ -20,6 +20,7 @@ function shell(extra: Partial<ViewShell> = {}): ViewShell {
     network: false, showNetwork: false, backendChoices: [{ id: 'sdk', label: 'SDK' }], backend: 'sdk',
     additionalDirectories: [], autoApprove: false, steer: false, interactiveApproval: false, queue: [], changes: [],
     additions: 0, deletions: 0, sessions: [], usage: null, permission: null, plan: null, question: null,
+    conversationId: 'front', planView: null, timings: [], subagents: [], terminals: [],
     activeFile: null, locale: 'en', providers: [{ id: 'codex', label: 'Codex', detail: 'SDK' }], ...extra,
   };
 }
@@ -79,7 +80,7 @@ test('file links preserve absolute paths and send Markdown destinations and loca
     assert.equal(links[0]?.textContent, item.label, item.text);
     click(links[0]!);
     assert.deepEqual(posted(sent, 'openFile'), {
-      provider: 'codex', cwd: '/workspace', type: 'openFile', path: item.path,
+      provider: 'codex', cwd: '/workspace', conversationId: 'front', type: 'openFile', path: item.path,
       ...('line' in item ? { line: item.line } : {}),
       ...('column' in item ? { column: item.column } : {}),
     }, item.text);
@@ -124,7 +125,7 @@ test('Enter allows newlines and IME confirmation, and only the send button sends
   prompt.value = 'こんにちは\n続きのメッセージ';
   click(visible(window.document, '.send'));
   assert.deepEqual(posted(sent, 'send'), {
-    provider: 'codex', cwd: '/workspace', type: 'send', prompt: 'こんにちは\n続きのメッセージ', images: [],
+    provider: 'codex', cwd: '/workspace', conversationId: 'front', type: 'send', prompt: 'こんにちは\n続きのメッセージ', images: [],
   });
   assert.equal(sent.filter((message) => (message as { type: string }).type === 'send').length, 1);
   assert.equal(prompt.value, '');
@@ -411,9 +412,11 @@ test('mode and model keep their quick picks, and a run survives leaving chat', (
   assert.ok(window.document.querySelector('[data-session-id="a"] .presence.running'));
   assert.equal(window.document.querySelector('[data-session-id="b"] .presence'), null);
   click(visible(window.document, '[data-session-id="b"]'));
-  assert.equal(posted(sent, 'restoreSession'), undefined);
-  assert.match(window.document.querySelector('.host-error')?.textContent ?? '', /Wait for the current run/);
-  assert.equal(root?.dataset.page, 'home');
+  assert.equal(posted(sent, 'stop'), undefined);
+  assert.deepEqual(posted(sent, 'restoreSession'), { provider: 'codex', cwd: '/workspace', conversationId: 'front', type: 'restoreSession', id: 'b' });
+  assert.equal(root?.dataset.page, 'chat');
+  click(visible(window.document, '.back'));
+  assert.equal(posted(sent, 'stop'), undefined);
   click(visible(window.document, '[data-session-id="a"]'));
   assert.equal(posted(sent, 'stop'), undefined);
   assert.equal(root?.dataset.page, 'chat');

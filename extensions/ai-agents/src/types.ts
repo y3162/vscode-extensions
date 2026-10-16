@@ -84,7 +84,8 @@ export interface QueuedPrompt {
 
 export interface FileChange {
   path: string;
-  kind: 'add' | 'update' | 'delete';
+  kind: 'add' | 'update' | 'delete' | 'rename';
+  oldPath?: string;
   previousText?: string | null;
   diff?: string;
   additions?: number;
@@ -96,14 +97,97 @@ export interface TodoEntry {
   status: string;
 }
 
+export type PlanPhase = 'idle' | 'planning' | 'ready' | 'revising' | 'building' | 'implemented';
+export type PlanSource = 'acp-create-plan' | 'sdk-createPlan' | 'app-server-plan' | 'assistant-text';
+export type TurnIntent = 'chat' | 'plan' | 'revise' | 'build';
+export type SubagentBackground = boolean | 'unknown';
+
+export interface PlanDocument {
+  id: string;
+  revision: number;
+  name?: string;
+  overview?: string;
+  markdown: string;
+  todos: TodoEntry[];
+  files?: string[];
+  source: PlanSource;
+  createdAt: number;
+  sessionId?: string;
+  restored?: boolean;
+}
+
+export interface PlanRevision {
+  revision: number;
+  createdAt: number;
+  source: PlanSource;
+  name?: string;
+  markdown: string;
+}
+
+export interface PlanBuild {
+  selection: Selection;
+  label?: string;
+  startedAt?: number;
+}
+
+export interface PlanState {
+  phase: PlanPhase;
+  current?: PlanDocument;
+  draft?: PlanDocument;
+  revisions: PlanRevision[];
+  build?: PlanBuild;
+  error?: string;
+}
+
+export interface TurnRecord {
+  id: string;
+  startedAt: number;
+  endedAt?: number;
+  status: 'running' | 'completed' | 'cancelled' | 'failed';
+  waitMs: number;
+  mode: AgentMode;
+  model: string;
+  intent: TurnIntent;
+  finalMessageId?: string;
+}
+
+export interface TurnOptions {
+  intent: TurnIntent;
+  mode: AgentMode;
+  selection: Selection;
+}
+
+export interface SubagentRecord {
+  id: string;
+  parentTurnId?: string;
+  name: string;
+  task?: string;
+  status: 'running' | 'completed' | 'error' | 'cancelled';
+  startedAt?: number;
+  endedAt?: number;
+  durationMs?: number;
+  background: SubagentBackground;
+  resultPreview?: string;
+}
+
+export interface TerminalRecord {
+  processId: string;
+  command?: string;
+  status?: string;
+}
+
 export interface UpdateMeta {
-  type: 'usage' | 'files' | 'thinking' | 'todo' | 'image' | 'task';
+  type: 'usage' | 'files' | 'thinking' | 'todo' | 'image' | 'task' | 'plan' | 'subagent' | 'terminals';
   usage?: UsageStats;
   files?: FileChange[];
   todos?: TodoEntry[];
   imagePath?: string;
   task?: string;
   append?: boolean;
+  plan?: { name?: string; overview?: string; markdown: string; todos?: TodoEntry[]; files?: string[]; source: PlanSource };
+  subagent?: SubagentRecord;
+  terminals?: TerminalRecord[];
+  final?: boolean;
 }
 
 export interface ChatMessage {
@@ -114,6 +198,7 @@ export interface ChatMessage {
   tool?: ToolInfo;
   at?: number;
   attachments?: string[];
+  final?: boolean;
 }
 
 export type AgentUpdate = Omit<ChatMessage, 'role'> & {
@@ -156,6 +241,7 @@ export interface SessionSummary {
   updatedAt: string;
   provider: Provider;
   cwd?: string;
+  activity?: 'idle' | 'running' | 'waiting' | 'error';
 }
 
 export interface AgentInteractions {
@@ -165,7 +251,7 @@ export interface AgentInteractions {
 }
 
 export interface AgentSession {
-  run(prompt: string, signal: AbortSignal, emit: (update: AgentUpdate) => void, extras?: SendExtras): Promise<void>;
+  run(prompt: string, signal: AbortSignal, emit: (update: AgentUpdate) => void, extras?: SendExtras, turn?: TurnOptions): Promise<void>;
   dispose(): Promise<void>;
   setMode?(mode: AgentMode): Promise<void>;
   setModel?(selection: Selection): void;
@@ -174,6 +260,8 @@ export interface AgentSession {
   fork?(): Promise<string | undefined>;
   compact?(): Promise<void>;
   review?(target: 'uncommitted' | 'base', emit: (update: AgentUpdate) => void, signal: AbortSignal): Promise<void>;
+  listBackgroundTerminals?(): Promise<TerminalRecord[]>;
+  terminateBackgroundTerminal?(processId: string): Promise<void>;
   listSessions?(): Promise<SessionSummary[]>;
   rateLimits?(): Promise<string>;
   instructions?(): Promise<string>;
@@ -196,6 +284,14 @@ export interface ChatState {
   pendingPermission: PermissionRequest | null;
   pendingPlan: PlanRequest | null;
   pendingQuestion: QuestionRequest | null;
+  plan: PlanState;
+  turns: TurnRecord[];
+  subagents: SubagentRecord[];
+  terminals: TerminalRecord[];
+}
+
+export function emptyPlanState(): PlanState {
+  return { phase: 'idle', revisions: [] };
 }
 
 export function errorMessage(error: unknown): string {

@@ -36,7 +36,11 @@ SDK で `on-request` のような対話承認を選ぶと、プロセスが入�
 
 ## セッション
 
-`ChatController` は1つの実行だけを持ちます。Webview を閉じても実行は止めません。停止、新しい会話、プロバイダー変更、サンドボックス変更で破棄します。モード変更は、接続中のセッションが `setMode` を実装していれば会話を維持します。
+`SessionRegistry` は会話ごとに `ChatController` を持つ。画面に出るのは前面の1つで、実行中に Home から別の会話を開いても前面の実行は止めない。同時実行の上限は `ai-agents.maxBackgroundSessions`。アイドルの背面プロセスはセッション ID を残して終了し、次の送信で再開する。
+
+Plan の状態は `PlanState` が持つ。Plan モードの送信は計画を作って `ready` で止まる。Build はその計画の版とセッションが一致するときだけ Agent モードの新しいターンを始める。Cursor ACP の `cursor/create_plan` は計画を記録したあと `cancelled` を返し、実装は Build のターンまで始めない。
+
+`ChatController` は1つの実行だけを持ちます。Webview を閉じても実行は止めません。停止、前面の新しい会話、プロバイダー変更、サンドボックス変更で前面を破棄します。モード変更は、接続中のセッションが `setMode` を実装していれば会話を維持します。
 
 復元は `Agent.resume`、`resumeThread`、ACP `session/load`、App Server `thread/resume` を使います。表示用の履歴がプロトコルから来ない場合は、その旨を状態メッセージにします。
 

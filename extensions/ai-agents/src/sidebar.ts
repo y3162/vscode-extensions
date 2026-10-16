@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { capabilitiesFor, defaultControls, modelApplyMode, normalizeControls, type AgentControls } from './capabilities.js';
+import { inferIntent } from './plan-state.js';
 import { revertChange } from './change-review.js';
 import { ChatController } from './chat-controller.js';
 import { builtinCommand, expandPrompt } from './context-text.js';
@@ -16,7 +17,10 @@ import { createSession, listCursorSdkSessions, writeBaselineFile } from './provi
 import { listModels } from './providers/models.js';
 import type { ProbeResult } from './protocol.js';
 import { upsertSession } from './session-index.js';
-import { errorMessage, type AgentModel, type Backend, type ChatState, type ImageAttachment, type Provider, type Selection, type SessionSummary } from './types.js';
+import { extensionBadge } from './diff-stats.js';
+import { resolveThemeIcon, type IconThemeDocument } from './icon-theme.js';
+import { SessionRegistry } from './session-registry.js';
+import { errorMessage, type AgentModel, type Backend, type ChatState, type ImageAttachment, type PlanState, type Provider, type Selection, type SessionSummary } from './types.js';
 import { buildShell, diffMessages, toViewMessage } from './view-state.js';
 import { activeFileToken, gitSummary, instructionSummary, problemsText, recentTerminalText, searchWorkspace, selectionBlock, watchTerminals, workspaceCommands } from './vscode-context.js';
 
@@ -28,8 +32,12 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   private readonly readyViews = new Set<vscode.WebviewView>();
   private readonly controls: Record<Provider, AgentControls>;
   private readonly locale = localeFrom(vscode.env.language);
-  private resumeId?: string;
   private lastBusy = false;
+  private readonly registry: SessionRegistry;
+  private readonly savedPlans: Record<string, PlanState>;
+  private iconThemeKey = '';
+  private iconTheme?: IconThemeDocument;
+  private iconThemeDir?: vscode.Uri;
   private modelPicker?: vscode.QuickPick<ModelItem>;
   private activePickerModel?: string;
   private modelRequest?: AbortController;
@@ -43,7 +51,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
   private probeWait?: (result: ProbeResult) => void;
   private readonly sync = new Map<vscode.WebviewView, { sigs: Map<string, string>; revision: number }>();
-  readonly controller: ChatController;
+  get controller(): ChatController { return this.registry.front; }
 
   constructor(private readonly context: vscode.ExtensionContext, private readonly output: vscode.OutputChannel) {
     const config = vscode.workspace.getConfiguration('ai-agents');
@@ -57,27 +65,15 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     this.dismissedWarning = context.workspaceState.get<string>('ai-agents.dismissedWarning') ?? null;
     for (const saved of Object.values(this.selectedModels)) saved.label = baseModelLabel(saved.label);
     const saved = this.selectedModels[provider];
-    this.controller = new ChatController({
+    this.savedPlans = context.workspaceState.get<Record<string, PlanState>>('ai-agents.plans', {});
+    const initial = this.makeController({
       provider,
       cwd: this.folders()[0]?.path ?? '',
       model: saved?.model ?? config.get<string>(`${provider}.model`, ''),
       ...(saved?.modelParams ? { modelParams: saved.modelParams } : {}),
-    }, async (selection, sessionContext) => {
-      this.requireWorkspace(selection.cwd);
-      const controls = this.controls[selection.provider];
-      return createSession({
-        ...selection,
-        ...controls,
-        storagePath: path.join(context.globalStorageUri.fsPath, 'cursor-agents'),
-        apiKey: await context.secrets.get(`ai-agents.${selection.provider}.apiKey`),
-        codexPath: vscode.workspace.getConfiguration('ai-agents').get<string>('codex.executablePath'),
-        agentPath: vscode.workspace.getConfiguration('ai-agents').get<string>('cursor.agentPath') || 'agent',
-        resumeId: this.resumeId || sessionContext?.resumeId,
-        signal: sessionContext?.signal,
-        interactions: this.controller.interactions,
-        onIdentity: (summary) => this.remember(summary),
-      });
-    }, () => this.postState());
+    });
+    this.registry = new SessionRegistry(initial, this.controls[provider].mode);
+    initial.setModePreference(this.controls[provider].mode);
     this.controller.setAutoApprove(config.get<boolean>('autoApprove', false) === true);
     this.controller.replaceSessions(context.workspaceState.get<SessionSummary[]>('ai-agents.sessionIndex', []));
     watchTerminals(context.subscriptions);
@@ -94,6 +90,25 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     return (vscode.workspace.workspaceFolders ?? [])
       .filter((folder) => folder.uri.scheme === 'file')
       .map((folder) => ({ name: folder.name, path: folder.uri.fsPath }));
+  }
+
+  private makeController(selection: Selection): ChatController {
+    return new ChatController(selection, async (next, sessionContext) => {
+      this.requireWorkspace(next.cwd);
+      const controls = { ...this.controls[next.provider], mode: this.registry?.mode() ?? this.controls[next.provider].mode };
+      return createSession({
+        ...next,
+        ...controls,
+        storagePath: path.join(this.context.globalStorageUri.fsPath, 'cursor-agents'),
+        apiKey: await this.context.secrets.get(`ai-agents.${next.provider}.apiKey`),
+        codexPath: vscode.workspace.getConfiguration('ai-agents').get<string>('codex.executablePath'),
+        agentPath: vscode.workspace.getConfiguration('ai-agents').get<string>('cursor.agentPath') || 'agent',
+        resumeId: sessionContext?.resumeId,
+        signal: sessionContext?.signal,
+        interactions: this.controller.interactions,
+        onIdentity: (summary) => this.remember(summary),
+      });
+    }, () => this.postState());
   }
 
   private requireWorkspace(cwd: string): void {
@@ -140,6 +155,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = undefined; }
     if (!this.readyViews.size) return;
     const state = this.controller.snapshot();
+    state.sessions = state.sessions.map((session) => ({ ...session, activity: this.registry.activityFor(session.id) ?? session.activity }));
     if (state.busy !== this.lastBusy) {
       this.lastBusy = state.busy;
       void vscode.commands.executeCommand('setContext', 'ai-agents.busy', state.busy);
@@ -153,7 +169,8 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       modelLabel: saved?.label || state.selection.model || (this.locale === 'ja' ? '既定のモデル' : 'Default model'),
       hasModelDetails: saved?.hasDetails === true,
       capabilities: capabilitiesFor(provider, controls.backend),
-      controls, locale: this.locale, sessionId: this.controller.sessionId(),
+      controls: { ...controls, mode: this.registry.mode() }, locale: this.locale, sessionId: this.controller.sessionId(),
+      conversationId: this.registry.frontKey,
       activeFile: token ? { token, label: path.basename(token) } : null,
       dismissedWarning: this.dismissedWarning,
       tokens: this.controller.interactionTokens(),
@@ -168,12 +185,16 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       current.revision += 1;
       this.sync.set(view, current);
       void view.webview.postMessage({
-        type: 'state', revision: current.revision, full, shell,
+        type: 'state', revision: current.revision, full, shell: this.decorateShell(shell, view.webview),
         messages: { removed: diff.removed, upserts: diff.upserts, order: diff.order },
       });
       view.description = shell.sessionTitle;
       const waiting = Boolean(shell.permission || shell.plan || shell.question);
       view.badge = waiting ? { value: 1, tooltip: shell.statusText } : undefined;
+    }
+    this.persistPlan();
+    for (const entry of this.registry.background()) {
+      if (!entry.controller.snapshot().busy) void entry.controller.hibernate();
     }
   }
 
@@ -213,7 +234,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       case 'removeDirectory':
         if ('path' in message && typeof message.path === 'string') await this.removeDirectory(message.path);
         return;
-      case 'stop': this.controller.stop(); return;
+      case 'stop': this.targetController(message).stop(); return;
       case 'newChat': await this.newChat(); return;
       case 'chooseModel': await this.selectModel(); return;
       case 'modelDetails': await this.configureModel(); return;
@@ -239,6 +260,11 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       case 'removeQueued': if ('id' in message && typeof message.id === 'string') this.controller.removeQueued(message.id); return;
       case 'resolvePermission': await this.resolvePermission(message); return;
       case 'resolvePlan': this.resolvePlan(message); return;
+      case 'buildPlan': await this.buildPlan(message); return;
+      case 'setBuildModel':
+      case 'setBuildParam': await this.setBuildModel(message); return;
+      case 'reviewChanges': await this.reviewAll(); return;
+      case 'terminateTerminal': await this.terminateTerminal(message); return;
       case 'resolveQuestion': this.resolveQuestion(message); return;
       case 'openDiff':
       case 'openFile':
@@ -250,6 +276,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       case 'select':
       case 'send':
       case 'enqueue': {
+        if (!this.isFront(message)) return;
         const selection = this.parseSelection(message);
         await this.controller.select(selection);
         if (message.type === 'send' || message.type === 'enqueue') {
@@ -547,7 +574,17 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   }
 
   async newChat(): Promise<void> {
-    await this.controller.reset();
+    const current = this.controller;
+    if (current.snapshot().busy) {
+      const next = this.makeController(current.snapshot().selection);
+      const key = randomUUID();
+      this.registry.add({ key, controller: next, mode: this.registry.mode() });
+      this.registry.focus(key);
+      next.setModePreference(this.registry.mode());
+      this.postState();
+      return;
+    }
+    await current.reset();
     const state = this.controller.snapshot();
     if (!this.folders().some((folder) => folder.path === state.selection.cwd)) {
       await this.controller.select({ ...state.selection, cwd: this.folders()[0]?.path ?? '' });
@@ -614,6 +651,9 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     else if (builtin?.name === 'terminal') text = `${builtin.rest}\n\n${recentTerminalText()}`.trim();
     const expanded = await expandPrompt(text, cwd, await workspaceCommands(cwd));
     const extras = { displayText: prompt, ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}) };
+    const running = this.registry.runningCount();
+    const limit = vscode.workspace.getConfiguration('ai-agents').get<number>('maxBackgroundSessions', 3);
+    if (!this.controller.snapshot().busy && running >= limit) throw new Error('同時に実行できる会話の上限です。どれかを停止してください。');
     if (forceQueue || this.controller.snapshot().busy) {
       this.controller.enqueue(expanded, extras);
       return;
@@ -626,7 +666,8 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       : agentLaunch(config.get<string>('cursor.agentPath'), []);
     const command = [launch.command, ...launch.args].join(' ');
     this.output.appendLine(`[${provider}/${backend}] ${launch.kind}${launch.version ? ` ${launch.version}` : ''} ${command} start`);
-    await this.controller.send(expanded, extras);
+    const state = this.controller.snapshot();
+    await this.controller.send(expanded, extras, { mode: this.registry.mode(), selection: state.selection, intent: inferIntent(this.registry.mode(), state.plan) });
     this.output.appendLine(`[${provider}/${backend}] ${this.controller.snapshot().status}`);
   }
 
@@ -659,6 +700,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       await this.controller.reset();
       this.controller.notify('設定を変更したため、新しい会話になりました。');
     } else if (modeChanged) {
+      this.registry.setMode(next.mode);
       const applied = await this.controller.applyMode(next.mode);
       if (!applied && this.controller.hasSession()) await this.controller.reset();
     }
@@ -682,22 +724,168 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     return 'token' in message && typeof message.token === 'string' ? message.token : undefined;
   }
 
+  private isFront(message: object): boolean {
+    const id = 'conversationId' in message && typeof message.conversationId === 'string' ? message.conversationId : '';
+    return !id || id === this.registry.frontKey;
+  }
+
+  private targetController(message: object): ChatController {
+    const id = 'conversationId' in message && typeof message.conversationId === 'string' ? message.conversationId : '';
+    return (id && this.registry.get(id)) || this.controller;
+  }
+
   private async resolvePermission(message: object): Promise<void> {
     const id = 'id' in message && typeof message.id === 'string' ? message.id : '';
     const decision = 'decision' in message ? message.decision : undefined;
-    if (decision === 'allow-once' || decision === 'allow-session' || decision === 'deny') this.controller.resolvePermission(id, decision, this.tokenOf(message));
+    if (decision === 'allow-once' || decision === 'allow-session' || decision === 'deny') this.targetController(message).resolvePermission(id, decision, this.tokenOf(message));
   }
 
   private resolvePlan(message: object): void {
     const id = 'id' in message && typeof message.id === 'string' ? message.id : '';
     const decision = 'decision' in message && message.decision === 'rejected' ? 'rejected' : 'accepted';
-    if (id) this.controller.resolvePlan(id, decision, this.tokenOf(message));
+    if (id) this.targetController(message).resolvePlan(id, decision, this.tokenOf(message));
   }
 
   private resolveQuestion(message: object): void {
     const id = 'id' in message && typeof message.id === 'string' ? message.id : '';
     const answers = 'answers' in message && message.answers && typeof message.answers === 'object' ? message.answers as Record<string, string[]> : {};
-    if (id) this.controller.resolveAnswers(id, answers, this.tokenOf(message));
+    if (id) this.targetController(message).resolveAnswers(id, answers, this.tokenOf(message));
+  }
+
+  private async buildPlan(message: object): Promise<void> {
+    const planId = 'planId' in message && typeof message.planId === 'string' ? message.planId : '';
+    const revision = 'revision' in message && typeof message.revision === 'number' ? message.revision : -1;
+    const plan = this.controller.snapshot().plan;
+    if (plan.phase !== 'ready' || plan.current?.id !== planId || plan.current.revision !== revision) return;
+    const provider = this.controller.snapshot().selection.provider;
+    const modelId = 'modelId' in message && typeof message.modelId === 'string' ? message.modelId : plan.build?.selection.model ?? '';
+    const modelParams = 'modelParams' in message && Array.isArray(message.modelParams)
+      ? message.modelParams.flatMap((item) => item && typeof item === 'object' && 'id' in item && 'value' in item && typeof item.id === 'string' && typeof item.value === 'string' ? [{ id: item.id, value: item.value }] : [])
+      : plan.build?.selection.modelParams;
+    const label = 'label' in message && typeof message.label === 'string' ? message.label : modelId;
+    const selection: Selection = {
+      ...this.controller.snapshot().selection,
+      model: modelId,
+      ...(modelParams?.length ? { modelParams } : { modelParams: undefined }),
+    };
+    this.registry.setMode('agent');
+    this.controls[provider] = { ...this.controls[provider], mode: 'agent' };
+    await this.context.workspaceState.update('ai-agents.controls', this.controls);
+    this.selectedModels[provider] = { model: modelId, label: label || modelId || (this.locale === 'ja' ? '既定のモデル' : 'Default model'), hasDetails: Boolean(modelParams?.length), ...(modelParams?.length ? { modelParams } : {}) };
+    await this.context.workspaceState.update('ai-agents.selectedModels', this.selectedModels);
+    await this.controller.build(planId, revision, selection);
+  }
+
+  private async setBuildModel(message: object): Promise<void> {
+    const plan = this.controller.snapshot().plan;
+    if (plan.phase !== 'ready' || !plan.current) return;
+    const provider = this.controller.snapshot().selection.provider;
+    if (capabilitiesFor(provider, this.controls[provider].backend).buildModel === 'unsupported') return;
+    const current = plan.build?.selection ?? this.controller.snapshot().selection;
+    if ('type' in message && message.type === 'setBuildModel') {
+      const modelId = 'modelId' in message && typeof message.modelId === 'string' ? message.modelId : '';
+      const models = await this.cachedModels(current);
+      const chosen = modelId ? models.find((model) => model.id === modelId || model.aliases?.includes(modelId)) : undefined;
+      const selection = { ...current, model: modelId, ...(chosen?.parameters ? {} : { modelParams: current.modelParams }) };
+      this.controller.setBuildModel(selection, chosen?.label || modelId || (this.locale === 'ja' ? '既定のモデル' : 'Default model'));
+      return;
+    }
+    const id = 'id' in message && typeof message.id === 'string' ? message.id : '';
+    const value = 'value' in message && typeof message.value === 'string' ? message.value : '';
+    if (!id) return;
+    const params = [...(current.modelParams ?? []).filter((param) => param.id !== id), { id, value }];
+    this.controller.setBuildModel({ ...current, modelParams: params }, plan.build?.label);
+  }
+
+  private async reviewAll(): Promise<void> {
+    const changes = this.controller.snapshot().changes.filter((change) => change.path !== 'turn.diff' && change.path !== 'patch');
+    const entries: [vscode.Uri, vscode.Uri | undefined, vscode.Uri | undefined][] = [];
+    for (const change of changes) {
+      const target = this.resolveInside(change.path);
+      if (!target || change.previousText === undefined && !change.diff) continue;
+      const baseline = await writeBaselineFile(path.join(this.context.globalStorageUri.fsPath, 'review'), { ...change, path: target, previousText: change.previousText ?? '' });
+      entries.push([vscode.Uri.file(target), vscode.Uri.file(baseline), change.kind === 'delete' ? undefined : vscode.Uri.file(target)]);
+    }
+    if (!entries.length) return;
+    try {
+      await vscode.commands.executeCommand('vscode.changes', 'AI Agents', entries);
+    } catch {
+      const first = entries[0];
+      if (first?.[1] && first[2]) await vscode.commands.executeCommand('vscode.diff', first[1], first[2], 'AI Agents');
+    }
+  }
+
+  private async terminateTerminal(message: object): Promise<void> {
+    const processId = 'processId' in message && typeof message.processId === 'string' ? message.processId : '';
+    if (!processId) return;
+    await this.controller.currentSession()?.terminateBackgroundTerminal?.(processId);
+    this.controller.snapshot();
+    this.postState();
+  }
+
+  private persistPlan(): void {
+    const id = this.controller.sessionId();
+    const plan = this.controller.planSnapshot();
+    if (!id || !plan.current || (plan.phase !== 'ready' && plan.phase !== 'implemented')) return;
+    if (this.savedPlans[id]?.current?.revision === plan.current.revision && this.savedPlans[id]?.phase === plan.phase) return;
+    this.savedPlans[id] = plan;
+    const ids = Object.keys(this.savedPlans);
+    while (ids.length > 20) {
+      const oldest = ids.shift();
+      if (oldest) delete this.savedPlans[oldest];
+    }
+    void this.context.workspaceState.update('ai-agents.plans', this.savedPlans);
+  }
+
+  private decorateShell<T extends { changes: { name: string; icon?: { type: 'image' | 'font' | 'badge'; src?: string; badge?: string; fontFamily?: string; fontCharacter?: string; fontColor?: string } }[] }>(shell: T, webview: vscode.Webview): T {
+    return { ...shell, changes: shell.changes.map((change) => ({ ...change, icon: this.iconFor(webview, change.name) })) };
+  }
+
+  private iconFor(webview: vscode.Webview, fileName: string): { type: 'image' | 'font' | 'badge'; src?: string; badge?: string; fontFamily?: string; fontCharacter?: string; fontColor?: string } {
+    void this.ensureIconTheme();
+    const variant = vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.Light ? 'light'
+      : vscode.window.activeColorTheme.kind === vscode.ColorThemeKind.HighContrast ? 'highContrast' : 'dark';
+    if (!this.iconTheme || !this.iconThemeDir) return { type: 'badge', badge: extensionBadge(fileName) };
+    const match = resolveThemeIcon(this.iconTheme, fileName, variant);
+    if (match.type === 'image') {
+      return { type: 'image', src: webview.asWebviewUri(vscode.Uri.joinPath(this.iconThemeDir, match.iconPath)).toString() };
+    }
+    if (match.type === 'font' && match.fontCharacter) {
+      const src = match.fontPath ? webview.asWebviewUri(vscode.Uri.joinPath(this.iconThemeDir, match.fontPath)).toString() : undefined;
+      return { type: 'font', ...(src ? { src } : {}), badge: extensionBadge(fileName), fontFamily: match.fontFamily, fontCharacter: match.fontCharacter, ...(match.fontColor ? { fontColor: match.fontColor } : {}) };
+    }
+    return { type: 'badge', badge: extensionBadge(fileName) };
+  }
+
+  private async ensureIconTheme(): Promise<void> {
+    const id = vscode.workspace.getConfiguration('workbench').get<string>('iconTheme', '');
+    const variant = vscode.window.activeColorTheme.kind;
+    const key = `${id}:${variant}`;
+    if (!id || this.iconThemeKey === key) return;
+    this.iconThemeKey = key;
+    for (const extension of vscode.extensions.all) {
+      const themes = extension.packageJSON?.contributes?.iconThemes;
+      if (!Array.isArray(themes)) continue;
+      const match = themes.find((theme) => theme && typeof theme === 'object' && 'id' in theme && theme.id === id) as { path?: string } | undefined;
+      if (!match?.path) continue;
+      try {
+        const uri = vscode.Uri.joinPath(extension.extensionUri, match.path);
+        const bytes = await vscode.workspace.fs.readFile(uri);
+        this.iconTheme = JSON.parse(new TextDecoder().decode(bytes)) as IconThemeDocument;
+        this.iconThemeDir = vscode.Uri.joinPath(uri, '..');
+        for (const view of this.views) {
+          view.webview.options = {
+            enableScripts: true,
+            localResourceRoots: [vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'webview'), extension.extensionUri],
+          };
+        }
+        this.postState();
+      } catch {
+        this.iconTheme = undefined;
+        this.iconThemeDir = undefined;
+      }
+      return;
+    }
   }
 
   private async reviewFile(type: string, filePath: unknown, line?: unknown, column?: unknown): Promise<void> {
@@ -752,15 +940,28 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   private async restoreSession(id: unknown): Promise<void> {
     if (typeof id !== 'string') return;
     if (id === this.controller.sessionId()) return;
-    if (this.controller.snapshot().busy) throw new Error('実行が終わってからエージェントを切り替えてください。');
     const provider = this.controller.snapshot().selection.provider;
     const summary = this.controller.snapshot().sessions.find((session) => session.id === id && session.provider === provider);
     if (!summary) return;
-    this.resumeId = summary.id;
-    try {
-      await this.controller.reset();
-      await this.controller.openSession();
-    } finally { this.resumeId = undefined; }
+    const existing = this.registry.findBySession(summary.id);
+    if (existing) {
+      this.registry.focus(existing.key);
+      existing.controller.setModePreference(existing.mode);
+      this.postState();
+      return;
+    }
+    const busy = this.controller.snapshot().busy;
+    const target = busy ? this.makeController(this.controller.snapshot().selection) : this.controller;
+    const key = busy ? randomUUID() : this.registry.frontKey;
+    if (busy) this.registry.add({ key, controller: target, mode: this.registry.mode() });
+    if (!busy) await target.reset();
+    target.prepareResume(summary.id);
+    this.registry.focus(key);
+    target.setModePreference(this.registry.mode());
+    await target.openSession();
+    const saved = this.savedPlans[summary.id];
+    if (saved?.current) target.restorePlan(saved);
+    this.postState();
   }
 
   private async addDirectory(): Promise<void> {

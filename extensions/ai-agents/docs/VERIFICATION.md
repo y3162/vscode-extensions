@@ -140,6 +140,23 @@ Cursor ACP のファイル復元は、変更前テキストを書き戻して `a
 - `npm run check`、`npm test`（67 passed）、`npm run package` は成功。
 - 0.8.2のVSIXを隔離したVS Code 1.142.0へインストールし、インストール済みファイルを使った `npm run test:integration` が成功。絶対パス、相対パス、空白をエンコードしたfile URIで同じREADMEの2行3列目を開けること、ワークスペース外のfile URIが拒否されることを確認した。
 
+### 0.9.0
+
+2026-10-16。Plan → Build、最終回答、ファイル変更、サブエージェント表示、別セッションの閲覧。
+
+実機 Spike（一時ディレクトリ。API キーには切り替えていない）:
+
+| Check | Result |
+| --- | --- |
+| ACP `session/new` | `modes` は agent / plan / ask。`mode: plan` を渡しても `currentModeId` は `agent` だった。続けて `session/set_mode` が必要 |
+| ACP Plan + `cursor/create_plan` に `cancelled` | 計画名 Hello、To-do 3 件。`stopReason` は `end_turn`。同じターンで実装は始まらない。Design B を採用 |
+| Cursor SDK `composer-2.5` Plan | `createPlan` のあとターンは `finished`。続けて `mode: agent` とモデル `composer-2` で `BUILD` を返した |
+| SDK モデル一覧 | `composer-2.5` はある。`composer-2.5-fast` は CLI の `agent --list-models` にはあるが、SDK の `Cursor.models.list()` には無い |
+| Codex App Server | `collaborationMode: plan` のターンのあと `default` と `gpt-5.6-luna` のターンが完了した。`thread/backgroundTerminals/list` は `{ data: [] }` |
+| サブエージェントの並列 | 未実施。表示は `task` / `cursor/task` / `collabToolCall` のイベントに合わせ、Background とは結果にあるときだけ出す |
+
+`npm test` は 72 件成功。ライブ推論は含まない。`npm run check` と `npm run test:integration` も成功。Extension Development Host での画面確認は未実施。
+
 ### 手動確認
 
 Extension Development Host（`.vscode/launch.json` の Run AI Agents）で、次は未実施である。

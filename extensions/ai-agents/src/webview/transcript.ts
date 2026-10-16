@@ -1,4 +1,5 @@
 import { renderPending, renderPlanBody, type Post } from './cards.js';
+import { renderPlanView } from './plan-view.js';
 import { isButton, isElement, type Dom } from './dom.js';
 import { renderMarkdown } from './markdown.js';
 import type { ViewMessage, ViewShell } from '../protocol.js';
@@ -8,6 +9,7 @@ import type { ToolInfo } from '../types.js';
 
 export class Transcript {
   private readonly pending: HTMLElement;
+  private readonly planHost: HTMLElement;
   private readonly nodes = new Map<string, HTMLElement>();
   private readonly logSig = new WeakMap<HTMLElement, string>();
   private readonly answerText = new WeakMap<HTMLElement, string>();
@@ -23,7 +25,10 @@ export class Transcript {
     private readonly root: HTMLElement,
     private readonly post: Post,
     private readonly onRetry: (text: string) => void,
+    private readonly onPickModel: (anchor: HTMLElement) => void,
   ) {
+    this.planHost = dom.el('div', 'plan-slot');
+    this.planHost.hidden = true;
     this.pending = dom.el('div', 'pending');
     this.pending.hidden = true;
     this.root.addEventListener('click', (event) => this.onClick(event));
@@ -38,9 +43,9 @@ export class Transcript {
   render(messages: readonly ViewMessage[], shell: ViewShell, copy: Copy): void {
     this.shell = shell;
     this.labels = copy;
-    if (!this.pending.parentElement) this.root.append(this.pending);
+    if (!this.planHost.parentElement) this.root.append(this.planHost, this.pending);
     const pending = Boolean(shell.permission || shell.plan || shell.question);
-    this.turns = buildTurns(messages, shell.busy, pending);
+    this.turns = buildTurns(messages, shell.busy, pending, shell.timings ?? []);
     const ids = new Set(this.turns.map((turn) => turn.id));
     for (const [id, node] of this.nodes) {
       if (!ids.has(id)) { node.remove(); this.nodes.delete(id); }
@@ -50,6 +55,7 @@ export class Transcript {
     for (const turn of this.turns) this.syncTurn(turn, shell.locale, copy);
     renderPending(this.pending, shell, this.dom, copy, this.post);
     if (shell.plan) renderPlanBody(this.pending, (parent, text) => renderMarkdown(parent, text, this.dom, copy.copy), shell.plan.request.overview, shell.plan.request.plan);
+    renderPlanView(this.planHost, shell, this.dom, copy, this.post, this.onPickModel);
     if (this.pending.parentElement !== this.root) this.root.append(this.pending);
     else this.root.append(this.pending);
   }
@@ -167,6 +173,19 @@ export class Transcript {
         details.open = true;
         details.append(this.dom.el('summary', undefined, copy.thought), this.dom.el('pre', undefined, segment.text));
         return details;
+      }
+      case 'subagent': {
+        const group = this.dom.el('div', 'subagents');
+        group.append(this.dom.el('p', 'subagent-label', copy.subagents));
+        for (const item of segment.items) {
+          const row = this.dom.el('div', `subagent ${item.status}`);
+          const mark = item.status === 'completed' ? '✓' : item.status === 'error' || item.status === 'cancelled' ? '✕' : '◌';
+          const time = item.durationMs ? ` ${formatDuration(item.durationMs)}` : '';
+          row.append(this.dom.el('span', undefined, `${mark} ${item.name}${time}`));
+          if (item.task) row.append(this.dom.el('span', 'tool-target', item.task));
+          group.append(row);
+        }
+        return group;
       }
       case 'todo': {
         const list = this.dom.el('ul', 'todos');
@@ -309,10 +328,9 @@ export class Transcript {
 function workSummary(turn: TurnModel, locale: Locale, copy: Copy): string {
   const running = turn.log.flatMap((segment) => segment.type === 'tools' ? segment.tools : []).find((tool) => tool.status === 'running');
   if (!turn.done) return running ? `${running.name}…` : copy.working;
-  const elapsed = turn.startedAt !== undefined && turn.endedAt !== undefined ? turn.endedAt - turn.startedAt : 0;
-  const head = elapsed > 0 ? `${formatDuration(elapsed)} ${copy.worked}` : copy.worked;
-  const detail = toolSummary(turn.log.flatMap((segment) => segment.type === 'tools' ? segment.tools : []), locale);
-  return detail ? `${head} · ${detail}` : head;
+  const elapsed = turn.startedAt !== undefined && turn.endedAt !== undefined
+    ? Math.max(0, turn.endedAt - turn.startedAt - (turn.waitMs ?? 0)) : 0;
+  return elapsed > 0 ? `${copy.worked} ${formatDuration(elapsed)}` : copy.worked;
 }
 
 function toolSummary(tools: ToolRow[], locale: Locale): string {

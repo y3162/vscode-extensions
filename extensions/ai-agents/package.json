@@ -2,7 +2,7 @@
   "name": "ai-agents",
   "displayName": "AI Agents",
   "description": "Use Cursor and Codex agents from the VS Code sidebar.",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "publisher": "y3162",
   "private": true,
   "license": "UNLICENSED",
@@ -91,6 +91,10 @@
         "ai-agents.cursor.agentPath": {
           "type": "string", "default": "agent", "scope": "machine",
           "description": "Command used to launch the Cursor CLI for ACP."
+        },
+        "ai-agents.maxBackgroundSessions": {
+          "type": "number", "default": 3, "minimum": 1,
+          "description": "Maximum number of conversations that can run at the same time."
         },
         "ai-agents.autoApprove": {
           "type": "boolean", "default": false,

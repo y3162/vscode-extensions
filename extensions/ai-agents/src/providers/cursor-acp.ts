@@ -1,7 +1,10 @@
+import { lineChangeCounts } from '../diff-stats.js';
 import type {
   AgentSession, AgentUpdate, ChatMessage, FileChange, PermissionDecision, PlanRequest, QuestionRequest, SessionSummary, TodoEntry,
 } from '../types.js';
 import type { SessionOptions } from './session-options.js';
+import { acpCreatePlanPolicy, acpCreatePlanReleaseOutcome } from './plan-policy.js';
+import { AssistantSegments } from './segments.js';
 import { mergeStreamText } from './stream-text.js';
 import { StdioJsonRpc } from './stdio-rpc.js';
 import { classifyTool, toolStatus } from '../tool-kind.js';
@@ -39,6 +42,11 @@ function decisionOption(decision: PermissionDecision, advertised: string[]): str
     ?? (decision === 'deny' ? 'reject-once' : decision === 'allow-session' ? 'allow-always' : 'allow-once');
 }
 
+function phaseTodos(value: unknown): TodoEntry[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((phase) => todosOf(record(phase).todos));
+}
+
 function todosOf(value: unknown): TodoEntry[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((item) => {
@@ -59,9 +67,9 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
   const replay: ChatMessage[] = [];
   let sessionId = options.resumeId ?? '';
   let mode = options.mode ?? 'agent';
-  let assistant = '';
   let thought = '';
-  let assistantId = 'assistant';
+  const segments = { current: new AssistantSegments() };
+  const sawPlan = { current: false };
   const emitLive = { current: undefined as ((update: AgentUpdate) => void) | undefined };
   const fail = (error: unknown) => {
     emitLive.current?.({ id: 'acp-error', role: 'error', text: error instanceof Error ? error.message : String(error) });
@@ -77,7 +85,16 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
 
   rpc.setHandlers({
     notification: (method, params) => {
-      if (method === 'session/update') handleUpdate(record(params).update ?? params, !emitLive.current);
+      const body = record(params);
+      if (method === 'session/update') handleUpdate(body.update ?? params, !emitLive.current);
+      else if (method === 'cursor/task') handleTask(body, !emitLive.current);
+      else if (method === 'cursor/update_todos') {
+        const todos = todosOf(body.todos);
+        if (todos.length) emitUpdate({ id: String(body.toolCallId ?? 'todos'), role: 'status', text: todos.map((todo) => `${todo.status}: ${todo.content}`).join('\n'), meta: { type: 'todo', todos } }, !emitLive.current);
+      } else if (method === 'cursor/generate_image') {
+        const filePath = typeof body.filePath === 'string' ? body.filePath : '';
+        if (filePath) emitUpdate({ id: String(body.toolCallId ?? 'image'), role: 'status', text: filePath, meta: { type: 'image', imagePath: filePath } }, !emitLive.current);
+      }
     },
     request: async (method, params) => {
       const body = record(params);
@@ -128,8 +145,28 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
             name: typeof body.name === 'string' ? body.name : undefined,
             overview: typeof body.overview === 'string' ? body.overview : undefined,
             plan: typeof body.plan === 'string' ? body.plan : '',
-            todos: todosOf(body.todos),
+            todos: todosOf(body.todos).length ? todosOf(body.todos) : phaseTodos(body.phases),
           };
+          sawPlan.current = true;
+          emitUpdate({
+            id: `plan-${request.id}`,
+            role: 'status',
+            text: request.plan,
+            meta: {
+              type: 'plan',
+              plan: {
+                ...(request.name ? { name: request.name } : {}),
+                ...(request.overview ? { overview: request.overview } : {}),
+                markdown: request.plan,
+                todos: request.todos,
+                source: 'acp-create-plan',
+              },
+            },
+          }, false);
+          if (acpCreatePlanPolicy === 'release') {
+            const outcome = acpCreatePlanReleaseOutcome;
+            return { outcome: outcome === 'rejected' ? { outcome: 'rejected', reason: 'The plan was saved. Implementation starts only from Build.' } : { outcome: 'cancelled' } };
+          }
           const decision = options.interactions ? await options.interactions.requestPlan(request) : 'rejected';
           return { outcome: { outcome: decision === 'accepted' ? 'accepted' : 'rejected' } };
         }
@@ -148,17 +185,23 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     const kind = typeof update.sessionUpdate === 'string' ? update.sessionUpdate : '';
     if (kind === 'agent_message_chunk' || kind === 'agent_message') {
       const chunk = textOf(update.content ?? update);
-      if (!chunk) return;
-      assistant += kind === 'agent_message' && assistant.endsWith(chunk) ? '' : chunk;
-      if (kind === 'agent_message') assistant = chunk || assistant;
-      emitUpdate({ id: assistantId, role: 'assistant', text: assistant }, transcript);
+      const segment = chunk ? segments.current.push(chunk, kind === 'agent_message' ? 'snapshot' : 'delta') : undefined;
+      if (segment) emitUpdate({ id: segment.id, role: 'assistant', text: segment.text }, transcript);
       return;
     }
+    if (kind === 'plan') {
+      const plan = textOf(update.content ?? update);
+      if (!plan.trim()) return;
+      sawPlan.current = true;
+      emitUpdate({ id: 'acp-plan', role: 'status', text: plan, meta: { type: 'plan', plan: { markdown: plan, source: 'acp-create-plan' } } }, transcript);
+      return;
+    }
+    if (kind === 'current_mode_update') return;
     if (kind === 'agent_thought_chunk') {
       const chunk = textOf(update.content ?? update);
       if (!chunk) return;
       thought = mergeStreamText(thought, chunk);
-      emitUpdate({ id: `thought-${assistantId}`, role: 'status', text: thought, meta: { type: 'thinking' } }, transcript);
+      emitUpdate({ id: 'thought', role: 'status', text: thought, meta: { type: 'thinking' } }, transcript);
       return;
     }
     if (kind === 'user_message_chunk' || kind === 'user_message') {
@@ -167,6 +210,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       return;
     }
     if (kind === 'tool_call' || kind === 'tool_call_update') {
+      segments.current.interrupt();
       const id = String(update.toolCallId ?? 'tool');
       const title = typeof update.title === 'string' ? update.title : 'tool';
       const status = typeof update.status === 'string' ? update.status : kind;
@@ -192,29 +236,54 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
   }
 
   function filesFrom(update: Record<string, unknown>): FileChange[] {
-    const locations = Array.isArray(update.locations) ? update.locations : [];
     const content = Array.isArray(update.content) ? update.content : [];
     const files: FileChange[] = [];
+    const toolKind = typeof update.kind === 'string' ? update.kind.toLowerCase() : '';
     for (const block of content) {
       const item = record(block);
       const diff = record(item.type === 'diff' ? item : item.content);
       if (item.type !== 'diff' && record(item.content).type !== 'diff') continue;
       const filePath = typeof diff.path === 'string' ? diff.path : '';
       if (!filePath) continue;
+      const previous = typeof diff.oldText === 'string' || diff.oldText === null ? diff.oldText as string | null : undefined;
+      const next = typeof diff.newText === 'string' ? diff.newText : undefined;
+      const counts = previous !== undefined && next !== undefined ? lineChangeCounts(previous ?? '', next) : undefined;
+      const kind: FileChange['kind'] = toolKind.includes('delete') ? 'delete'
+        : previous === null ? 'add'
+          : toolKind.includes('move') ? 'rename' : 'update';
       files.push({
         path: filePath,
-        kind: 'update',
-        ...(typeof diff.oldText === 'string' || diff.oldText === null ? { previousText: diff.oldText as string | null } : {}),
-        ...(typeof diff.newText === 'string' && typeof diff.oldText === 'string' ? { diff: `--- a/${filePath}\n+++ b/${filePath}\n${diff.newText}` } : {}),
+        kind,
+        ...(previous !== undefined ? { previousText: previous } : {}),
+        ...(counts ? { additions: counts.additions, deletions: counts.deletions } : {}),
       });
     }
-    if (!files.length) {
-      for (const location of locations) {
-        const filePath = typeof record(location).path === 'string' ? String(record(location).path) : '';
-        if (filePath) files.push({ path: filePath, kind: 'update' });
-      }
-    }
     return files;
+  }
+
+  function handleTask(body: Record<string, unknown>, transcript: boolean): void {
+    const id = String(body.toolCallId ?? '');
+    if (!id) return;
+    const description = typeof body.description === 'string' ? body.description : 'Subagent';
+    const subagentType = body.subagentType;
+    const name = typeof subagentType === 'string' ? subagentType
+      : typeof record(subagentType).custom === 'string' ? String(record(subagentType).custom) : description;
+    emitUpdate({
+      id,
+      role: 'status',
+      text: description,
+      meta: {
+        type: 'subagent',
+        subagent: {
+          id,
+          name,
+          ...(typeof body.prompt === 'string' ? { task: body.prompt } : {}),
+          status: 'completed',
+          background: 'unknown',
+          ...(typeof body.durationMs === 'number' ? { durationMs: body.durationMs } : {}),
+        },
+      },
+    }, transcript);
   }
 
   try {
@@ -245,6 +314,10 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       sessionId = typeof created.sessionId === 'string' ? created.sessionId : '';
     }
     if (!sessionId) throw new Error('Cursor ACP did not return a session id.');
+    if (mode !== 'agent') {
+      await rpc.request('session/set_mode', { sessionId, modeId: mode }).catch(() => undefined);
+      await rpc.request('session/set_config_option', { sessionId, configId: 'mode', value: mode }).catch(() => undefined);
+    }
     options.onIdentity?.({
       id: sessionId,
       title: 'Cursor ACP',
@@ -288,11 +361,16 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
         }];
       });
     },
-    async run(prompt, signal, emit, extras) {
+    async run(prompt, signal, emit, extras, turn) {
       emitLive.current = emit;
-      assistant = '';
       thought = '';
-      assistantId = `assistant-${Date.now()}`;
+      segments.current = new AssistantSegments();
+      sawPlan.current = false;
+      if (turn?.mode && turn.mode !== mode) {
+        mode = turn.mode;
+        await rpc.request('session/set_mode', { sessionId, modeId: mode }).catch(() => undefined);
+        await rpc.request('session/set_config_option', { sessionId, configId: 'mode', value: mode }).catch(() => undefined);
+      }
       const blocks: Record<string, unknown>[] = [{ type: 'text', text: prompt }];
       for (const image of extras?.images ?? []) blocks.push({ type: 'image', mimeType: image.mimeType, data: image.data });
       const aborted = () => { void rpc.notify('session/cancel', { sessionId }); };
@@ -300,6 +378,10 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       try {
         if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
         await rpc.request('session/prompt', { sessionId, prompt: blocks }, signal);
+        const planText = segments.current.fullText().trim();
+        if ((turn?.mode ?? mode) === 'plan' && !sawPlan.current && planText && !signal.aborted) {
+          emit({ id: 'plan-text', role: 'status', text: planText, meta: { type: 'plan', plan: { markdown: planText, source: 'assistant-text' } } });
+        }
         options.onIdentity?.({ id: sessionId, title: prompt.slice(0, 80) || 'Cursor ACP', updatedAt: new Date().toISOString(), provider: 'cursor', cwd: options.cwd });
       } finally {
         signal.removeEventListener('abort', aborted);

@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
+import { refreshChangeStats } from './change-tracker.js';
 import { sameModelParams } from './model-settings.js';
+import { beginPlanning, buildPrompt, cloneSelection, commitDraft, finishBuild, inferIntent, planningFailed, requestBuild, setBuildSelection, stageDraft } from './plan-state.js';
 import { upsertSession } from './session-index.js';
 import { addUsage, lightMeta } from './providers/details.js';
 import { mergeFileChanges } from './change-review.js';
 import {
-  errorMessage, type AgentInteractions, type AgentMode, type AgentSession, type AgentUpdate, type ChatMessage,
-  type ChatState, type ConnectionStatus, type PermissionDecision, type PermissionRequest, type PlanRequest,
-  type QuestionRequest, type Selection, type SendExtras, type SessionSummary,
+  emptyPlanState, errorMessage, type AgentInteractions, type AgentMode, type AgentSession, type AgentUpdate, type ChatMessage,
+  type ChatState, type ConnectionStatus, type PermissionDecision, type PermissionRequest, type PlanRequest, type PlanState,
+  type QuestionRequest, type Selection, type SendExtras, type SessionSummary, type TurnOptions, type TurnRecord,
 } from './types.js';
 
 type SessionFactory = (selection: Selection, context?: { signal?: AbortSignal; resumeId?: string }) => Promise<AgentSession>;
@@ -27,6 +29,10 @@ export class ChatController {
   private permissionWait: PermissionWait | null = null;
   private planWait: PlanWait | null = null;
   private questionWait: QuestionWait | null = null;
+  private modePreference: AgentMode = 'agent';
+  private currentTurn?: string;
+  private turnWait = 0;
+  private waitStarted?: number;
   private readonly state: ChatState;
   readonly interactions: AgentInteractions;
 
@@ -38,6 +44,7 @@ export class ChatController {
     this.state = {
       selection: { ...selection }, busy: false, messages: [], queue: [], status: 'idle', usage: null,
       changes: [], todos: [], sessions: [], autoApprove: false, pendingPermission: null, pendingPlan: null, pendingQuestion: null,
+      plan: emptyPlanState(), turns: [], subagents: [], terminals: [],
     };
     this.interactions = {
       requestPermission: (request) => this.requestPermission(request),
@@ -49,7 +56,10 @@ export class ChatController {
   snapshot(): ChatState { return structuredClone(this.state); }
   hasSession(): boolean { return Boolean(this.session); }
   currentSession(): AgentSession | undefined { return this.session; }
-  sessionId(): string | undefined { return this.session?.sessionId; }
+  sessionId(): string | undefined { return this.session?.sessionId || this.retainedId; }
+  setModePreference(mode: AgentMode): void { this.modePreference = mode; }
+  prepareResume(id: string): void { this.retainedId = id; }
+  planSnapshot(): PlanState { return structuredClone(this.state.plan); }
   interactionTokens(): { permission: string | null; plan: string | null; question: string | null } {
     return {
       permission: this.permissionWait?.token ?? null,
@@ -157,9 +167,45 @@ export class ChatController {
   }
 
   async applyMode(mode: AgentMode): Promise<boolean> {
+    this.modePreference = mode;
     if (!this.session?.setMode) return !this.session;
     await this.session.setMode(mode);
     return true;
+  }
+
+  setBuildModel(selection: Selection, label?: string): void {
+    this.state.plan = setBuildSelection(this.state.plan, selection, label);
+    this.publish();
+  }
+
+  restorePlan(plan: PlanState): void {
+    if (!plan.current || this.state.plan.current) return;
+    this.state.plan = { ...plan, phase: 'ready', draft: undefined, current: { ...plan.current, restored: true } };
+    this.state.todos = plan.current.todos;
+    this.publish();
+  }
+
+  async hibernate(): Promise<void> {
+    if (this.active || this.resetting || this.permissionWait || this.planWait || this.questionWait) return;
+    const session = this.session;
+    if (!session) return;
+    this.retainedId = session.sessionId || this.retainedId;
+    this.session = undefined;
+    await session.dispose();
+  }
+
+  async build(planId: string, revision: number, selection: Selection): Promise<void> {
+    if (this.state.plan.phase === 'building') return;
+    const next = requestBuild(this.state.plan, planId, revision, selection, this.sessionId());
+    if ('error' in next) throw new Error(next.error);
+    const plan = next.state.current;
+    if (!plan) return;
+    this.state.plan = next.state;
+    this.state.selection = cloneSelection(selection);
+    this.modePreference = 'agent';
+    this.session?.setModel?.(selection);
+    this.publish();
+    await this.send(buildPrompt(plan), { displayText: `Build · ${selection.model || 'default'}` }, { intent: 'build', mode: 'agent', selection });
   }
 
   enqueue(prompt: string, extras?: SendExtras): void {
@@ -205,11 +251,20 @@ export class ChatController {
     this.publish();
   }
 
-  async send(prompt: string, extras?: SendExtras): Promise<void> {
+  async send(prompt: string, extras?: SendExtras, turn?: TurnOptions): Promise<void> {
     prompt = prompt.trim();
     if (!prompt) return;
     if (this.active || this.resetting) throw new Error('エージェントは実行中です。');
+    const selection = turn?.selection ?? this.state.selection;
+    const mode = turn?.mode ?? this.modePreference;
+    const intent = turn?.intent ?? inferIntent(mode, this.state.plan);
+    const turnOptions: TurnOptions = { intent, mode, selection };
+    if (intent === 'plan' || intent === 'revise') this.state.plan = beginPlanning(this.state.plan);
     const turnId = randomUUID();
+    const record: TurnRecord = { id: turnId, startedAt: Date.now(), status: 'running', waitMs: 0, mode, model: selection.model, intent };
+    this.state.turns = [...this.state.turns, record].slice(-40);
+    this.currentTurn = turnId;
+    this.turnWait = 0;
     const operation = { abort: new AbortController(), done: Promise.resolve() };
     this.active = operation;
     this.state.busy = true;
@@ -236,17 +291,19 @@ export class ChatController {
           const message = this.stamp(turnId, update);
           const existing = this.state.messages.findIndex((item) => item.id === message.id);
           if (existing < 0) this.state.messages.push(message);
-          else this.state.messages[existing] = { ...message, at: this.state.messages[existing]?.at ?? message.at };
+          else this.state.messages[existing] = { ...message, at: this.state.messages[existing]?.at ?? message.at, ...(message.final ? { final: true } : {}) };
           this.state.messages = this.state.messages.slice(-300);
           this.publish();
-        }, extras);
+        }, extras, turnOptions);
         if (signal.aborted) this.addStatus('停止しました。');
+        this.finishTurn(turnId, signal.aborted ? 'cancelled' : 'completed', intent);
       } catch (error) {
         const cancelled = signal.aborted || (error instanceof Error && error.name === 'AbortError');
         this.state.messages.push({
           id: randomUUID(), role: cancelled ? 'status' : 'error',
           text: cancelled ? '停止しました。' : errorMessage(error), at: Date.now(),
         });
+        this.finishTurn(turnId, cancelled ? 'cancelled' : 'failed', intent);
         if (!cancelled) {
           this.state.status = 'error';
           if (resuming && !this.session) this.retainedId = undefined;
@@ -258,6 +315,9 @@ export class ChatController {
           this.session = undefined;
           await dead.dispose();
         } else if (this.session?.sessionId) this.retainedId = this.session.sessionId;
+        if (this.state.selection.cwd && this.state.changes.length) {
+          this.state.changes = await refreshChangeStats(this.state.selection.cwd, this.state.changes).catch(() => this.state.changes);
+        }
         if (this.active === operation) this.active = undefined;
         if (this.autoDrain && !this.resetting) this.continueQueue();
         this.state.busy = Boolean(this.active || this.resetting);
@@ -309,6 +369,7 @@ export class ChatController {
       id: `${turnId}:${update.id}`,
       text: update.text.slice(0, 32000),
       meta: lightMeta(update.meta),
+      ...(update.final ? { final: true } : {}),
       at: Date.now(),
     };
   }
@@ -317,6 +378,55 @@ export class ChatController {
     if (update.meta?.type === 'usage' && update.meta.usage) this.state.usage = addUsage(this.state.usage, update.meta.usage);
     if (update.meta?.type === 'files' && update.meta.files) this.state.changes = mergeFileChanges(this.state.changes, update.meta.files);
     if (update.meta?.type === 'todo' && update.meta.todos) this.state.todos = update.meta.todos;
+    if (update.meta?.type === 'plan' && update.meta.plan?.markdown) this.state.plan = stageDraft(this.state.plan, update.meta.plan);
+    if (update.meta?.type === 'subagent' && update.meta.subagent) {
+      const incoming = { ...update.meta.subagent, ...(this.currentTurn ? { parentTurnId: this.currentTurn } : {}) };
+      const index = this.state.subagents.findIndex((item) => item.id === incoming.id);
+      if (index < 0) this.state.subagents.push(incoming);
+      else this.state.subagents[index] = { ...this.state.subagents[index], ...incoming };
+    }
+    if (update.meta?.type === 'terminals' && update.meta.terminals) this.state.terminals = update.meta.terminals;
+  }
+
+  private finishTurn(turnId: string, status: TurnRecord['status'], intent: TurnOptions['intent']): void {
+    if (this.waitStarted !== undefined) {
+      this.turnWait += Date.now() - this.waitStarted;
+      this.waitStarted = undefined;
+    }
+    const turn = this.state.turns.find((item) => item.id === turnId);
+    if (turn) {
+      turn.status = status;
+      turn.endedAt = Date.now();
+      turn.waitMs = this.turnWait;
+    }
+    this.markFinal(turnId);
+    if (turn) turn.finalMessageId = this.state.messages.find((message) => message.final && message.id.startsWith(`${turnId}:`))?.id;
+    if (intent === 'build') this.state.plan = finishBuild(this.state.plan, status === 'completed' ? 'completed' : status === 'cancelled' ? 'cancelled' : 'failed');
+    else if (intent === 'plan' || intent === 'revise') {
+      this.state.plan = this.state.plan.draft?.markdown
+        ? commitDraft(this.state.plan, this.state.selection, this.sessionId())
+        : planningFailed(this.state.plan, status === 'completed' ? '計画は作成されませんでした。' : undefined);
+    }
+    if (this.currentTurn === turnId) this.currentTurn = undefined;
+  }
+
+  private markFinal(turnId: string): void {
+    const messages = this.state.messages.filter((message) => message.role === 'assistant' && message.id.startsWith(`${turnId}:`));
+    if (messages.some((message) => message.final)) return;
+    const last = messages.at(-1);
+    if (last) last.final = true;
+  }
+
+  private armWait(): void {
+    if (this.waitStarted === undefined) this.waitStarted = Date.now();
+  }
+
+  private releaseWait(): void {
+    if (this.permissionWait || this.planWait || this.questionWait || this.waitStarted === undefined) return;
+    this.turnWait += Date.now() - this.waitStarted;
+    this.waitStarted = undefined;
+    const turn = this.state.turns.find((item) => item.id === this.currentTurn);
+    if (turn) turn.waitMs = this.turnWait;
   }
 
   requestPermission(request: PermissionRequest): Promise<PermissionDecision> {
@@ -325,6 +435,7 @@ export class ChatController {
       return Promise.resolve('allow-once');
     }
     return new Promise((resolve) => {
+      this.armWait();
       this.permissionWait = { request, token: randomUUID(), resolve };
       this.state.pendingPermission = request;
       this.state.status = 'waiting_approval';
@@ -342,11 +453,13 @@ export class ChatController {
     this.state.pendingPermission = null;
     if (this.state.status === 'waiting_approval') this.state.status = this.active ? 'running' : 'idle';
     pending.resolve(decision === 'allow-session' ? 'allow-session' : decision);
+    this.releaseWait();
     this.publish();
   }
 
   requestPlan(request: PlanRequest): Promise<'accepted' | 'rejected'> {
     return new Promise((resolve) => {
+      this.armWait();
       this.planWait = { request, token: randomUUID(), resolve };
       this.state.pendingPlan = request;
       this.state.todos = request.todos;
@@ -362,11 +475,13 @@ export class ChatController {
     this.state.pendingPlan = null;
     if (this.state.status === 'waiting_approval') this.state.status = this.active ? 'running' : 'idle';
     pending.resolve(decision);
+    this.releaseWait();
     this.publish();
   }
 
   requestAnswers(request: QuestionRequest): Promise<Record<string, string[]>> {
     return new Promise((resolve) => {
+      this.armWait();
       this.questionWait = { request, token: randomUUID(), resolve };
       this.state.pendingQuestion = request;
       this.state.status = 'waiting_approval';
@@ -381,6 +496,7 @@ export class ChatController {
     this.state.pendingQuestion = null;
     if (this.state.status === 'waiting_approval') this.state.status = this.active ? 'running' : 'idle';
     pending.resolve(answers);
+    this.releaseWait();
     this.publish();
   }
 
@@ -446,6 +562,11 @@ export class ChatController {
         this.state.pendingPermission = null;
         this.state.pendingPlan = null;
         this.state.pendingQuestion = null;
+        this.state.plan = emptyPlanState();
+        this.state.turns = [];
+        this.state.subagents = [];
+        this.state.terminals = [];
+        this.currentTurn = undefined;
         this.state.status = 'idle';
       } finally {
         this.resetting = undefined;

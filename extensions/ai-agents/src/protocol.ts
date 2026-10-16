@@ -1,5 +1,6 @@
 import type {
-  Backend, ChatMessage, ConnectionStatus, PermissionRequest, PlanRequest, Provider, QuestionRequest, SessionSummary, ToolInfo, UsageStats,
+  Backend, ChatMessage, ConnectionStatus, PermissionRequest, PlanPhase, PlanRequest, PlanSource, Provider, QuestionRequest,
+  SessionSummary, SubagentBackground, ToolInfo, UsageStats,
 } from './types.js';
 
 export interface ViewChoice {
@@ -21,6 +22,7 @@ export interface ViewMeta {
   todos?: { content: string; status: string }[];
   task?: string;
   imagePath?: string;
+  subagent?: ViewSubagent;
 }
 
 export interface ViewMessage {
@@ -31,6 +33,16 @@ export interface ViewMessage {
   attachments?: string[];
   tool?: ToolInfo;
   meta?: ViewMeta;
+  final?: boolean;
+}
+
+export interface ViewFileIcon {
+  type: 'image' | 'font' | 'badge';
+  src?: string;
+  badge?: string;
+  fontFamily?: string;
+  fontCharacter?: string;
+  fontColor?: string;
 }
 
 export interface ViewChange {
@@ -43,6 +55,53 @@ export interface ViewChange {
   canDiff: boolean;
   synthetic: boolean;
   patch?: string;
+  icon?: ViewFileIcon;
+}
+
+export interface ViewPlan {
+  id: string;
+  revision: number;
+  phase: PlanPhase;
+  name?: string;
+  overview?: string;
+  markdown: string;
+  todos: { content: string; status: string }[];
+  files?: string[];
+  restored?: boolean;
+  source: PlanSource;
+  buildModelId: string;
+  buildModelLabel: string;
+  buildParams: { id: string; value: string }[];
+  showBuildModel: boolean;
+  canBuild: boolean;
+  error?: string;
+  history: { revision: number; name?: string; markdown: string }[];
+}
+
+export interface ViewTurnTiming {
+  id: string;
+  startedAt: number;
+  endedAt?: number;
+  waitMs: number;
+  status: 'running' | 'completed' | 'cancelled' | 'failed';
+  intent: string;
+  finalMessageId?: string;
+}
+
+export interface ViewSubagent {
+  id: string;
+  name: string;
+  task?: string;
+  status: 'running' | 'completed' | 'error' | 'cancelled';
+  background: SubagentBackground;
+  durationMs?: number;
+  resultPreview?: string;
+}
+
+export interface ViewTerminal {
+  processId: string;
+  command?: string;
+  status?: string;
 }
 
 export interface ViewBanner {
@@ -88,8 +147,13 @@ export interface ViewShell {
   autoApprove: boolean;
   steer: boolean;
   interactiveApproval: boolean;
+  conversationId: string;
   queue: { id: string; text: string; images: number }[];
   changes: ViewChange[];
+  planView: ViewPlan | null;
+  timings: ViewTurnTiming[];
+  subagents: ViewSubagent[];
+  terminals: ViewTerminal[];
   additions: number;
   deletions: number;
   sessions: SessionSummary[];

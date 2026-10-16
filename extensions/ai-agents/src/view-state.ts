@@ -3,6 +3,7 @@ import type { AgentControls, ProviderCapabilities } from './capabilities.js';
 import { isInsideWorkspace } from './change-review.js';
 import type { MessageDiff, ViewChange, ViewChoice, ViewMessage, ViewShell } from './protocol.js';
 import { formatToken, parameterRole } from './model-settings.js';
+import type { ViewPlan, ViewSubagent, ViewTerminal, ViewTurnTiming } from './protocol.js';
 import type { Backend, ChatMessage, ChatState, FileChange, Provider, SessionSummary } from './types.js';
 
 export interface InteractionTokens {
@@ -24,6 +25,8 @@ export interface ShellSource {
   dismissedWarning?: string | null;
   tokens: InteractionTokens;
   backends: Record<Provider, Backend>;
+  conversationId?: string;
+  showBuildModel?: boolean;
 }
 
 const genericTitles = new Set(['', 'Codex', 'Cursor', 'Cursor ACP']);
@@ -70,6 +73,36 @@ export function presentChange(change: FileChange, roots: string[]): ViewChange {
     canDiff: !synthetic && backed,
     synthetic,
     ...(synthetic && change.diff ? { patch: change.diff.slice(0, 4000) } : {}),
+  };
+}
+
+function presentPlan(state: ChatState, showBuildModel: boolean): ViewPlan | null {
+  const drafting = state.plan.phase === 'planning' || state.plan.phase === 'revising';
+  const visible = drafting ? state.plan.draft ?? state.plan.current : state.plan.current;
+  if (!visible?.markdown) return null;
+  const selection = state.plan.build?.selection ?? state.selection;
+  return {
+    id: visible.id,
+    revision: visible.revision,
+    phase: state.plan.phase,
+    ...(visible.name ? { name: visible.name } : {}),
+    ...(visible.overview ? { overview: visible.overview } : {}),
+    markdown: visible.markdown,
+    todos: visible.todos,
+    ...(visible.files?.length ? { files: visible.files } : {}),
+    ...(visible.restored ? { restored: true } : {}),
+    source: visible.source,
+    buildModelId: selection.model,
+    buildModelLabel: state.plan.build?.label || selection.model || '',
+    buildParams: selection.modelParams ?? [],
+    showBuildModel,
+    canBuild: state.plan.phase === 'ready' && !state.busy,
+    ...(state.plan.error ? { error: state.plan.error } : {}),
+    history: state.plan.revisions.filter((item) => item.revision !== visible.revision).map((item) => ({
+      revision: item.revision,
+      ...(item.name ? { name: item.name } : {}),
+      markdown: item.markdown,
+    })),
   };
 }
 
@@ -186,12 +219,37 @@ export function buildShell(source: ShellSource): ViewShell {
     autoApprove: state.autoApprove,
     steer: capabilities.steer,
     interactiveApproval: capabilities.interactiveApproval,
+    conversationId: source.conversationId ?? '',
     queue: state.queue.map((item) => ({
       id: item.id,
       text: item.extras?.displayText || item.text,
       images: item.extras?.images?.length ?? 0,
     })),
     changes,
+    planView: presentPlan(state, source.showBuildModel !== false && capabilities.buildModel !== 'unsupported'),
+    timings: state.turns.map((turn): ViewTurnTiming => ({
+      id: turn.id,
+      startedAt: turn.startedAt,
+      ...(turn.endedAt !== undefined ? { endedAt: turn.endedAt } : {}),
+      waitMs: turn.waitMs,
+      status: turn.status,
+      intent: turn.intent,
+      ...(turn.finalMessageId ? { finalMessageId: turn.finalMessageId } : {}),
+    })),
+    subagents: state.subagents.map((item): ViewSubagent => ({
+      id: item.id,
+      name: item.name,
+      ...(item.task ? { task: item.task } : {}),
+      status: item.status,
+      background: item.background,
+      ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
+      ...(item.resultPreview ? { resultPreview: item.resultPreview } : {}),
+    })),
+    terminals: state.terminals.map((item): ViewTerminal => ({
+      processId: item.processId,
+      ...(item.command ? { command: item.command } : {}),
+      ...(item.status ? { status: item.status } : {}),
+    })),
     additions: changes.reduce((sum, change) => sum + (change.additions ?? 0), 0),
     deletions: changes.reduce((sum, change) => sum + (change.deletions ?? 0), 0),
     sessions,
@@ -225,6 +283,7 @@ export function toViewMessage(message: ChatMessage): ViewMessage {
     text: message.text,
     ...(message.at !== undefined ? { at: message.at } : {}),
     ...(message.attachments?.length ? { attachments: message.attachments } : {}),
+    ...(message.final ? { final: true } : {}),
     ...(message.tool ? { tool: message.tool } : {}),
     ...(meta ? {
       meta: {
@@ -233,6 +292,15 @@ export function toViewMessage(message: ChatMessage): ViewMessage {
         ...(meta.todos?.length ? { todos: meta.todos } : {}),
         ...(meta.task ? { task: meta.task } : {}),
         ...(meta.imagePath ? { imagePath: meta.imagePath } : {}),
+        ...(meta.subagent ? { subagent: {
+          id: meta.subagent.id,
+          name: meta.subagent.name,
+          ...(meta.subagent.task ? { task: meta.subagent.task } : {}),
+          status: meta.subagent.status,
+          background: meta.subagent.background,
+          ...(meta.subagent.durationMs !== undefined ? { durationMs: meta.subagent.durationMs } : {}),
+          ...(meta.subagent.resultPreview ? { resultPreview: meta.subagent.resultPreview } : {}),
+        } } : {}),
       },
     } : {}),
   };
