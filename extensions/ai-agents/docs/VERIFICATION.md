@@ -131,6 +131,15 @@ Cursor ACP のファイル復元は、変更前テキストを書き戻して `a
 - そのインストール済み拡張機能を `AI_AGENTS_TEST_EXTENSION_PATH` に指定して `npm run test:integration` を実行し、起動、Webview、モック送信、継続、停止、キュー、モデル選択、差分、承認まで成功。
 - 報告された「VSIXとして無効」のエラーは手元で再現していない。旧0.8.0も同じ隔離環境ではインストールできたため、翻訳ファイルの梱包漏れがそのエラーの原因とは断定していない。
 
+### 0.8.2
+
+2026-10-16。AI出力の絶対パスから先頭の `/` が失われ、作業フォルダが重複する問題。
+
+- 報告された `/Users/sekiyuuta/Developer/y3162/vscode-extensions/README.md` で再現する回帰テストを追加し、修正前に失敗、修正後に成功することを確認した。
+- UIテストでは、Markdownリンク、絶対・相対パス、`file://`、空白を含むパス、行・列番号、Windows形式のパスがクリック時に正しく渡る。外部URLと未対応のスキームも検証した。
+- `npm run check`、`npm test`（67 passed）、`npm run package` は成功。
+- 0.8.2のVSIXを隔離したVS Code 1.142.0へインストールし、インストール済みファイルを使った `npm run test:integration` が成功。絶対パス、相対パス、空白をエンコードしたfile URIで同じREADMEの2行3列目を開けること、ワークスペース外のfile URIが拒否されることを確認した。
+
 ### 手動確認
 
 Extension Development Host（`.vscode/launch.json` の Run AI Agents）で、次は未実施である。

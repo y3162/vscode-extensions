@@ -165,10 +165,10 @@ function inlineBlock(tag: 'p' | 'li' | 'blockquote' | 'td', text: string, dom: D
   return element;
 }
 
-const inlinePattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\(https?:\/\/[^)\s]+\)|(?:[\w.+-]+\/)+[\w.+-]+\.\w+(?::\d+)?)/g;
+const inlinePattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\((?:<[^>\n]+>|[^)\n]+)\)|[a-z][a-z\d+.-]*:\/\/[^\s<>()]+|(?:[a-z]:[\\/]|\.{1,2}[\\/]|\/)?(?:[\w.+-]+[\\/])+[\w.+-]+\.\w+(?::\d+(?::\d+)?)?(?:#L\d+(?:C\d+)?)?)/gi;
 
 export function renderInline(parent: HTMLElement, text: string, dom: Dom): void {
-  const pattern = new RegExp(inlinePattern.source, 'g');
+  const pattern = new RegExp(inlinePattern.source, inlinePattern.flags);
   let cursor = 0;
   for (const match of text.matchAll(pattern)) {
     const token = match[0];
@@ -193,20 +193,35 @@ function appendToken(parent: HTMLElement, token: string, dom: Dom): void {
     parent.append(dom.el('em', undefined, token.slice(1, -1)));
     return;
   }
-  const link = /^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/.exec(token);
-  if (link?.[1] && link[2]) {
-    const anchor = dom.el('a', undefined, link[1]);
-    anchor.href = link[2];
+  const link = /^\[([^\]]+)\]\((?:<([^>]+)>|([^)\n]+))\)$/.exec(token);
+  const label = link?.[1] ?? token;
+  const target = (link?.[2] ?? link?.[3] ?? token).trim();
+  if (/^https?:\/\//i.test(target)) {
+    const anchor = dom.el('a', undefined, label);
+    anchor.href = target;
     anchor.rel = 'noreferrer noopener';
     parent.append(anchor);
     return;
   }
-  const file = /^(.+?)(?::(\d+))?$/.exec(token);
-  const button = dom.el('button', 'file-link', token);
+  const file = /^(.*?)(?::(\d+)(?::(\d+))?|#L(\d+)(?:C(\d+))?)?$/.exec(target);
+  let filePath = file?.[1] ?? target;
+  const fileUri = /^file:\/\//i.test(filePath);
+  if (!filePath || (!fileUri && !/^[a-z]:[\\/]/i.test(filePath) && /^[a-z][a-z\d+.-]*:/i.test(filePath))) {
+    parent.append(token);
+    return;
+  }
+  if (!fileUri) {
+    try { filePath = decodeURIComponent(filePath); } catch { /* Keep literal percent signs in file names. */ }
+  }
+  const button = dom.el('button', 'file-link', label);
   button.type = 'button';
+  button.title = target;
   button.dataset.action = 'open-file';
-  button.dataset.path = file?.[1] ?? token;
-  if (file?.[2]) button.dataset.line = file[2];
+  button.dataset.path = filePath;
+  const line = file?.[2] ?? file?.[4];
+  const column = file?.[3] ?? file?.[5];
+  if (line) button.dataset.line = line;
+  if (column) button.dataset.column = column;
   parent.append(button);
 }
 
