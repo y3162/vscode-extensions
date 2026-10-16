@@ -95,6 +95,42 @@ Cursor ACP のファイル復元は、変更前テキストを書き戻して `a
 
 統合テストは実 VS Code の Extension Host で、Webview の起動、`showHistory` のプローブ、実行中に別セッションへ戻そうとすると拒否して実行とキューが残ること、実行後のセッション復元、Diff Editor、承認トークンを確認した。幅 390px、IME、画像の貼り付け、ハイコントラストは Host の画面では見ていない。
 
+### 0.8.0
+
+2026-10-16。モデル設定メニュー。
+
+| Check | Result |
+| --- | --- |
+| `npm run check` | 成功 |
+| `npm test --workspace ai-agents` | 65 passed, 0 failed。ライブ推論は含まない |
+| `npm run build` | 成功 |
+| `npm run test:integration` | 成功。モック Codex で Quick Pick の Effort と、Webview メッセージ `setModelParam` の `medium` が `model_reasoning_effort` に載ることを確認。未対応の `context` は選択を変えない |
+
+画面は Extension Development Host のサイドバーではなく、ビルド済み Webview のプレビューをブラウザで操作した。プレビューのカタログは見た目用で、Fast と Context を含む。実カタログでは Codex にこれらは出ない。
+
+- ダーク: Composer は `Grok 4.7 Extra High`。メニューは Fast、Context、Effort Extra High、区切り、Model。
+- Effort のサブメニューは Low / Medium / High / Extra High。選択中にチェック。
+- モデル一覧は `Search models`、Default model、選択中の Grok 4.7 にチェック、Refresh。
+- ビューポート幅 320px ではサブメニューが横に出ず、Back 付きの同一パネルになる。
+- ライトとハイコントラストでもメニューの文字、枠、トグル、チェックが見える。
+- モードは Agent（∞）、Plan、Ask。Debug と Multitask は出ない。メニュー操作後も入力文は残る。
+
+未対応として記録し、成功扱いにはしない。
+
+- Cursor ACP はモデル、Effort、Context、Fast をセッションへ送らない。Composer のモデル名はメニューを開かない。
+- Codex SDK と App Server に Context と Fast の変更 API はない。メニューに出さない。
+- Cursor SDK のモデル変更は次の `send({ model })`。実 SDK への推論は今回の通常テストでは実行していない。
+
+### 0.8.1
+
+2026-10-16。Enterで改行し、送信ボタンのクリックで送信する。補完候補の確定はTabまたはクリック。
+
+- `npm run check`、`npm test`（65 passed）、`npm run package` は成功。
+- VSIXへの `package.nls.json` と `package.nls.ja.json` の梱包漏れを修正。両ファイルがマニフェスト内の翻訳キーをすべて持つことを統合テストでも確認する。
+- `ai-agents-0.8.1-darwin-arm64.vsix` を一時ディレクトリ内のVS Code 1.142.0へCLIでインストールし、成功。
+- そのインストール済み拡張機能を `AI_AGENTS_TEST_EXTENSION_PATH` に指定して `npm run test:integration` を実行し、起動、Webview、モック送信、継続、停止、キュー、モデル選択、差分、承認まで成功。
+- 報告された「VSIXとして無効」のエラーは手元で再現していない。旧0.8.0も同じ隔離環境ではインストールできたため、翻訳ファイルの梱包漏れがそのエラーの原因とは断定していない。
+
 ### 手動確認
 
 Extension Development Host（`.vscode/launch.json` の Run AI Agents）で、次は未実施である。

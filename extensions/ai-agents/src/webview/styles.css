@@ -183,6 +183,31 @@ textarea {
 .suggest-item small, .menu-item small { color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .suggest-item.active, .menu-item.active { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
 .menu-note { margin: .3em .4em; font-size: .8em; }
+.menu-label { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-value { max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-descriptionForeground); }
+.menu-check, .menu-item .codicon-chevron-right, .menu-item .switch { margin-left: auto; flex: 0 0 auto; }
+.menu-glyph { width: 1.1em; text-align: center; flex: 0 0 auto; }
+.menu-sep { height: 1px; margin: .28em .35em; background: var(--vscode-panel-border, var(--vscode-widget-border, transparent)); }
+.menu.model-menu { z-index: 6; min-width: 13.5em; max-height: min(22em, calc(100vh - 16px)); overflow: hidden; display: flex; flex-direction: column; padding: .3em; }
+.menu.model-menu.submenu { z-index: 7; }
+.menu-search {
+  width: 100%; margin: 0 0 .25em; padding: .32em .45em; border-radius: .3em;
+  border: 1px solid var(--vscode-input-border, transparent); background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+}
+.menu-scroll { min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+.switch {
+  width: 1.7em; height: 1em; border-radius: 999px; position: relative;
+  background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--vscode-panel-border, transparent));
+}
+.switch::after {
+  content: ''; position: absolute; top: .05em; left: .08em; width: .72em; height: .72em; border-radius: 50%;
+  background: var(--vscode-descriptionForeground);
+}
+.switch.on { background: var(--vscode-button-background); border-color: transparent; }
+.switch.on::after { left: auto; right: .08em; background: var(--vscode-button-foreground); }
+.model-name.is-static { cursor: default; }
+.model-name.is-static:hover { background: transparent; }
+.model-name.is-static .codicon { display: none; }
 .panel {
   position: absolute; inset: 0; z-index: 3; overflow: auto; padding: .6em .7em 1em;
   background: var(--vscode-sideBar-background);

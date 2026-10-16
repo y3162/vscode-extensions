@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
 import type { SDKModel } from '@cursor/sdk';
+import { annotateParameter } from '../model-settings.js';
 import type { AgentModel, Provider } from '../types.js';
 import { extensionVersion } from '../version.js';
 
@@ -33,10 +34,13 @@ export function cursorModels(models: SDKModel[]): AgentModel[] {
       id: model.id, label: model.displayName || model.id, description: model.description,
       aliases: model.aliases?.filter((alias) => aliases.get(alias)?.size === 1),
       defaultParams: [...defaults].map(([id, value]) => ({ id, value })),
-      parameters: model.parameters?.map((parameter) => ({
-        id: parameter.id, label: parameter.displayName || parameter.id, defaultValue: defaults.get(parameter.id),
-        values: parameter.values.map((value) => ({ value: value.value, label: value.displayName || value.value })),
-      })),
+      parameters: model.parameters?.flatMap((parameter) => {
+        const annotated = annotateParameter({
+          id: parameter.id, label: parameter.displayName || parameter.id, defaultValue: defaults.get(parameter.id),
+          values: parameter.values.map((value) => ({ value: value.value, label: value.displayName || value.value })),
+        });
+        return annotated ? [annotated] : [];
+      }),
       presets: model.variants?.map((variant) => ({
         label: variant.displayName, description: variant.description,
         isDefault: variant.isDefault, params: variant.params,
@@ -53,15 +57,16 @@ export function codexModel(model: Record<string, unknown>): AgentModel | undefin
     return [{ value: effort.reasoningEffort, label: effort.reasoningEffort,
       description: 'description' in effort && typeof effort.description === 'string' ? effort.description : undefined }];
   });
+  const effort = values.length ? annotateParameter({
+    id: 'modelReasoningEffort', label: 'Effort', values,
+    ...(typeof model.defaultReasoningEffort === 'string' ? { defaultValue: model.defaultReasoningEffort } : {}),
+  }) : undefined;
   return {
     id: model.model,
     label: typeof model.displayName === 'string' ? model.displayName : model.model,
     description: typeof model.description === 'string' ? model.description : undefined,
     isDefault: model.isDefault === true,
-    ...(values.length ? { parameters: [{
-      id: 'modelReasoningEffort', label: 'Effort', values,
-      defaultValue: typeof model.defaultReasoningEffort === 'string' ? model.defaultReasoningEffort : undefined,
-    }] } : {}),
+    ...(effort ? { parameters: [effort] } : {}),
   };
 }
 

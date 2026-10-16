@@ -10,8 +10,8 @@
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | チャットUI | Common | 1 | Secondary sidebar、Markdown、ツール折りたたみ | 共通UI | 共通UI | なし | ストリーミングイベント | Webview | ヘッダー、下部 Composer、ターン描画 | Implemented | Implement | `src/webview`, `src/sidebar.ts` |
 | プロバイダー切替 | Common | 1 | Cursor のみ | SDK / ACP | SDK / App Server | なし | セッション作成 | 設定 | 切替とセッション破棄 | Implemented | Implement | `ChatController.select` |
-| モデル選択 | Common | 1 | Webview 内ドロップダウン | `Cursor.models.list` | App Server `model/list` | カタログ | 一覧API | Quick Pick | 既存の選択UIを維持 | Implemented | Skip | `src/sidebar.ts` `selectModel`, `test/models.test.ts` |
-| モデル詳細 | Common | 1 | モデルIDにパラメータを結合 | parameters / variants | reasoning effort | 推論設定 | 作成時オプション | Quick Pick | 既存の詳細UIを維持 | Implemented | Skip | `src/model-details.ts`, `src/model-settings.ts` |
+| モデル選択 | Common | 1 | Composer の階層メニュー | `Cursor.models.list` | App Server `model/list` | カタログ | 一覧API | Quick Pick はコマンドから残す | Webview で検索して選択。ACP はモデルを送らないため Composer には出さない | Implemented | Implement | `src/webview/composer.ts`, `src/sidebar.ts` |
+| モデル詳細 | Common | 1 | Effort / Context / Fast を階層で表示 | parameters / variants。次の `send({ model })` | reasoning effort のみ。スレッド作成時 | 推論設定 | 作成時または次の送信 | Quick Pick はコマンドから残す | カタログが返す値だけ。Codex に Context と Fast は出さない | Implemented | Implement | `src/model-settings.ts`, `src/providers/models.ts` |
 | 動作モード | Common | 1 | agent / plan / ask | SDK は agent/plan、ACP は ask も可 | App Server は default/plan | モードの実行 | `mode` / `collaborationMode` / `session/set_mode` | ドロップダウン | Capabilities で選択肢を制限 | Implemented | Implement | `src/capabilities.ts` |
 | ストリーミング | Common | 1 | chunk 描画 | assistant / thinking / tool | item delta と item snapshot | 生成 | stream / JSON-RPC | Webview | 同一IDの置換 | Implemented | Implement | `ChatController.send`, `providers/events.ts` |
 | Markdown | Common | 1 | 独自パーサとハイライト | テキスト | テキスト | なし | なし | なし | DOM生成。HTMLは解釈しない | Implemented | Implement | `src/webview/markdown.ts` |

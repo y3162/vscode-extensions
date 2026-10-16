@@ -40,7 +40,8 @@ test('the access banner follows the real sandbox and can be dismissed', () => {
   assert.equal(shell.accessLabel, 'Full access · On request');
   assert.equal(shell.risky, true);
   assert.equal(shell.banner?.title, 'フルアクセスがオンです');
-  assert.equal(shell.effortLabel, 'high');
+  assert.equal(shell.effortLabel, 'High');
+  assert.equal(shell.modelSettings, 'new-session');
   assert.equal(shell.showMode, true);
   const hidden = buildShell({ ...source, dismissedWarning: shell.banner?.id });
   assert.equal(hidden.banner, null);

@@ -51,9 +51,13 @@ test('Cursor effort, context, and speed combinations produce one base-model row'
   assert.equal(models.length, 1);
   assert.equal(models[0]?.label, 'Fixture Model');
   assert.deepEqual(models[0]?.defaultParams, [{ id: 'effort', value: 'high' }, { id: 'context', value: '1m' }, { id: 'fast', value: 'false' }]);
-  assert.deepEqual(models[0]?.parameters?.[1], { id: 'context', label: 'Context size', defaultValue: '1m', values: [
-    { value: '200k', label: '200k' }, { value: '1m', label: '1m' },
-  ] });
+  assert.deepEqual(models[0]?.parameters?.[1], {
+    id: 'context', label: 'Context size', role: 'context', presentation: 'menu', defaultValue: '1m', values: [
+      { value: '200k', label: '200K' }, { value: '1m', label: '1M' },
+    ],
+  });
+  assert.equal(models[0]?.parameters?.[2]?.presentation, 'toggle');
+  assert.equal(models[0]?.parameters?.[0]?.role, 'effort');
   assert.equal(models[0]?.presets?.length, 2);
 });
 
@@ -77,6 +81,8 @@ test('Codex keeps effort capabilities on one model entry for a separate detail c
   });
   assert.equal(model?.label, 'Fixture Codex');
   assert.equal(model?.parameters?.[0]?.defaultValue, 'medium');
+  assert.equal(model?.parameters?.[0]?.values[0]?.label, 'Low');
+  assert.deepEqual(model?.parameters?.map((parameter) => parameter.role), ['effort']);
   assert.deepEqual(model?.parameters?.[0]?.values.map((value) => value.value), ['low', 'medium']);
   assert.equal(model?.defaultParams, undefined);
 });

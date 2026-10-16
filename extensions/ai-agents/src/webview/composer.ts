@@ -1,7 +1,9 @@
+import { isToggleOn, orderedParameters, toggleOnValue } from '../model-settings.js';
+import type { ModelCatalogMessage, ViewChange, ViewShell } from '../protocol.js';
+import type { ModelParameter } from '../types.js';
 import type { Post } from './cards.js';
 import type { Dom } from './dom.js';
-import type { Menu } from './popover.js';
-import type { ViewChange, ViewShell } from '../protocol.js';
+import { ModelMenu, type Menu, type ModelMenuItem, type ModelMenuPage } from './popover.js';
 import type { Copy } from './strings.js';
 
 interface Chip { label: string; text: string }
@@ -24,10 +26,13 @@ export class Composer {
   private readonly send: HTMLButtonElement;
   private readonly stop: HTMLButtonElement;
   private readonly env: HTMLButtonElement;
+  private readonly modelMenu: ModelMenu;
   private shell: ViewShell | null = null;
   private copy: Copy | null = null;
+  private catalog: ModelCatalogMessage | null = null;
+  private catalogRequest = 0;
+  private seenIdentity = '';
   private composing = false;
-  private composeEnded = 0;
   private suggestRequest = 0;
   private suggestItems: { label: string; description?: string; token: string }[] = [];
   private suggestIndex = 0;
@@ -87,10 +92,11 @@ export class Composer {
     file.hidden = true;
     file.addEventListener('change', () => { this.addImages(file.files); file.value = ''; });
     parent.append(this.banner, this.changes, form, this.env, file);
+    this.modelMenu = new ModelMenu(dom, menu.element.parentElement ?? parent);
     this.fileInput = file;
-    form.addEventListener('submit', (event) => { event.preventDefault(); this.submit(); });
+    form.addEventListener('submit', (event) => event.preventDefault());
     this.input.addEventListener('compositionstart', () => { this.composing = true; });
-    this.input.addEventListener('compositionend', () => { this.composing = false; this.composeEnded = Date.now(); });
+    this.input.addEventListener('compositionend', () => { this.composing = false; });
     this.input.addEventListener('input', () => { this.resize(); this.queueSuggest(); });
     this.input.addEventListener('keydown', (event) => this.onKey(event));
     this.input.addEventListener('paste', (event) => {
@@ -107,6 +113,14 @@ export class Composer {
   get draft(): string { return this.input.value; }
   set draft(value: string) { this.input.value = value; this.resize(); }
   focus(): void { this.input.focus(); }
+  closeMenus(): void { this.menu.close(false); this.modelMenu.close(false); }
+
+  setCatalog(message: ModelCatalogMessage): void {
+    const shell = this.shell;
+    if (!shell || message.requestId !== this.catalogRequest || message.provider !== shell.provider || message.cwd !== shell.cwd) return;
+    this.catalog = message;
+    if (this.modelMenu.isOpen) this.modelMenu.replace(this.modelPage());
+  }
   onInput(handler: () => void): void { this.input.addEventListener('input', handler); }
 
   notePrompt(text: string): void { if (text) this.historyPrompt = text; }
@@ -147,13 +161,20 @@ export class Composer {
     this.input.placeholder = copy.placeholder;
     this.input.setAttribute('aria-label', copy.placeholder);
     this.togglePill(this.mode, shell.showMode, shell.modes.find((mode) => mode.id === shell.mode)?.label ?? shell.mode, copy.mode);
+    if (this.catalog && (this.catalog.provider !== shell.provider || this.catalog.cwd !== shell.cwd)) this.catalog = null;
     const modelText = shell.effortLabel ? `${shell.modelLabel} ${shell.effortLabel}` : shell.modelLabel;
     const modelLabel = this.model.querySelector('.btn-label');
     if (modelLabel) modelLabel.textContent = modelText;
     this.model.title = modelText;
     this.model.setAttribute('aria-label', modelText);
-    this.model.setAttribute('aria-haspopup', shell.effortLabel ? 'menu' : 'false');
+    const adjustable = shell.modelSettings !== 'unsupported';
+    this.model.classList.toggle('is-static', !adjustable);
+    this.model.setAttribute('aria-haspopup', adjustable ? 'menu' : 'false');
     this.model.disabled = shell.busy;
+    const identity = `${shell.provider}\0${shell.cwd}\0${shell.sessionId ?? ''}\0${shell.backend}`;
+    if (this.seenIdentity && this.seenIdentity !== identity) this.modelMenu.close(false);
+    this.seenIdentity = identity;
+    if ((shell.busy || !adjustable) && this.modelMenu.isOpen) this.modelMenu.close(false);
     this.attach.title = copy.attach;
     this.attach.setAttribute('aria-label', copy.attach);
     this.mode.disabled = shell.busy;
@@ -274,6 +295,7 @@ export class Composer {
   }
 
   private onKey(event: KeyboardEvent): void {
+    if (this.composing || event.isComposing || event.keyCode === 229) return;
     if (!this.suggest.hidden && (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Tab' || event.key === 'Escape')) {
       event.preventDefault();
       if (event.key === 'Escape') { this.suggest.hidden = true; return; }
@@ -291,15 +313,6 @@ export class Composer {
       this.resize();
       return;
     }
-    if (event.key !== 'Enter' || event.shiftKey) return;
-    if (this.composing || event.isComposing || event.keyCode === 229 || Date.now() - this.composeEnded < 100) return;
-    if (!this.suggest.hidden && this.suggestItems[this.suggestIndex]) {
-      event.preventDefault();
-      this.applySuggestion(this.suggestItems[this.suggestIndex]);
-      return;
-    }
-    event.preventDefault();
-    this.submit();
   }
 
   private queueSuggest(): void {
@@ -349,6 +362,7 @@ export class Composer {
   private openAttach(anchor: HTMLElement): void {
     const copy = this.copy;
     if (!copy) return;
+    this.modelMenu.close(false);
     this.menu.open(anchor, [
       { id: 'image', label: copy.image, onSelect: () => this.fileInput.click() },
       { id: 'file', label: copy.file, onSelect: () => this.post({ type: 'attach', kind: 'file' }) },
@@ -362,27 +376,115 @@ export class Composer {
   private openMode(): void {
     const shell = this.shell;
     if (!shell) return;
+    this.modelMenu.close(false);
+    const icons: Record<string, string> = { agent: 'infinity', plan: 'list-flat', ask: 'comment' };
     this.menu.open(this.mode, shell.modes.map((mode) => ({
-      id: mode.id, label: mode.label, description: mode.description, checked: mode.id === shell.mode,
+      id: mode.id, label: mode.label, description: mode.description, icon: icons[mode.id],
+      checked: mode.id === shell.mode,
       onSelect: () => this.configure({ mode: mode.id }),
     })));
   }
 
   private openModel(): void {
     const shell = this.shell;
+    if (!shell || shell.busy || shell.modelSettings === 'unsupported') return;
+    this.menu.close(false);
+    this.requestCatalog(false);
+    this.modelMenu.open(this.model, this.modelPage());
+  }
+
+  private requestCatalog(refresh: boolean): void {
+    const shell = this.shell;
+    if (!shell || shell.modelSettings === 'unsupported') return;
+    this.catalogRequest += 1;
+    this.post({ type: 'loadModelCatalog', requestId: this.catalogRequest, refresh });
+  }
+
+  private currentCatalog(): ModelCatalogMessage | null {
+    const shell = this.shell;
+    if (!shell || !this.catalog || this.catalog.provider !== shell.provider || this.catalog.cwd !== shell.cwd) return null;
+    return this.catalog;
+  }
+
+  private modelPage(): ModelMenuPage {
+    const shell = this.shell;
     const copy = this.copy;
-    if (!shell || !copy || shell.busy) return;
-    if (!shell.effortLabel) { this.post({ type: 'chooseModel' }); return; }
-    this.menu.open(this.model, [
-      { id: 'model', label: copy.model, description: shell.modelLabel, onSelect: () => this.post({ type: 'chooseModel' }) },
-      { id: 'details', label: copy.modelDetails, description: shell.effortLabel, onSelect: () => this.post({ type: 'modelDetails' }) },
-    ]);
+    if (!shell || !copy) return { items: [] };
+    const catalog = this.currentCatalog();
+    if (!catalog) return { items: [{ id: 'status', label: copy.loadingModels }] };
+    if (catalog.status === 'error') {
+      return {
+        items: [
+          { id: 'status', label: catalog.error || copy.modelCatalogError },
+          { id: 'refresh', label: copy.refreshModels, pinned: true, onSelect: () => this.requestCatalog(true) },
+        ],
+      };
+    }
+    const selected = catalog.models.find((model) => model.id === catalog.selectedModelId || model.aliases?.includes(catalog.selectedModelId));
+    const items: ModelMenuItem[] = orderedParameters(selected?.parameters).flatMap((parameter) => this.parameterItem(parameter, catalog));
+    items.push({
+      id: 'model', label: copy.model, valueLabel: selected?.label || shell.modelLabel,
+      separatorBefore: items.length > 0,
+      submenu: () => this.modelListPage(catalog),
+    });
+    return { items };
+  }
+
+  private parameterItem(parameter: ModelParameter, catalog: ModelCatalogMessage): ModelMenuItem[] {
+    const current = catalog.selectedParams.find((param) => param.id === parameter.id)?.value ?? parameter.defaultValue;
+    const currentValue = parameter.values.find((value) => value.value === current);
+    if (parameter.presentation === 'toggle') {
+      const onValue = toggleOnValue(parameter.values);
+      const offValue = parameter.values.find((value) => value.value !== onValue)?.value;
+      if (!onValue || !offValue) return [];
+      const on = isToggleOn(current);
+      return [{
+        id: parameter.id, label: parameter.label, toggle: true, checked: on,
+        onSelect: () => this.post({ type: 'setModelParam', id: parameter.id, value: on ? offValue : onValue }),
+      }];
+    }
+    return [{
+      id: parameter.id, label: parameter.label, valueLabel: currentValue?.label ?? current ?? '',
+      description: currentValue?.description,
+      submenu: () => ({
+        backLabel: this.copy?.back,
+        items: parameter.values.map((value) => ({
+          id: `${parameter.id}:${value.value}`, label: value.label, description: value.description,
+          checked: value.value === current,
+          onSelect: () => this.post({ type: 'setModelParam', id: parameter.id, value: value.value }),
+        })),
+      }),
+    }];
+  }
+
+  private modelListPage(catalog: ModelCatalogMessage): ModelMenuPage {
+    const copy = this.copy;
+    const models = [
+      { id: '', label: copy?.defaultModel ?? 'Default model', description: undefined, aliases: [] as string[] },
+      ...catalog.models,
+    ];
+    return {
+      backLabel: copy?.back,
+      search: { placeholder: copy?.searchModels ?? 'Search models', empty: copy?.noModels ?? 'No matching models' },
+      items: [
+        ...models.map((model) => ({
+          id: model.id ? `model:${model.id}` : 'model:default',
+          label: model.label,
+          description: model.description,
+          searchText: [model.id, ...(model.aliases ?? [])].filter(Boolean).join(' '),
+          checked: model.id === catalog.selectedModelId || Boolean(model.aliases?.includes(catalog.selectedModelId)),
+          onSelect: () => this.post({ type: 'setModel', modelId: model.id }),
+        })),
+        { id: 'refresh', label: copy?.refreshModels ?? 'Refresh', pinned: true, onSelect: () => this.requestCatalog(true) },
+      ],
+    };
   }
 
   private openEnvironment(): void {
     const shell = this.shell;
     const copy = this.copy;
     if (!shell || !copy) return;
+    this.modelMenu.close(false);
     this.menu.open(this.env, [
       ...shell.folders.map((folder) => ({
         id: folder.path, label: folder.name, description: folder.path, checked: folder.path === shell.cwd,

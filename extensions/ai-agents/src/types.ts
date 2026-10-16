@@ -1,6 +1,9 @@
 export type Provider = 'codex' | 'cursor';
 export type Backend = 'sdk' | 'acp' | 'app-server';
 export type AgentMode = 'agent' | 'plan' | 'ask';
+export type ModelApplyMode = 'next-send' | 'new-session' | 'unsupported';
+export type ModelParameterRole = 'effort' | 'context' | 'fast' | 'other';
+export type ModelParameterPresentation = 'menu' | 'toggle';
 export type ConnectionStatus =
   | 'disconnected'
   | 'auth_required'
@@ -38,6 +41,8 @@ export interface AgentModel {
 export interface ModelParameter {
   id: string;
   label: string;
+  role?: ModelParameterRole;
+  presentation?: ModelParameterPresentation;
   defaultValue?: string;
   values: { value: string; label: string; description?: string }[];
 }
@@ -163,6 +168,7 @@ export interface AgentSession {
   run(prompt: string, signal: AbortSignal, emit: (update: AgentUpdate) => void, extras?: SendExtras): Promise<void>;
   dispose(): Promise<void>;
   setMode?(mode: AgentMode): Promise<void>;
+  setModel?(selection: Selection): void;
   steer?(text: string): Promise<boolean>;
   loadTranscript?(emit: (message: ChatMessage) => void): Promise<void>;
   fork?(): Promise<string | undefined>;

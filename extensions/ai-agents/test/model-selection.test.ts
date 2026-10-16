@@ -27,6 +27,45 @@ test('switching base models uses the new defaults without carrying incompatible 
   assert.equal(selectBaseModel({ id: '', label: '既定のモデル' }, current).modelParams, undefined);
 });
 
+test('switching models keeps a supported effort and drops values the new model cannot use', () => {
+  const nextModel: AgentModel = {
+    id: 'other-model', label: 'Other',
+    parameters: [
+      { id: 'effort', label: 'Effort', role: 'effort', presentation: 'menu', defaultValue: 'medium', values: [
+        { value: 'low', label: 'Low' }, { value: 'high', label: 'High' }, { value: 'medium', label: 'Medium' },
+      ] },
+      { id: 'context', label: 'Context', role: 'context', presentation: 'menu', defaultValue: '200k', values: [
+        { value: '200k', label: '200K' },
+      ] },
+      { id: 'fast', label: 'Fast', role: 'fast', presentation: 'toggle', values: [
+        { value: 'false', label: 'false' }, { value: 'true', label: 'true' },
+      ] },
+    ],
+    defaultParams: [
+      { id: 'effort', value: 'medium' }, { id: 'context', value: '200k' }, { id: 'fast', value: 'false' },
+    ],
+  };
+  assert.deepEqual(selectBaseModel(nextModel, current).modelParams, [
+    { id: 'fast', value: 'false' }, { id: 'context', value: '200k' }, { id: 'effort', value: 'high' },
+  ]);
+  const codex = selectBaseModel({
+    id: 'codex-b', label: 'Codex B',
+    parameters: [{ id: 'modelReasoningEffort', label: 'Effort', role: 'effort', presentation: 'menu', defaultValue: 'medium', values: [
+      { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' },
+    ] }],
+  }, { provider: 'codex', cwd: '/workspace', model: 'codex-a', modelParams: [
+    { id: 'modelReasoningEffort', value: 'xhigh' }, { id: 'fast', value: 'true' },
+  ] });
+  assert.deepEqual(codex.modelParams, [{ id: 'modelReasoningEffort', value: 'medium' }]);
+  const omitted = selectBaseModel({
+    id: 'codex-b', label: 'Codex B',
+    parameters: [{ id: 'modelReasoningEffort', label: 'Effort', role: 'effort', presentation: 'menu', values: [
+      { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' },
+    ] }],
+  }, { provider: 'codex', cwd: '/workspace', model: 'codex-a', modelParams: undefined });
+  assert.equal(omitted.modelParams, undefined);
+});
+
 test('old variant labels are reduced to the base label without renaming real model tiers', () => {
   assert.equal(baseModelLabel('Fixture Model — High 1M Fast'), 'Fixture Model');
   assert.equal(baseModelLabel('Fixture Mini'), 'Fixture Mini');
