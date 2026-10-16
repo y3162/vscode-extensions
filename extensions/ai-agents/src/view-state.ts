@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { AgentControls, ProviderCapabilities } from './capabilities.js';
 import { isInsideWorkspace } from './change-review.js';
 import type { MessageDiff, ViewChange, ViewChoice, ViewMessage, ViewShell } from './protocol.js';
+import { formatToken, parameterRole } from './model-settings.js';
 import type { Backend, ChatMessage, ChatState, FileChange, Provider, SessionSummary } from './types.js';
 
 export interface InteractionTokens {
@@ -34,8 +35,9 @@ export function backendLabel(backend: Backend): string {
   return 'SDK';
 }
 
-export function effortText(params: { value: string }[] | undefined, hasDetails: boolean, locale: 'ja' | 'en'): string | null {
-  if (params?.length) return params.map((param) => param.value).join(' · ');
+export function effortText(params: { id: string; value: string }[] | undefined, hasDetails: boolean, locale: 'ja' | 'en'): string | null {
+  const effort = params?.find((param) => parameterRole(param.id) === 'effort');
+  if (effort) return formatToken(effort.value);
   if (hasDetails) return locale === 'ja' ? '既定' : 'Default';
   return null;
 }
@@ -156,6 +158,7 @@ export function buildShell(source: ShellSource): ViewShell {
     ...(source.sessionId ? { sessionId: source.sessionId } : {}),
     modelLabel: source.modelLabel,
     effortLabel: effortText(state.selection.modelParams, source.hasModelDetails, locale),
+    modelSettings: capabilities.modelSettings,
     accessLabel: access.label,
     risky: access.risky,
     banner: access.banner,

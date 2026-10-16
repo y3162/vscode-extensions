@@ -112,13 +112,13 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
     settingSources: ['project', 'user'] as ('project' | 'user')[],
     ...(options.additionalDirectories?.length ? { dirs: options.additionalDirectories } : {}),
   };
-  const model = { id: options.model || 'auto', ...(options.modelParams?.length ? { params: options.modelParams } : {}) };
+  let activeModel = { id: options.model || 'auto', ...(options.modelParams?.length ? { params: options.modelParams } : {}) };
   const mode = options.mode === 'plan' ? 'plan' as const : 'agent' as const;
   const agent = options.resumeId
-    ? await Agent.resume(options.resumeId, { apiKey: options.apiKey || undefined, model, mode, local })
+    ? await Agent.resume(options.resumeId, { apiKey: options.apiKey || undefined, model: activeModel, mode, local })
     : await Agent.create({
       apiKey: options.apiKey || undefined,
-      model,
+      model: activeModel,
       mode,
       local,
     });
@@ -133,6 +133,9 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
   let activeMode = mode;
   return {
     sessionId: agent.agentId,
+    setModel(selection) {
+      activeModel = { id: selection.model || 'auto', ...(selection.modelParams?.length ? { params: selection.modelParams } : {}) };
+    },
     async setMode(next) {
       if (next === 'ask') return;
       activeMode = next;
@@ -150,7 +153,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
       const payload = extras?.images?.length
         ? { text: prompt, images: extras.images.map((image) => ({ data: image.data, mimeType: image.mimeType })) }
         : prompt;
-      const run = await agent.send(payload, { mode: activeMode });
+      const run = await agent.send(payload, { mode: activeMode, model: activeModel });
       let cancellation: Promise<void> | undefined;
       const cancel = () => {
         cancellation ??= run.cancel();

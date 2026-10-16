@@ -1,6 +1,6 @@
 # UI Architecture
 
-0.7.0 の画面構成。推論、サンドボックスの強制、ツール実行、モデル一覧の取得は変えない。変わったのは、同じ Webview の中で Home と Chat を切り替えること。
+0.8.0 の画面構成。推論、サンドボックスの強制、ツール実行、モデル一覧の取得元は変えない。Composer から開くモデル設定を、Webview 内の階層メニューにした。
 
 ## 境界
 
@@ -13,7 +13,7 @@ SDK / ACP / App Server
   推論とツール
 ```
 
-Webview はモデル一覧を持たない。モデル名を押すと、Effort が無いときは `chooseModel`、あるときはメニューから `chooseModel` と `modelDetails` を開き、既存の Quick Pick に渡す。
+モデル名を押すと Webview が `loadModelCatalog` を送り、返ったカタログで Effort、対応している Context と Fast、モデル一覧を描く。選択は `setModel` と `setModelParam` でホストへ戻す。コマンドパレットの Quick Pick は残す。Cursor ACP はモデルをセッションへ送らないため、Composer のモデル名はメニューを開かない。
 
 ページは Webview ごとに持つ。ホストの `ViewShell` には入れない。2つのサイドバーは同じ会話を共有したまま、別のページを開ける。
 

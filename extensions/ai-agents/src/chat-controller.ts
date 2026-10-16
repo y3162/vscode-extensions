@@ -97,6 +97,28 @@ export class ChatController {
     this.publish();
   }
 
+  async updateSelection(selection: Selection): Promise<void> {
+    while (this.resetting) await this.resetting;
+    if (this.active) throw new Error('実行が終わってからモデルを選択してください。');
+    const current = this.state.selection;
+    if (current.provider === selection.provider && current.cwd === selection.cwd && current.model === selection.model
+      && sameModelParams(current.modelParams, selection.modelParams)) return;
+    if (current.provider !== selection.provider || current.cwd !== selection.cwd) {
+      await this.select(selection);
+      return;
+    }
+    const previous = { ...current, ...(current.modelParams ? { modelParams: current.modelParams.map((param) => ({ ...param })) } : {}) };
+    this.state.selection = { ...selection };
+    try {
+      this.session?.setModel?.(selection);
+      this.publish();
+    } catch (error) {
+      this.state.selection = previous;
+      this.publish();
+      throw error;
+    }
+  }
+
   async review(target: 'uncommitted' | 'base'): Promise<void> {
     if (this.active || this.resetting) throw new Error('エージェントは実行中です。');
     if (!this.session?.review) throw new Error('コードレビューAPIは Codex App Server でのみ使えます。差分を添付して依頼してください。');

@@ -1,4 +1,4 @@
-import type { AgentMode, Backend, Provider } from './types.js';
+import type { AgentMode, Backend, ModelApplyMode, Provider } from './types.js';
 
 export interface Choice {
   id: string;
@@ -32,6 +32,7 @@ export interface ProviderCapabilities {
   subagents: boolean;
   networkToggle: boolean;
   additionalDirectories: boolean;
+  modelSettings: ModelApplyMode;
 }
 
 export interface AgentControls {
@@ -79,6 +80,7 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
       subagents: true,
       networkToggle: false,
       additionalDirectories: false,
+      modelSettings: 'unsupported',
     };
   }
   if (provider === 'cursor') {
@@ -110,6 +112,7 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
       subagents: true,
       networkToggle: false,
       additionalDirectories: true,
+      modelSettings: 'next-send',
     };
   }
   if (backend === 'app-server') {
@@ -154,6 +157,7 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
       subagents: true,
       networkToggle: true,
       additionalDirectories: true,
+      modelSettings: 'new-session',
     };
   }
   return {
@@ -192,7 +196,12 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
     subagents: false,
     networkToggle: true,
     additionalDirectories: true,
+    modelSettings: 'new-session',
   };
+}
+
+export function modelApplyMode(provider: Provider, backend: Backend): ModelApplyMode {
+  return capabilitiesFor(provider, backend).modelSettings;
 }
 
 export function defaultControls(provider: Provider, backend: Backend): AgentControls {

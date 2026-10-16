@@ -20,6 +20,13 @@ export async function run(): Promise<void> {
   await config.update('codex.executablePath', mockPath, vscode.ConfigurationTarget.Global);
   const extension = vscode.extensions.getExtension<{ sidebar: AgentsSidebar }>('y3162.ai-agents');
   assert.ok(extension, 'Extension is discoverable');
+  const manifestText = await readFile(join(extension.extensionPath, 'package.json'), 'utf8');
+  const messageKeys = [...manifestText.matchAll(/"%([^"%]+)%"/g)].map((match) => match[1]!);
+  for (const name of ['package.nls.json', 'package.nls.ja.json']) {
+    const translations = JSON.parse(await readFile(join(extension.extensionPath, name), 'utf8')) as Record<string, string>;
+    for (const key of messageKeys) assert.ok(translations[key], `${name} supplies ${key}`);
+  }
+  console.log('PASS: packaged translations supply all localized manifest strings');
   const { sidebar } = await extension.activate();
   await vscode.commands.executeCommand('ai-agents.open');
   await until(() => sidebar.isReady());
@@ -119,18 +126,23 @@ export async function run(): Promise<void> {
   await configuring;
   assert.deepEqual(sidebar.controller.snapshot().selection.modelParams, [{ id: 'modelReasoningEffort', value: 'low' }]);
   assert.deepEqual(sidebar.controller.snapshot().messages, []);
+  const beforeUnsupported = sidebar.controller.snapshot().selection;
+  await sidebar.handleMessage({ type: 'setModelParam', id: 'context', value: '1m' });
+  assert.deepEqual(sidebar.controller.snapshot().selection, beforeUnsupported);
+  await sidebar.handleMessage({ type: 'setModelParam', id: 'modelReasoningEffort', value: 'medium' });
+  assert.deepEqual(sidebar.controller.snapshot().selection.modelParams, [{ id: 'modelReasoningEffort', value: 'medium' }]);
   await send('use the configured effort');
   const configured = JSON.parse(await readFile(join(cwd, 'invocations.json'), 'utf8')) as { args: string[] }[];
-  assert.ok(configured.at(-1)!.args.some((arg) => arg.includes('model_reasoning_effort') && arg.includes('low')));
+  assert.ok(configured.at(-1)!.args.some((arg) => arg.includes('model_reasoning_effort') && arg.includes('medium')));
   console.log('PASS: detail changes apply atomically and Codex SDK forwards the selected effort');
 
   const beforeDetailsCancel = sidebar.controller.snapshot();
   const cancellingDetails = sidebar.configureModel();
   await until(() => sidebar.isModelDetailsReady('parameter:modelReasoningEffort'));
   await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
-  await until(() => sidebar.isModelDetailsReady('value:modelReasoningEffort:low'));
-  await vscode.commands.executeCommand('workbench.action.quickOpenSelectNext');
   await until(() => sidebar.isModelDetailsReady('value:modelReasoningEffort:medium'));
+  await vscode.commands.executeCommand('workbench.action.quickOpenSelectNext');
+  await until(() => sidebar.isModelDetailsReady('value:modelReasoningEffort:high'));
   await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
   await until(() => sidebar.isModelDetailsReady('parameter:modelReasoningEffort'));
   await vscode.commands.executeCommand('workbench.action.closeQuickOpen');

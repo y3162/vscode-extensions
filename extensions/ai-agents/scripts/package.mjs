@@ -13,7 +13,7 @@ try {
   delete manifest.scripts;
   await writeFile(join(staging, 'package.json'), JSON.stringify(manifest, null, 2));
   await mkdir(join(staging, 'dist'));
-  for (const name of ['dist/extension.js', 'dist/webview', 'resources', 'README.md', 'CHANGELOG.md', '.vscodeignore']) {
+  for (const name of ['dist/extension.js', 'dist/webview', 'resources', 'README.md', 'CHANGELOG.md', 'package.nls.json', 'package.nls.ja.json', '.vscodeignore']) {
     await cp(join(extensionRoot, name), join(staging, name), { recursive: true });
   }
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';

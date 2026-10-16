@@ -11,7 +11,7 @@ import type { ViewMessage, ViewShell, VsCodeApi } from '../../src/protocol.js';
 function shell(extra: Partial<ViewShell> = {}): ViewShell {
   return {
     provider: 'codex', providerLabel: 'Codex · SDK', cwd: '/workspace', busy: false, presence: 'idle',
-    statusText: 'Ready', sessionTitle: 'New chat', modelLabel: 'gpt', effortLabel: 'high',
+    statusText: 'Ready', sessionTitle: 'New chat', modelLabel: 'gpt', effortLabel: 'High', modelSettings: 'new-session',
     accessLabel: 'Workspace write', risky: false, banner: null, backendLabel: 'SDK', folderName: 'workspace',
     folders: [{ name: 'workspace', path: '/workspace' }],
     modes: [{ id: 'agent', label: 'Agent' }, { id: 'plan', label: 'Plan' }], mode: 'agent', showMode: true,
@@ -58,24 +58,36 @@ test('markdown stays text and reuses completed blocks', () => {
   assert.match(host.textContent ?? '', /Later/);
 });
 
-test('Enter sends, Shift+Enter does not, and IME confirmation does not send', async () => {
+test('Enter allows newlines and IME confirmation, and only the send button sends', () => {
   const { window, sent, input, emit } = mount();
   emit(shell());
+  click(visible(window.document, '.new-chat'));
   const prompt = input();
   prompt.value = 'hello';
-  const shift = new window.KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true });
-  prompt.dispatchEvent(shift);
-  assert.equal(shift.defaultPrevented, false);
-  assert.equal(posted(sent, 'send'), undefined);
+  for (const modifiers of [{}, { shiftKey: true }, { ctrlKey: true }, { metaKey: true }, { isComposing: true }, { keyCode: 229 }]) {
+    const enter = new window.KeyboardEvent('keydown', { key: 'Enter', ...modifiers, bubbles: true, cancelable: true });
+    prompt.dispatchEvent(enter);
+    assert.equal(enter.defaultPrevented, false);
+    assert.equal(posted(sent, 'send'), undefined);
+    assert.equal(posted(sent, 'enqueue'), undefined);
+    assert.equal(prompt.value, 'hello');
+  }
+  prompt.dispatchEvent(new window.Event('compositionstart'));
+  prompt.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
   prompt.dispatchEvent(new window.Event('compositionend'));
   prompt.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
   assert.equal(posted(sent, 'send'), undefined);
-  prompt.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true, isComposing: true }));
+  const submit = new window.Event('submit', { bubbles: true, cancelable: true });
+  window.document.querySelector('form')!.dispatchEvent(submit);
+  assert.equal(submit.defaultPrevented, true);
   assert.equal(posted(sent, 'send'), undefined);
-  await new Promise((resolve) => setTimeout(resolve, 120));
-  prompt.value = 'hello';
-  prompt.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-  assert.equal(posted(sent, 'send')?.prompt, 'hello');
+  prompt.value = 'こんにちは\n続きのメッセージ';
+  click(visible(window.document, '.send'));
+  assert.deepEqual(posted(sent, 'send'), {
+    provider: 'codex', cwd: '/workspace', type: 'send', prompt: 'こんにちは\n続きのメッセージ', images: [],
+  });
+  assert.equal(sent.filter((message) => (message as { type: string }).type === 'send').length, 1);
+  assert.equal(prompt.value, '');
 });
 
 test('a running turn queues, ArrowUp recalls, and approval answers keep their token', () => {
@@ -90,6 +102,9 @@ test('a running turn queues, ArrowUp recalls, and approval answers keep their to
   assert.equal(prompt.value, 'previous prompt');
   prompt.value = 'follow up';
   prompt.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  assert.equal(posted(sent, 'enqueue'), undefined);
+  window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'navigate', panel: 'chat' } }));
+  click(visible(window.document, '.send'));
   assert.equal(posted(sent, 'enqueue')?.prompt, 'follow up');
   emit(shell({
     permission: { token: 'token-1', request: { id: 'perm', title: 'Run npm test', detail: 'npm test', kind: 'shell' } },
@@ -103,7 +118,7 @@ test('a running turn queues, ArrowUp recalls, and approval answers keep their to
   assert.equal(answer?.decision, 'allow-once');
 });
 
-test('suggestion arrows insert the highlighted file', async () => {
+test('suggestion arrows and Tab insert the highlighted file while Enter allows a newline', async () => {
   const { window, sent, input, emit } = mount();
   emit(shell());
   const prompt = input();
@@ -135,7 +150,12 @@ test('suggestion arrows insert the highlighted file', async () => {
     ] },
   }));
   prompt.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
-  prompt.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  const enter = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+  prompt.dispatchEvent(enter);
+  assert.equal(enter.defaultPrevented, false);
+  assert.equal(prompt.value, '@re');
+  assert.equal(posted(sent, 'send'), undefined);
+  prompt.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
   assert.equal(prompt.value, '@review.ts ');
 });
 
@@ -223,21 +243,19 @@ test('a new chat opens the composer and settings stay on the current page', () =
   assert.equal(window.document.getElementById('app')?.dataset.page, 'chat');
   assert.equal(input().placeholder, 'Plan, ask, / for commands, @ for context');
   click(visible(window.document, '.mode'));
+  assert.match(visible(window.document, '.menu-item[data-id="agent"]').textContent ?? '', /∞/);
   click(visible(window.document, '.menu-item[data-id="plan"]'));
   assert.equal(posted(sent, 'configure')?.mode, 'plan');
   click(visible(window.document, '.model-name'));
-  click(visible(window.document, '.menu-item[data-id="model"]'));
-  assert.ok(posted(sent, 'chooseModel'));
+  assert.ok(posted(sent, 'loadModelCatalog'));
+  assert.equal(window.document.querySelector('.model-menu')?.hidden, false);
+  assert.match(window.document.querySelector('.model-menu')?.textContent ?? '', /Loading models/);
+  assert.equal(posted(sent, 'chooseModel'), undefined);
+  assert.match(window.document.querySelector('.model-name')?.textContent ?? '', /gpt High/);
+  emit(shell({ sessions: [], effortLabel: null, modelSettings: 'unsupported' }));
   click(visible(window.document, '.model-name'));
-  click(visible(window.document, '.menu-item[data-id="details"]'));
-  assert.ok(posted(sent, 'modelDetails'));
-  assert.match(window.document.querySelector('.model-name')?.textContent ?? '', /gpt high/);
-  emit(shell({ sessions: [], effortLabel: null }));
-  const before = sent.filter((message) => message && typeof message === 'object' && 'type' in message && message.type === 'chooseModel').length;
-  click(visible(window.document, '.model-name'));
-  const after = sent.filter((message) => message && typeof message === 'object' && 'type' in message && message.type === 'chooseModel').length;
-  assert.equal(after, before + 1);
-  assert.equal(window.document.querySelector('.menu')?.hidden, true);
+  assert.equal(window.document.querySelector('.model-name')?.classList.contains('is-static'), true);
+  assert.equal(window.document.querySelector('.model-menu')?.hidden, true);
   click(visible(window.document, '.open-settings'));
   const sheet = window.document.querySelector('.settings-panel');
   assert.equal(sheet?.hidden, false);
@@ -246,6 +264,99 @@ test('a new chat opens the composer and settings stay on the current page', () =
   [...window.document.querySelectorAll('button')].find((button) => button.textContent?.includes('Close'))?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   assert.equal(window.document.querySelector('.settings-panel')?.hidden, true);
   assert.equal(window.document.getElementById('app')?.dataset.page, 'chat');
+});
+
+test('the model menu searches, checks the selection, and keeps the draft', () => {
+  const { window, sent, input, emit } = mount();
+  emit(shell({ modelLabel: 'A very long model name that must stay on one line' }));
+  input().value = 'keep this sentence';
+  click(visible(window.document, '.new-chat'));
+  click(visible(window.document, '.model-name'));
+  const request = posted(sent, 'loadModelCatalog');
+  assert.equal(typeof request?.requestId, 'number');
+  const deliver = (requestId: number) => {
+    window.dispatchEvent(new window.MessageEvent('message', {
+      data: {
+        type: 'modelCatalog', requestId, provider: 'codex', cwd: '/workspace', status: 'ready',
+        selectedModelId: 'gpt-6', selectedParams: [{ id: 'modelReasoningEffort', value: 'xhigh' }],
+        models: [
+          {
+            id: 'gpt-6', label: 'GPT-6.1 Sol', aliases: ['sol'], description: 'Balanced',
+            parameters: [{
+              id: 'modelReasoningEffort', label: 'Effort', role: 'effort', presentation: 'menu',
+              values: [
+                { value: 'low', label: 'Low' },
+                { value: 'xhigh', label: 'Extra High' },
+              ],
+            }],
+          },
+          { id: 'other', label: 'Other Model', parameters: [] },
+        ],
+      },
+    }));
+  };
+  deliver(99);
+  assert.match(window.document.querySelector('.model-menu')?.textContent ?? '', /Loading models/);
+  deliver(Number(request?.requestId));
+  const effort = visible(window.document, '.menu-item[data-id="modelReasoningEffort"]');
+  assert.match(effort.textContent ?? '', /Extra High/);
+  click(effort);
+  const extra = visible(window.document, '.menu-item[data-id="modelReasoningEffort:xhigh"]');
+  assert.equal(extra.getAttribute('aria-checked'), 'true');
+  extra.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  assert.equal(window.document.querySelector('.menu-item[data-id="modelReasoningEffort:xhigh"]'), null);
+  assert.equal(window.document.querySelector('.model-menu')?.hidden, false);
+  window.document.querySelector('.model-menu')?.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  assert.equal(window.document.querySelector('.model-menu')?.hidden, true);
+  assert.equal(input().value, 'keep this sentence');
+
+  click(visible(window.document, '.model-name'));
+  const again = posted(sent, 'loadModelCatalog');
+  deliver(Number(again?.requestId));
+  click(visible(window.document, '.menu-item[data-id="model"]'));
+  const search = window.document.querySelector('.menu-search') as HTMLInputElement;
+  assert.equal(search.placeholder, 'Search models');
+  assert.equal(visible(window.document, '.menu-item[data-id="model:gpt-6"]').getAttribute('aria-checked'), 'true');
+  assert.match(visible(window.document, '.menu-item[data-id="model:gpt-6"]').title, /A very long model name|GPT-6.1 Sol/);
+  search.value = 'missing-model';
+  search.dispatchEvent(new window.Event('input', { bubbles: true }));
+  assert.match(search.closest('.model-menu')?.textContent ?? '', /No matching models/);
+  search.value = 'SOL';
+  search.dispatchEvent(new window.Event('input', { bubbles: true }));
+  assert.ok(window.document.querySelector('.menu-item[data-id="model:gpt-6"]'));
+  window.document.body.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true }));
+  assert.equal(window.document.querySelector('.model-menu')?.hidden, true);
+  assert.equal(input().value, 'keep this sentence');
+
+  const css = readFileSync(path.join(__dirname, '../../src/webview/styles.css'), 'utf8');
+  assert.match(css, /\.vscode-high-contrast \.menu/);
+  assert.match(css, /--vscode-editorWidget-background/);
+  assert.match(window.document.querySelector('.model-name')?.textContent ?? '', /A very long model name/);
+  assert.match(window.document.querySelector('.model-name')?.getAttribute('title') ?? '', /A very long model name that must stay on one line/);
+});
+
+test('a narrow model menu drills in instead of opening beside the root', () => {
+  const { window, sent, emit } = mount();
+  window.innerWidth = 300;
+  window.innerHeight = 640;
+  emit(shell());
+  click(visible(window.document, '.new-chat'));
+  click(visible(window.document, '.model-name'));
+  const request = posted(sent, 'loadModelCatalog');
+  window.dispatchEvent(new window.MessageEvent('message', {
+    data: {
+      type: 'modelCatalog', requestId: request?.requestId, provider: 'codex', cwd: '/workspace', status: 'ready',
+      selectedModelId: 'gpt', selectedParams: [{ id: 'fast', value: 'false' }],
+      models: [{ id: 'gpt', label: 'GPT', parameters: [{ id: 'fast', label: 'Fast', role: 'fast', presentation: 'toggle', values: [{ value: 'false', label: 'Off' }, { value: 'true', label: 'On' }] }] }],
+    },
+  }));
+  assert.equal(window.document.querySelector('.menu-item[data-id="fast"]')?.getAttribute('aria-checked'), 'false');
+  click(visible(window.document, '.menu-item[data-id="model"]'));
+  assert.ok(window.document.querySelector('.menu-item[data-id="back"]'));
+  assert.equal(window.document.querySelector('.model-menu.submenu')?.hidden, true);
+  window.document.querySelector('.model-menu')?.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+  click(visible(window.document, '.menu-item[data-id="model:gpt"]'));
+  assert.equal(posted(sent, 'setModel')?.modelId, 'gpt');
 });
 
 test('mode and model keep their quick picks, and a run survives leaving chat', () => {

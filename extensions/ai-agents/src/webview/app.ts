@@ -101,6 +101,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
     alert.hidden = true;
     alert.textContent = '';
     menu.close(false);
+    composer.closeMenus();
     if (panel === 'settings') {
       settings.open();
       paint();
@@ -171,6 +172,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
       return;
     }
     if (data.type === 'error') { alert.hidden = false; alert.textContent = data.text; return; }
+    if (data.type === 'modelCatalog') { composer.setCatalog(data); return; }
     if (data.type === 'suggestions') { composer.setSuggestions(data.requestId, data.items); return; }
     if (data.type === 'insert') { composer.insert(data.text, data.label); save(); return; }
     if (data.type === 'inspector') { settings.showInspector(data.title, data.text); return; }

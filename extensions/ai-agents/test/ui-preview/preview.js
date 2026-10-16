@@ -10,7 +10,7 @@ function shell(extra) {
   return {
     provider: 'codex', providerLabel: 'Codex · SDK', cwd: '/workspace', busy: false, presence: 'idle',
     statusText: ja ? '準備完了' : 'Ready', sessionTitle: ja ? 'PRの修正' : 'Fix the PR',
-    modelLabel: 'Grok 4.7', effortLabel: 'ExtraHigh', accessLabel: 'Workspace write', risky: false, banner: null,
+    modelLabel: 'Grok 4.7', effortLabel: 'Extra High', modelSettings: 'new-session', accessLabel: 'Workspace write', risky: false, banner: null,
     backendLabel: 'SDK', folderName: 'vscode-extensions',
     folders: [{ name: 'vscode-extensions', path: '/workspace' }],
     modes: [{ id: 'agent', label: 'Agent' }, { id: 'plan', label: 'Plan' }, { id: 'ask', label: 'Ask' }], mode: 'agent', showMode: true,
@@ -96,6 +96,25 @@ if (frame && frameWidth) {
 
 window.acquireVsCodeApi = () => ({
   postMessage(message) {
+    if (message.type === 'loadModelCatalog') {
+      window.dispatchEvent(new MessageEvent('message', {
+        data: {
+          type: 'modelCatalog', requestId: message.requestId, provider: 'codex', cwd: '/workspace', status: 'ready',
+          selectedModelId: 'grok-4.7', selectedParams: [{ id: 'modelReasoningEffort', value: 'xhigh' }],
+          models: [
+            { id: 'grok-4.7', label: 'Grok 4.7', parameters: [
+              { id: 'fast', label: 'Fast', role: 'fast', presentation: 'toggle', values: [{ value: 'false', label: 'Off' }, { value: 'true', label: 'On' }] },
+              { id: 'context', label: 'Context', role: 'context', presentation: 'menu', values: [{ value: '256k', label: '256K' }, { value: '500k', label: '500K' }] },
+              { id: 'modelReasoningEffort', label: 'Effort', role: 'effort', presentation: 'menu', defaultValue: 'high', values: [
+                { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }, { value: 'xhigh', label: 'Extra High' },
+              ] },
+            ] },
+            { id: 'gpt', label: 'GPT-6.1 Sol', parameters: [] },
+          ],
+        },
+      }));
+      return;
+    }
     if (message.type !== 'ready') return;
     window.dispatchEvent(new MessageEvent('message', { data: scenes[scene]?.() || scenes.home() }));
     if (scene === 'settings') {

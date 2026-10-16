@@ -62,6 +62,7 @@ export interface ViewShell {
   sessionId?: string;
   modelLabel: string;
   effortLabel: string | null;
+  modelSettings: 'next-send' | 'new-session' | 'unsupported';
   accessLabel: string;
   risky: boolean;
   banner: ViewBanner | null;
@@ -128,8 +129,39 @@ export interface ProbeResult {
   settings: boolean;
 }
 
+export interface ViewCatalogParameter {
+  id: string;
+  label: string;
+  role: 'effort' | 'context' | 'fast' | 'other';
+  presentation: 'menu' | 'toggle';
+  defaultValue?: string;
+  values: { value: string; label: string; description?: string }[];
+}
+
+export interface ViewCatalogModel {
+  id: string;
+  label: string;
+  description?: string;
+  aliases?: string[];
+  isDefault?: boolean;
+  parameters: ViewCatalogParameter[];
+}
+
+export interface ModelCatalogMessage {
+  type: 'modelCatalog';
+  requestId: number;
+  provider: Provider;
+  cwd: string;
+  status: 'ready' | 'error';
+  error?: string;
+  models: ViewCatalogModel[];
+  selectedModelId: string;
+  selectedParams: { id: string; value: string }[];
+}
+
 export type HostToWebview =
   | StateMessage
+  | ModelCatalogMessage
   | { type: 'error'; text: string }
   | { type: 'suggestions'; requestId: number; items: SuggestionItem[] }
   | { type: 'inspector'; title: string; text: string }

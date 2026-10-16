@@ -2,7 +2,7 @@
   "name": "ai-agents",
   "displayName": "AI Agents",
   "description": "Use Cursor and Codex agents from the VS Code sidebar.",
-  "version": "0.7.0",
+  "version": "0.8.1",
   "publisher": "y3162",
   "private": true,
   "license": "UNLICENSED",

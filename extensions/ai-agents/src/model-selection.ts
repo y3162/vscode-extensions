@@ -1,3 +1,4 @@
+import { reconcileModelParams } from './model-settings.js';
 import type { AgentModel, Selection } from './types.js';
 
 export function matchesModel(model: AgentModel, selectedId: string): boolean {
@@ -6,7 +7,7 @@ export function matchesModel(model: AgentModel, selectedId: string): boolean {
 
 export function selectBaseModel(model: AgentModel, current: Selection): Selection {
   const sameModel = matchesModel(model, current.model);
-  const params = sameModel ? current.modelParams : model.defaultParams;
+  const params = sameModel ? current.modelParams : reconcileModelParams(model, current.modelParams, current.provider);
   return {
     provider: current.provider, cwd: current.cwd,
     model: sameModel ? current.model : model.id,

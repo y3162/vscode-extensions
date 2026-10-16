@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
-import { capabilitiesFor, defaultControls, normalizeControls, type AgentControls } from './capabilities.js';
+import { capabilitiesFor, defaultControls, modelApplyMode, normalizeControls, type AgentControls } from './capabilities.js';
 import { revertChange } from './change-review.js';
 import { ChatController } from './chat-controller.js';
 import { builtinCommand, expandPrompt } from './context-text.js';
@@ -11,7 +11,7 @@ import { localeFrom } from './i18n.js';
 import { sanitizeImages } from './images.js';
 import { baseModelLabel, matchesModel, selectBaseModel } from './model-selection.js';
 import { ModelDetails } from './model-details.js';
-import { sameModelParams } from './model-settings.js';
+import { catalogIsCurrent, ModelSettingsDraft, sameModelParams, toCatalogModel } from './model-settings.js';
 import { createSession, listCursorSdkSessions, writeBaselineFile } from './providers/index.js';
 import { listModels } from './providers/models.js';
 import type { ProbeResult } from './protocol.js';
@@ -33,6 +33,9 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   private modelPicker?: vscode.QuickPick<ModelItem>;
   private activePickerModel?: string;
   private modelRequest?: AbortController;
+  private readonly modelCache = new Map<string, AgentModel[]>();
+  private catalogAbort?: AbortController;
+  private catalogRequest = 0;
   private detailsEditor?: ModelDetails;
   private detailsRequest?: AbortController;
   private readonly selectedModels: Partial<Record<Provider, SavedModel>>;
@@ -214,6 +217,9 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       case 'newChat': await this.newChat(); return;
       case 'chooseModel': await this.selectModel(); return;
       case 'modelDetails': await this.configureModel(); return;
+      case 'loadModelCatalog': await this.loadModelCatalog(message); return;
+      case 'setModel': await this.setMenuModel(message); return;
+      case 'setModelParam': await this.setMenuParam(message); return;
       case 'settings': await vscode.commands.executeCommand('workbench.action.openSettings', 'ai-agents'); return;
       case 'logs': this.output.show(true); return;
       case 'diagnose': await this.showDiagnostics(); return;
@@ -287,6 +293,146 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     });
   }
 
+  private cacheKey(selection: Selection): string {
+    return `${selection.provider}\0${selection.cwd}`;
+  }
+
+  private async cachedModels(selection: Selection, refresh = false): Promise<AgentModel[]> {
+    const key = this.cacheKey(selection);
+    if (!refresh && this.modelCache.has(key)) return this.modelCache.get(key) ?? [];
+    const models = await this.listAvailableModels(selection);
+    const current = this.controller.snapshot().selection;
+    if (current.provider === selection.provider && current.cwd === selection.cwd) this.modelCache.set(key, models);
+    return models;
+  }
+
+  private postCatalog(requestId: number, selection: Selection, models: AgentModel[]): void {
+    this.post({
+      type: 'modelCatalog', requestId, provider: selection.provider, cwd: selection.cwd, status: 'ready',
+      models: models.map((model) => toCatalogModel(model)),
+      selectedModelId: selection.model, selectedParams: selection.modelParams ?? [],
+    });
+  }
+
+  private async loadModelCatalog(message: object): Promise<void> {
+    const requestId = 'requestId' in message && typeof message.requestId === 'number' ? message.requestId : 0;
+    const refresh = 'refresh' in message && message.refresh === true;
+    const selection = this.controller.snapshot().selection;
+    this.catalogAbort?.abort();
+    const abort = new AbortController();
+    this.catalogAbort = abort;
+    this.catalogRequest = requestId;
+    const key = this.cacheKey(selection);
+    try {
+      const models = !refresh && this.modelCache.has(key)
+        ? this.modelCache.get(key) ?? []
+        : await this.listAvailableModels(selection, abort.signal);
+      if (abort.signal.aborted || this.catalogRequest !== requestId) return;
+      const current = this.controller.snapshot().selection;
+      if (!catalogIsCurrent(
+        { requestId, provider: selection.provider, cwd: selection.cwd },
+        { requestId: this.catalogRequest, provider: current.provider, cwd: current.cwd },
+      )) return;
+      this.modelCache.set(key, models);
+      this.postCatalog(requestId, current, models);
+    } catch (error) {
+      if (abort.signal.aborted || this.catalogRequest !== requestId) return;
+      const current = this.controller.snapshot().selection;
+      if (current.provider !== selection.provider || current.cwd !== selection.cwd) return;
+      this.post({
+        type: 'modelCatalog', requestId, provider: selection.provider, cwd: selection.cwd, status: 'error',
+        error: errorMessage(error), models: [], selectedModelId: current.model, selectedParams: current.modelParams ?? [],
+      });
+    }
+  }
+
+  private async setMenuModel(message: object): Promise<void> {
+    const modelId = 'modelId' in message && typeof message.modelId === 'string' ? message.modelId : '';
+    await this.applyMenuSelection(async (selection) => {
+      const models = await this.cachedModels(selection);
+      const chosen = modelId
+        ? models.find((model) => model.id === modelId || model.aliases?.includes(modelId))
+        : { id: '', label: this.locale === 'ja' ? '既定のモデル' : 'Default model' };
+      if (!chosen) throw new Error('モデル一覧に、そのモデルはありません。');
+      const next = selectBaseModel(chosen, selection);
+      return { next, label: chosen.label, hasDetails: Boolean(chosen.parameters?.length) };
+    });
+  }
+
+  private async setMenuParam(message: object): Promise<void> {
+    const id = 'id' in message && typeof message.id === 'string' ? message.id : '';
+    const value = 'value' in message && typeof message.value === 'string' ? message.value : '';
+    if (!id) return;
+    await this.applyMenuSelection(async (selection) => {
+      const models = await this.cachedModels(selection);
+      const model = models.find((item) => matchesModel(item, selection.model));
+      const parameter = model?.parameters?.find((item) => item.id === id);
+      if (!model || !parameter) return undefined;
+      const draft = new ModelSettingsDraft(model, selection.provider, selection.modelParams);
+      try { draft.set(parameter, value); } catch { return undefined; }
+      const params = draft.params();
+      return {
+        next: { ...selection, ...(params.length ? { modelParams: params } : { modelParams: undefined }) },
+        label: model.label,
+        hasDetails: Boolean(model.parameters?.length),
+      };
+    });
+  }
+
+  private async applyMenuSelection(resolve: (selection: Selection) => Promise<{ next: Selection; label: string; hasDetails: boolean } | undefined>): Promise<void> {
+    const started = this.controller.snapshot();
+    if (started.busy) throw new Error('実行が終わってからモデルを選択してください。');
+    const selection = started.selection;
+    if (modelApplyMode(selection.provider, this.controls[selection.provider].backend) === 'unsupported') return;
+    const resolved = await resolve(selection);
+    if (!resolved) return;
+    const current = this.controller.snapshot().selection;
+    if (current.provider !== selection.provider || current.cwd !== selection.cwd || current.model !== selection.model
+      || !sameModelParams(current.modelParams, selection.modelParams)) return;
+    await this.commitModelSelection(resolved.next, {
+      model: resolved.next.model, label: resolved.label, hasDetails: resolved.hasDetails,
+    }, 'menu');
+  }
+
+  private confirmNewSession(): Thenable<boolean> {
+    const ja = this.locale === 'ja';
+    const label = ja ? '新しいセッションにする' : 'Start new session';
+    return vscode.window.showWarningMessage(
+      ja
+        ? 'この変更は新しいセッションが必要です。現在の会話表示は閉じられ、次の送信から新しいセッションになります。'
+        : 'This change needs a new session. The current conversation will close, and the next message starts a new session.',
+      { modal: true },
+      label,
+    ).then((choice) => choice === label);
+  }
+
+  private async commitModelSelection(next: Selection, saved: SavedModel, source: 'menu' | 'picker'): Promise<void> {
+    const state = this.controller.snapshot();
+    if (state.busy) throw new Error('実行が終わってからモデルを選択してください。');
+    if (state.selection.provider !== next.provider || state.selection.cwd !== next.cwd) return;
+    const mode = modelApplyMode(next.provider, this.controls[next.provider].backend);
+    const unchanged = state.selection.model === next.model && sameModelParams(state.selection.modelParams, next.modelParams);
+    if (!unchanged) {
+      if (mode === 'unsupported' && source === 'menu') return;
+      const conversation = state.messages.some((message) => message.role === 'user' || message.role === 'assistant');
+      if (mode === 'new-session' && source === 'menu' && conversation) {
+        if (!await this.confirmNewSession()) return;
+        const latest = this.controller.snapshot();
+        if (latest.busy || latest.selection.provider !== next.provider || latest.selection.cwd !== next.cwd
+          || latest.selection.model !== state.selection.model || !sameModelParams(latest.selection.modelParams, state.selection.modelParams)) return;
+      }
+      if (mode === 'next-send') await this.controller.updateSelection(next);
+      else await this.controller.select(next);
+    }
+    const stored: SavedModel = {
+      model: next.model, label: saved.label, hasDetails: saved.hasDetails,
+      ...(next.modelParams ? { modelParams: next.modelParams } : {}),
+    };
+    this.selectedModels[next.provider] = stored;
+    await this.context.workspaceState.update('ai-agents.selectedModels', this.selectedModels);
+    this.postState();
+  }
+
   isModelPickerReady(modelId?: string): boolean {
     return Boolean(this.modelPicker && !this.modelPicker.busy && this.activePickerModel !== undefined
       && (modelId === undefined || this.activePickerModel === modelId));
@@ -352,14 +498,9 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       const current = this.controller.snapshot().selection;
       if (current.provider !== selection.provider || current.cwd !== selection.cwd) return;
       const next = selectBaseModel(chosen, current);
-      const saved: SavedModel = {
+      await this.commitModelSelection(next, {
         model: next.model, label: chosen.label, hasDetails: Boolean(chosen.parameters?.length),
-        ...(next.modelParams ? { modelParams: next.modelParams } : {}),
-      };
-      await this.controller.select(next);
-      this.selectedModels[selection.provider] = saved;
-      await this.context.workspaceState.update('ai-agents.selectedModels', this.selectedModels);
-      this.postState();
+      }, 'picker');
     } finally {
       this.modelRequest?.abort();
       this.modelRequest = undefined;
@@ -395,12 +536,9 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       if (current.provider !== selection.provider || current.cwd !== selection.cwd || current.model !== selection.model
         || !sameModelParams(current.modelParams, selection.modelParams)) return;
       const next = { ...current, modelParams: params.length ? params : undefined };
-      await this.controller.select(next);
-      this.selectedModels[next.provider] = {
-        model: next.model, modelParams: next.modelParams, label: model.label, hasDetails: Boolean(model.parameters?.length),
-      };
-      await this.context.workspaceState.update('ai-agents.selectedModels', this.selectedModels);
-      this.postState();
+      await this.commitModelSelection(next, {
+        model: next.model, label: model.label, hasDetails: Boolean(model.parameters?.length),
+      }, 'picker');
     } finally {
       request.abort();
       this.detailsEditor = undefined;

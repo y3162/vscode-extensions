@@ -149,6 +149,43 @@ test('a closed session is replaced and the next send resumes its id', async () =
   assert.equal(controller.snapshot().status, 'idle');
 });
 
+test('updating the model for the next send keeps the conversation and restores a rejected change', async () => {
+  let applied = '';
+  const controller = new ChatController({ ...selection, provider: 'cursor', model: 'first' }, async () => ({
+    async run() {},
+    async dispose() {},
+    setModel(next) {
+      if (next.model === 'bad') throw new Error('rejected');
+      applied = next.model;
+    },
+  }), () => {});
+  await controller.send('hello');
+  await controller.updateSelection({ ...selection, provider: 'cursor', model: 'next', modelParams: [{ id: 'effort', value: 'high' }] });
+  assert.equal(applied, 'next');
+  assert.equal(controller.snapshot().selection.model, 'next');
+  assert.match(controller.snapshot().messages.map((message) => message.text).join('\n'), /hello/);
+  await assert.rejects(() => controller.updateSelection({ ...selection, provider: 'cursor', model: 'bad' }), /rejected/);
+  assert.equal(controller.snapshot().selection.model, 'next');
+  assert.equal(controller.snapshot().selection.modelParams?.[0]?.value, 'high');
+});
+
+test('a running turn keeps the current model', async () => {
+  const entered = deferred();
+  const controller = new ChatController(selection, async () => ({
+    async run(_prompt, signal) {
+      entered.resolve();
+      await new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    },
+    async dispose() {},
+  }), () => {});
+  const running = controller.send('long');
+  await entered.promise;
+  await assert.rejects(() => controller.updateSelection({ ...selection, model: 'next' }), /実行が終わってから/);
+  assert.equal(controller.snapshot().selection.model, '');
+  controller.stop();
+  await running;
+});
+
 test('selecting a different variant of the same model starts a fresh session', async () => {
   let disposed = 0;
   const options: Selection[] = [];
