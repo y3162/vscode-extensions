@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { readdir } from 'node:fs/promises';
+import { readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { capabilitiesFor, defaultControls, modelApplyMode, normalizeControls, type AgentControls } from './capabilities.js';
 import { inferIntent } from './plan-state.js';
@@ -68,7 +68,12 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   private readonly sync = new Map<vscode.WebviewView, { sigs: Map<string, string>; revision: number }>();
   get controller(): ChatController { return this.registry.front; }
 
-  constructor(private readonly context: vscode.ExtensionContext, private readonly output: vscode.OutputChannel) {
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly output: vscode.OutputChannel,
+    private readonly cursorSessionLister: typeof listCursorSdkSessions = listCursorSdkSessions,
+    private readonly sessionFactory: typeof createSession = createSession,
+  ) {
     const historyRoot = path.join((context.storageUri ?? context.globalStorageUri).fsPath, 'history', 'v1');
     this.rewindJournalDirectory = path.join(historyRoot, 'rewind-journals');
     this.history = new HistoryStore(historyRoot, (error) => { this.output.appendLine(`History save failed: ${errorMessage(error)}`); this.post({ type: 'error', text: '表示履歴を保存できませんでした。Logsを確認してください。' }); });
@@ -129,13 +134,14 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   }
 
   private makeController(selection: Selection): ChatController {
-    const owner: { controller?: ChatController } = {};
-    const controller = new ChatController(selection, async (next, sessionContext) => {
+    // ChatController stores these callbacks; it does not invoke them in its constructor.
+    // This method seeds its ID/controls before returning, and callers register it before exposing operations that invoke them.
+    let controller!: ChatController;
+    controller = new ChatController(selection, async (next, sessionContext) => {
       this.requireWorkspace(next.cwd);
-      const current = owner.controller;
-      if (!current) throw new Error('会話の準備ができていません。');
-      const controls = { ...(this.controllerControls.get(current) ?? this.controls[next.provider]), mode: this.registry?.entries().find((entry) => entry.controller === current)?.mode ?? this.controls[next.provider].mode };
-      return createSession({
+      const conversation = this.registry.entries().find((entry) => entry.controller === controller)!;
+      const controls = { ...this.controllerControls.get(controller)!, mode: conversation.mode };
+      return this.sessionFactory({
         ...next,
         ...controls,
         storagePath: path.join(this.context.globalStorageUri.fsPath, 'cursor-agents'),
@@ -144,20 +150,19 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
         agentPath: vscode.workspace.getConfiguration('ai-agents').get<string>('cursor.agentPath') || 'agent',
         resumeId: sessionContext?.resumeId,
         signal: sessionContext?.signal,
-        interactions: current.interactions,
-        onIdentity: (summary) => this.rememberFor(current, summary),
+        interactions: controller.interactions,
+        onIdentity: (summary) => this.rememberFor(controller, summary),
       });
     }, (state) => {
-      if (owner.controller) this.saveConversation(owner.controller, state);
+      this.saveConversation(controller, state);
       this.postState();
     }, {
       journalDirectory: this.rewindJournalDirectory,
-      conversationId: () => owner.controller ? this.conversationIds.get(owner.controller) : undefined,
-      enabled: () => Boolean(owner.controller && !this.historyPaused && !this.suppressedHistories.has(this.conversationIds.get(owner.controller) ?? '')
-        && vscode.workspace.getConfiguration('ai-agents').get<boolean>('history.enabled', true)),
+      conversationId: () => this.conversationIds.get(controller),
+      enabled: () => !this.historyPaused && !this.suppressedHistories.has(this.conversationIds.get(controller)!)
+        && vscode.workspace.getConfiguration('ai-agents').get<boolean>('history.enabled', true),
       flush: () => this.flushHistory(),
     });
-    owner.controller = controller;
     this.conversationIds.set(controller, randomUUID());
     this.controllerControls.set(controller, { ...this.controls[selection.provider] });
     return controller;
@@ -172,9 +177,11 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       try {
         const journal = await readTurnRewindJournal(file);
         const saved = this.history.get(journal.conversationId);
+        if (!saved || saved.id !== journal.conversationId) throw new Error('保存された会話とジャーナルを対応付けられません。');
         if (saved?.sessionId === journal.branchId) {
           await discardTurnRewindJournal(file);
         } else {
+          if (await realpath(saved.state.selection.cwd) !== journal.cwd) throw new Error('ジャーナルのWorkspaceが保存された会話と一致しません。');
           await rollbackTurnRewindJournal(journal);
           await discardTurnRewindJournal(file);
         }
@@ -406,7 +413,6 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       case 'select':
       case 'send':
       case 'enqueue': {
-        if (!this.isFront(message)) return;
         const target = this.controller;
         const selection = this.parseSelection(message);
         await target.select(selection);
@@ -458,7 +464,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
 
   private async cachedModels(selection: Selection, refresh = false): Promise<AgentModel[]> {
     const key = this.cacheKey(selection);
-    if (!refresh && this.modelCache.has(key)) return this.modelCache.get(key) ?? [];
+    if (!refresh && this.modelCache.has(key)) return this.modelCache.get(key)!;
     const models = await this.listAvailableModels(selection);
     const current = this.controller.snapshot().selection;
     if (current.provider === selection.provider && current.cwd === selection.cwd) this.modelCache.set(key, models);
@@ -484,7 +490,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     const key = this.cacheKey(selection);
     try {
       const models = !refresh && this.modelCache.has(key)
-        ? this.modelCache.get(key) ?? []
+        ? this.modelCache.get(key)!
         : await this.listAvailableModels(selection, abort.signal);
       if (abort.signal.aborted || this.catalogRequest !== requestId) return;
       const current = this.controller.snapshot().selection;
@@ -529,7 +535,8 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       try { draft.set(parameter, value); } catch { return undefined; }
       const params = draft.params();
       return {
-        next: { ...selection, ...(params.length ? { modelParams: params } : { modelParams: undefined }) },
+        // draft.set succeeds only after storing the requested parameter, so this list cannot be empty.
+        next: { ...selection, modelParams: params },
         label: model.label,
         hasDetails: Boolean(model.parameters?.length),
       };
@@ -541,7 +548,6 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     const started = target.snapshot();
     if (started.busy) throw new Error('実行が終わってからモデルを選択してください。');
     const selection = started.selection;
-    if (modelApplyMode(selection.provider, this.controls[selection.provider].backend) === 'unsupported') return;
     const resolved = await resolve(selection);
     if (!resolved) return;
     if (this.controller !== target) return;
@@ -569,11 +575,9 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     const target = this.controller;
     const state = target.snapshot();
     if (state.busy) throw new Error('実行が終わってからモデルを選択してください。');
-    if (state.selection.provider !== next.provider || state.selection.cwd !== next.cwd) return;
     const mode = modelApplyMode(next.provider, this.controls[next.provider].backend);
     const unchanged = state.selection.model === next.model && sameModelParams(state.selection.modelParams, next.modelParams);
     if (!unchanged) {
-      if (mode === 'unsupported' && source === 'menu') return;
       const conversation = state.messages.some((message) => message.role === 'user' || message.role === 'assistant');
       if (mode === 'new-session' && source === 'menu' && conversation) {
         if (!await this.confirmNewSession()) return;
@@ -808,7 +812,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       return;
     }
     const provider = target.snapshot().selection.provider;
-    const backend = (this.controllerControls.get(target) ?? this.controls[provider]).backend;
+    const backend = this.controllerControls.get(target)!.backend;
     const config = vscode.workspace.getConfiguration('ai-agents');
     const launch = provider === 'codex'
       ? codexLaunch(config.get<string>('codex.executablePath') || undefined, [])
@@ -944,8 +948,8 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
 
   private resolvePlan(message: object): void {
     const id = 'id' in message && typeof message.id === 'string' ? message.id : '';
-    const decision = 'decision' in message && message.decision === 'rejected' ? 'rejected' : 'accepted';
-    if (id) this.targetController(message).resolvePlan(id, decision, this.tokenOf(message));
+    const decision = 'decision' in message ? message.decision : undefined;
+    if (id && (decision === 'accepted' || decision === 'rejected')) this.targetController(message).resolvePlan(id, decision, this.tokenOf(message));
   }
 
   private resolveQuestion(message: object): void {
@@ -971,16 +975,16 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       ...(modelParams?.length ? { modelParams } : { modelParams: undefined }),
     };
     const target = this.controller;
-    const conversation = this.registry.entries().find((entry) => entry.controller === target);
-    const previousMode = conversation?.mode ?? this.controls[provider].mode;
-    if (conversation) conversation.mode = 'agent';
+    const conversation = this.registry.entries().find((entry) => entry.controller === target)!;
+    const previousMode = conversation.mode;
+    conversation.mode = 'agent';
     this.controls[provider] = { ...this.controls[provider], mode: 'agent' };
     try {
       await target.build(planId, revision, selection);
     } finally {
       const state = target.snapshot();
       if (state.plan.phase !== 'implemented' && state.plan.phase !== 'building') {
-        if (conversation) conversation.mode = previousMode;
+        conversation.mode = previousMode;
         target.setModePreference(previousMode);
         if (this.controller === target) this.controls[provider] = { ...this.controls[provider], mode: previousMode };
       }
@@ -988,7 +992,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       if (this.controller === target && state.selection.model === modelId && sameModelParams(state.selection.modelParams, modelParams)) {
         this.selectedModels[provider] = { model: modelId, label: label || modelId || (this.locale === 'ja' ? 'モデルを選択' : 'Select model'), hasDetails: Boolean(modelParams?.length), ...(modelParams?.length ? { modelParams } : {}) };
       }
-      this.controllerControls.set(target, { ...(this.controllerControls.get(target) ?? this.controls[provider]), mode: conversation?.mode ?? previousMode });
+      this.controllerControls.set(target, { ...this.controllerControls.get(target)!, mode: conversation.mode });
       await this.context.workspaceState.update('ai-agents.controls', this.controls);
       await this.context.workspaceState.update('ai-agents.selectedModels', this.selectedModels);
       this.postState();
@@ -1000,7 +1004,6 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     const plan = target.snapshot().plan;
     if (plan.phase !== 'ready' || !plan.current) return;
     const provider = target.snapshot().selection.provider;
-    if (capabilitiesFor(provider, this.controls[provider].backend).buildModel === 'unsupported') return;
     const current = plan.build?.selection ?? target.snapshot().selection;
     if ('type' in message && message.type === 'setBuildModel') {
       const modelId = 'modelId' in message && typeof message.modelId === 'string' ? message.modelId : '';
@@ -1011,7 +1014,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       const chosen = modelId ? models.find((model) => model.id === modelId || model.aliases?.includes(modelId)) : undefined;
       if (!chosen) throw new Error('モデル一覧に、そのモデルはありません。');
       const selection = selectBaseModel(chosen, current);
-      target.setBuildModel(selection, chosen?.label || modelId || (this.locale === 'ja' ? 'モデルを選択' : 'Select model'));
+      target.setBuildModel(selection, chosen.label || modelId);
       return;
     }
     const id = 'id' in message && typeof message.id === 'string' ? message.id : '';
@@ -1157,7 +1160,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       this.controller.notify(`Reverted ${path.basename(filePath)}`);
       return;
     }
-    const target = this.resolveInside(change.path) ?? (roots.some((root) => change.path.startsWith(root)) ? change.path : '');
+    const target = this.resolveInside(change.path);
     if (!target) return;
     if (change.previousText === undefined) {
       await vscode.window.showTextDocument(vscode.Uri.file(target));
@@ -1189,7 +1192,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     if (!summary) return;
     const existing = this.registry.entries().find((entry) => entry.controller.sessionId() === summary.id && entry.controller.snapshot().selection.provider === provider && (!summary.conversationId || this.conversationIds.get(entry.controller) === summary.conversationId));
     if (existing) {
-      this.controls[provider] = this.controllerControls.get(existing.controller) ?? this.controls[provider];
+      this.controls[provider] = this.controllerControls.get(existing.controller)!;
       this.registry.focus(existing.key);
       existing.controller.setModePreference(existing.mode);
       await existing.controller.currentSession()?.listBackgroundTerminals?.().catch(() => undefined);
@@ -1254,7 +1257,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     const selection = this.controller.snapshot().selection;
     try {
       if (selection.provider === 'cursor' && this.controls.cursor.backend === 'sdk' && selection.cwd) {
-        const listed = await listCursorSdkSessions({
+        const listed = await this.cursorSessionLister({
           cwd: selection.cwd,
           storagePath: path.join(this.context.globalStorageUri.fsPath, 'cursor-agents'),
           apiKey: await this.context.secrets.get('ai-agents.cursor.apiKey'),

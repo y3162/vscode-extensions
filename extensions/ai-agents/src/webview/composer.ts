@@ -190,8 +190,7 @@ export class Composer {
     this.togglePill(this.mode, shell.showMode, shell.modes.find((mode) => mode.id === shell.mode)?.label ?? shell.mode, copy.mode);
     if (this.catalog && (this.catalog.provider !== shell.provider || this.catalog.cwd !== shell.cwd)) this.catalog = null;
     const modelText = shell.effortLabel ? `${shell.modelLabel} ${shell.effortLabel}` : shell.modelLabel;
-    const modelLabel = this.model.querySelector('.btn-label');
-    if (modelLabel) modelLabel.textContent = modelText;
+    this.model.querySelector('.btn-label')!.textContent = modelText;
     this.model.title = modelText;
     this.model.setAttribute('aria-label', modelText);
     const adjustable = shell.modelSettings !== 'unsupported';
@@ -215,16 +214,14 @@ export class Composer {
     if (shell.busy && this.mode.getAttribute('aria-expanded') === 'true') this.menu.close(false);
     this.mode.disabled = shell.busy;
     this.send.disabled = !shell.cwd;
-    const sendLabel = this.send.querySelector('.btn-label');
-    if (sendLabel) sendLabel.textContent = shell.busy ? copy.queue : copy.send;
+    this.send.querySelector('.btn-label')!.textContent = shell.busy ? copy.queue : copy.send;
     this.send.title = shell.busy ? copy.queue : copy.send;
     this.send.setAttribute('aria-label', shell.busy ? copy.queue : copy.send);
     this.stop.hidden = !shell.busy;
     this.stop.title = copy.stop;
     this.stop.setAttribute('aria-label', copy.stop);
     const envText = `${copy.local} · ${shell.folderName} · ${shell.backendLabel}`;
-    const envLabel = this.env.querySelector('.btn-label');
-    if (envLabel) envLabel.textContent = envText;
+    this.env.querySelector('.btn-label')!.textContent = envText;
     this.env.title = envText;
     this.env.setAttribute('aria-label', envText);
     this.renderBanner(shell, copy);
@@ -234,8 +231,7 @@ export class Composer {
 
   private togglePill(button: HTMLButtonElement, show: boolean, label: string, title: string): void {
     button.hidden = !show;
-    const caption = button.querySelector('.btn-label');
-    if (caption) caption.textContent = label;
+    button.querySelector('.btn-label')!.textContent = label;
     button.title = title;
     button.setAttribute('aria-label', label);
   }
@@ -246,8 +242,7 @@ export class Composer {
     this.banner.replaceChildren();
     if (!banner) return;
     this.banner.append(this.dom.icon('warning'), this.dom.el('div', 'banner-copy'));
-    const text = this.banner.querySelector('.banner-copy');
-    text?.append(this.dom.el('strong', undefined, banner.title), this.dom.el('p', undefined, banner.body));
+    this.banner.querySelector('.banner-copy')!.append(this.dom.el('strong', undefined, banner.title), this.dom.el('p', undefined, banner.body));
     const hide = this.dom.button('ghost', copy.dontShow);
     hide.addEventListener('click', () => this.post({ type: 'dismissWarning', id: banner.id }));
     const close = this.dom.button('icon-btn', copy.dismiss, 'close');
@@ -281,16 +276,14 @@ export class Composer {
         this.terminalsExpanded = !this.terminalsExpanded;
         items.hidden = !this.terminalsExpanded;
         heading.setAttribute('aria-expanded', String(this.terminalsExpanded));
-        const icon = heading.querySelector('.codicon');
-        if (icon) icon.className = `codicon codicon-chevron-${this.terminalsExpanded ? 'down' : 'right'}`;
+        heading.querySelector('.codicon')!.className = `codicon codicon-chevron-${this.terminalsExpanded ? 'down' : 'right'}`;
       });
       list.append(heading, items);
       for (const terminal of terminals) {
         const row = this.dom.el('div', 'terminal-row');
         const label = terminal.status ? `${terminal.command || terminal.processId} · ${terminal.status}` : terminal.command || terminal.processId;
         const open = this.dom.button('ghost terminal-open', label, 'terminal');
-        const commandLabel = open.querySelector('.btn-label');
-        if (commandLabel) commandLabel.textContent = terminal.command || terminal.processId;
+        open.querySelector('.btn-label')!.textContent = terminal.command || terminal.processId;
         if (terminal.status) open.append(this.dom.el('span', 'terminal-state', terminal.status));
         open.addEventListener('click', () => this.post({ type: 'openTerminal', processId: terminal.processId }));
         row.append(open);
@@ -621,22 +614,6 @@ export class Composer {
       })),
       { id: 'settings', label: copy.settings, onSelect: () => this.onNavigate('settings') },
     ]);
-  }
-
-  private openChanges(anchor: HTMLElement, shell: ViewShell, copy: Copy): void {
-    const entries = shell.changes.flatMap((change) => this.changeEntries(change, copy));
-    this.menu.open(anchor, entries.length ? entries : [{ id: 'none', label: copy.changes }]);
-  }
-
-  private changeEntries(change: ViewChange, copy: Copy): { id: string; label: string; description?: string; onSelect?: () => void }[] {
-    const stats = `${change.additions !== undefined ? `+${change.additions}` : ''} ${change.deletions !== undefined ? `−${change.deletions}` : ''}`.trim();
-    const rows: { id: string; label: string; description?: string; onSelect?: () => void }[] = [{
-      id: `open:${change.path}`, label: change.name, description: stats,
-      onSelect: () => this.post({ type: change.canDiff ? 'openDiff' : 'openFile', path: change.path }),
-    }];
-    if (change.canRevert) rows.push({ id: `revert:${change.path}`, label: copy.revert, onSelect: () => this.post({ type: 'revertFile', path: change.path }) });
-    if (change.patch) rows.push({ id: `patch:${change.path}`, label: copy.patch, description: change.patch.slice(0, 180) });
-    return rows;
   }
 
   private configure(extra: Record<string, string>): void {

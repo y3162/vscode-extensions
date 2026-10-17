@@ -4,7 +4,7 @@ export function mergeRegistrySessions(current: SessionSummary[], live: SessionSu
   let sessions = [...current];
   for (const item of live) {
     const existing = sessions.find((session) => session.provider === item.provider && session.id === item.id && (!session.backend || !item.backend || session.backend === item.backend));
-    const title = existing?.title && (item.title === item.id || !item.title) ? existing.title : item.title || existing?.title || item.id;
+    const title = existing?.title && (item.title === item.id || !item.title) ? existing.title : item.title || item.id;
     sessions = upsertSession(sessions, {
       ...existing,
       ...item,
@@ -23,6 +23,6 @@ export function upsertSession(list: SessionSummary[], item: SessionSummary): Ses
 }
 
 export function sessionTitle(prompt: string): string {
-  const line = prompt.trim().split('\n')[0] ?? '';
+  const line = prompt.trim().split('\n')[0]!;
   return (line || 'New chat').slice(0, 80);
 }

@@ -45,15 +45,24 @@ export class HistoryStore {
     this.timers.set(record.id, setTimeout(() => { this.timers.delete(record.id); void this.flushOne(record.id).catch(this.failed); }, 500));
   }
   private flushOne(id: string): Promise<void> {
-    const record = this.dirty.get(id); if (!record) return this.tails.get(id) ?? Promise.resolve();
+    const record = this.dirty.get(id)!;
     this.dirty.delete(id);
     const task = (this.tails.get(id) ?? Promise.resolve()).catch(() => {}).then(async () => {
       await mkdir(this.root, { recursive: true, mode: 0o700 });
       const temp = path.join(this.root, `${id}.${randomUUID()}.tmp`);
-      await writeFile(temp, JSON.stringify(record), { encoding: 'utf8', mode: 0o600 });
-      await rename(temp, path.join(this.root, `${id}.json`));
+      try {
+        await writeFile(temp, JSON.stringify(record), { encoding: 'utf8', mode: 0o600 });
+        await rename(temp, path.join(this.root, `${id}.json`));
+      } catch (error) {
+        await unlink(temp).catch(() => {});
+        throw error;
+      }
     });
-    this.tails.set(id, task); return task;
+    const recoverable = task.catch((error: unknown) => {
+      if (!this.dirty.has(id)) this.dirty.set(id, record);
+      throw error;
+    });
+    this.tails.set(id, recoverable); return recoverable;
   }
   async flush(): Promise<void> {
     for (const timer of this.timers.values()) clearTimeout(timer); this.timers.clear();

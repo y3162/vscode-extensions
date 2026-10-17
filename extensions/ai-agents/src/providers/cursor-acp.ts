@@ -3,7 +3,6 @@ import type {
   AgentMode, AgentSession, AgentUpdate, ChatMessage, FileChange, PermissionDecision, PlanRequest, QuestionRequest, Selection, SessionSummary, SubagentRecord, TodoEntry,
 } from '../types.js';
 import type { SessionOptions } from './session-options.js';
-import { acpCreatePlanPolicy, acpCreatePlanReleaseOutcome } from './plan-policy.js';
 import { AssistantSegments } from './segments.js';
 import { StdioJsonRpc } from './stdio-rpc.js';
 import { classifyTool, toolStatus } from '../tool-kind.js';
@@ -236,12 +235,8 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
               },
             },
           }, false);
-          if (acpCreatePlanPolicy === 'release') {
-            const outcome = acpCreatePlanReleaseOutcome;
-            return { outcome: outcome === 'rejected' ? { outcome: 'rejected', reason: 'The plan was saved. Implementation starts only from Build.' } : { outcome: 'cancelled' } };
-          }
-          const decision = options.interactions ? await options.interactions.requestPlan(request) : 'rejected';
-          return { outcome: { outcome: decision === 'accepted' ? 'accepted' : 'rejected' } };
+          // create_plan is recorded and implementation starts only from Build.
+          return { outcome: { outcome: 'cancelled' } };
         }
       } catch (error) {
         fail(error);
@@ -425,7 +420,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       const created = record(await rpc.request('session/new', {
         cwd: options.cwd,
         mcpServers: [],
-        ...(mode ? { mode } : {}),
+        mode,
       }, options.signal));
       readModelState(created);
       sessionId = typeof created.sessionId === 'string' ? created.sessionId : '';

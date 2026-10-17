@@ -14,7 +14,7 @@
 
 | 再現条件と影響 | 原因・最小修正 | 変更ファイル・根拠 |
 | --- | --- | --- |
-| 全経路: 実行中Reset後、新規会話で旧会話を再開し得る | 旧ターンfinallyが消去済みretainedIdを書き戻す。active完了後にも消去 | `src/chat-controller.ts`, `test/chat-controller.test.ts`。修正前失敗を確認 |
+| 全経路: 実行中Reset後、新規会話で旧会話を再開し得る | 旧ターンfinallyが消去済みretainedIdを書き戻す。active完了後にも消去 | `src/chat-controller.ts`, `test/sidebar/chat-controller.test.ts`。修正前失敗を確認 |
 | 全経路: 履歴復元と送信・モデル変更・Resetが競合 | openSessionがactive/busyを確保していない。復元を排他操作にし、Stop後の遅延replayを無視。復元失敗はQueue自動実行を止める | 同上。修正前失敗、競合・Queue回帰 |
 | 全経路: 画像だけの送信が無反応で入力から消える | Composerは許可するがControllerが空promptを破棄。画像有ならsend/enqueueを許可 | 同上。初回・Queue・明示Retryの回帰 |
 | 全経路: 空本文画像turnのRetryが無反応 | Webviewのtruthy判定と画像復元返信なし。元画像を会話/turn/draft照合後に復元し、明示送信まで待つ | `src/protocol.ts`, `src/sidebar.ts`, `src/webview/{app,composer,transcript}.ts`, DOM/Host回帰。永続保存前の元画像は再添付案内 |
@@ -30,7 +30,7 @@
 
 `test/live/inference.test.ts` はThought/Toolからpongを拾わずAssistant本文だけを照合。4経路を3ターンに拡張し、ACPでは独立の3ターン試験でBackendの明示final本文とControllerのfinalMessageIdの本文を完全一致検査する。一時Git workspaceを使用。
 
-`test/reliability-host.ts` は従来の「会話中に1回答あれば成功」を廃し、全3ターンのcompleted・非空final Assistantを必須化。再起動後も全3回答を検査し4ターン目を送信する。Cursorモデルもautoからcomposer-2.5へ統一。
+`test/integration/reliability-host.ts` は従来の「会話中に1回答あれば成功」を廃し、全3ターンのcompleted・非空final Assistantを必須化。再起動後も全3回答を検査し4ターン目を送信する。Cursorモデルもautoからcomposer-2.5へ統一。
 
 検証結果と残存リスクは [今回の検証記録](VERIFICATION.md#final-audit) を参照。最終判断は主要全経路GUIと障害・副作用の組合せ受入が未完了のため **No-Go**。中央Composer・editorタブの不在は理由に含めない。
 
@@ -61,7 +61,7 @@
 | P1 | Buildのモデル変更をtry外で呼び、非同期失敗時にbuildingとUIモデルが先行した。別ターン実行中にもモードを変更できた | Buildのactive操作内でモデルackを待つ。失敗・Stopではreadyへ復帰。Stopがack後なら実際に適用されたモデルを保持し、実装は開始しない。モード変更もack後に確定。`chat-controller.ts` |
 | P1 | 非同期設定・モデル一覧・送信コンテキスト展開中の会話切替で、処理完了先が新しいfront会話になり得た | 操作対象Controller・計画revisionを固定し、別会話のモード・選択を上書きしない。`sidebar.ts` |
 | P1 | App ServerのPlanはcollaborationModeのみで、filesystemのread-onlyを明示していなかった | PlanターンはreadOnly / approval never、Agent / Buildでは開始応答のsandboxとapprovalを毎回明示復元。上書きの後続ターンへの残留を防止。`providers/codex-app-server.ts` |
-| P0 | request-only Usageを集計したsession表示もBackend累積値とみなし、次のrequest通知を無視した | 同じsourceのネイティブ累積sampleがある場合だけrequestを抑制。後から初めて累積値が届いたターンはbaseline不明ならTurn値を捏造しない。`chat-controller.ts`, `test/reliability.test.ts` |
+| P0 | request-only Usageを集計したsession表示もBackend累積値とみなし、次のrequest通知を無視した | 同じsourceのネイティブ累積sampleがある場合だけrequestを抑制。後から初めて累積値が届いたターンはbaseline不明ならTurn値を捏造しない。`chat-controller.ts`, `test/integration/reliability.test.ts` |
 | P2 | 保存履歴の終了済みTerminalまでunknownへ変えていた | 終了・cancelledなど確定した結果を保存。生存未確認のものだけunknown。`chat-controller.ts` |
 | P2 | SDK executorの終了後cleanupを複数回呼ぶと同一executorを二重dispose | cleanupの対象を一度だけ保持し、自然終了・Worker終了・重複cleanupに耐える。`providers/cursor-background-runtime.ts` |
 | P2 | SDK TerminalのCRLF footer、出力ゼロの先頭footerを解析できない | 明確な終了footerを正しく認識。`providers/cursor-terminals.ts` |
@@ -102,7 +102,7 @@ ACPが広告したComposer 2.5のモデルIDは `composer-2.5[fast=true]`。親�
 
 実装: `src/chat-controller.ts`, `src/sidebar.ts`, `src/types.ts`, `src/capabilities.ts`, `src/providers/cursor-acp.ts`, `src/providers/segments.ts`, `src/providers/cursor-worker-client.ts`, `src/providers/cursor-worker.ts`, `src/providers/codex-app-server.ts`, `src/providers/cursor-background-runtime.ts`, `src/providers/cursor-terminals.ts`, `src/webview/app.ts`, `src/webview/composer.ts`。
 
-検証: `test/chat-controller.test.ts`, `test/plan-flow.test.ts`, `test/reliability.test.ts`, `test/protocol.test.ts`, `test/model-settings.test.ts`, `test/cursor-worker-client.test.ts`, `test/cursor-background-runtime.test.ts`, `test/cursor-terminals.test.ts`, `test/webview/ui.test.ts`, `test/integration.ts`, `test/live/tools.test.ts`, `test/fixtures/mock-acp.cjs`, `test/fixtures/mock-app-server.cjs`, `scripts/test-integration.mjs`。
+検証: `test/sidebar/chat-controller.test.ts`, `test/core/plan-flow.test.ts`, `test/integration/reliability.test.ts`, `test/providers/shared/protocol.test.ts`, `test/core/model-settings.test.ts`, `test/providers/cursor/cursor-worker-client.test.ts`, `test/providers/cursor/cursor-background-runtime.test.ts`, `test/providers/cursor/cursor-terminals.test.ts`, `test/webview/ui.test.ts`, `test/integration/extension-host.ts`, `test/live/tools.test.ts`, `test/fixtures/mock-acp.cjs`, `test/fixtures/mock-app-server.cjs`, `scripts/test-integration.mjs`。
 
 文書: `CHANGELOG.md`, `docs/VERIFICATION.md`, `docs/FEATURE_MATRIX.md`, 本書およびProvider / Runtime / UIの各監査書。
 

@@ -53,8 +53,9 @@ function takeAnswer(segments: Segment[]): { id: string; text: string } | undefin
   }
   const index = finalIndex >= 0 ? finalIndex : segments.at(-1)?.type === 'text' ? segments.length - 1 : -1;
   if (index < 0) return undefined;
-  const [segment] = segments.splice(index, 1);
-  return segment?.type === 'text' ? { id: segment.id, text: segment.text } : undefined;
+  // `index` is selected only from a final text segment or a trailing text segment.
+  const segment = segments.splice(index, 1)[0] as Extract<Segment, { type: 'text' }>;
+  return { id: segment.id, text: segment.text };
 }
 
 function basename(file: string): string {
@@ -86,7 +87,7 @@ function toolRow(message: ViewMessage): ToolRow | undefined {
     };
   }
   if (message.role !== 'tool' || !message.text.trim()) return undefined;
-  const head = message.text.split('\n')[0] ?? message.text;
+  const head = message.text.split('\n')[0]!;
   const match = /^([^:\n]{1,40}):\s*(.*)$/.exec(head);
   const name = match?.[2]?.trim() || head;
   return { id: message.id, name, kind: classifyTool(name), status: toolStatus(match?.[1]), target: name, detail: message.text };

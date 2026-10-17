@@ -9,12 +9,12 @@ import { writeImageFiles } from '../images.js';
 import type { AgentSession, AgentUpdate, FileChange, Selection, SessionSummary, TurnOptions, UpdateMeta } from '../types.js';
 import { createCodexAppServerSession } from './codex-app-server.js';
 import { cursorStoredMessages } from './cursor-history.js';
-import { loadCursorSdk } from './cursor-sdk.js';
-import { cursorBackgroundRuntime } from './cursor-background-runtime.js';
+import { loadCursorSdk, loadPublishedCursorSdk } from './cursor-sdk.js';
+import { cursorBackgroundRuntime, type CursorBackgroundRuntime } from './cursor-background-runtime.js';
 import { CursorTerminals } from './cursor-terminals.js';
 import { createCursorWorker } from './cursor-worker-client.js';
 import { createCursorAcpSession } from './cursor-acp.js';
-import { codexMeta, cursorMeta } from './details.js';
+import { codexMeta, codexUsage, cursorMeta } from './details.js';
 import { codexUpdate, cursorUpdate } from './events.js';
 import { AssistantSegments } from './segments.js';
 import { mergeStreamText } from './stream-text.js';
@@ -23,9 +23,33 @@ import type { SessionOptions } from './session-options.js';
 
 export type { SessionOptions } from './session-options.js';
 
+export function cursorNodeVersionSupported(version: string): boolean {
+  const [major = 0, minor = 0] = version.split('.').map(Number);
+  return major > 22 || major === 22 && minor >= 13;
+}
+
+/** Routes an already-verified terminal identity to the worker's SDK runtime, if one is installed. */
+export function interruptCursorBackgroundShell(shellId: number, pid: number, runtime?: CursorBackgroundRuntime | null): boolean {
+  const owner = runtime === undefined ? cursorBackgroundRuntime() : runtime;
+  return owner?.interrupt(shellId, pid) ?? false;
+}
+
+interface SessionDependencies {
+  nodeVersion?: string;
+  writeImages?: typeof writeImageFiles;
+}
+
+export function loadCodexSdk(): Promise<typeof import('@openai/codex-sdk')> {
+  return import('@openai/codex-sdk');
+}
+
+export function loadCursorSdkForSession(): Promise<typeof import('@cursor/sdk')> {
+  return loadCursorSdk();
+}
+
 const sdkLoaders = {
-  codex: () => import('@openai/codex-sdk'),
-  cursor: () => loadCursorSdk(),
+  codex: loadCodexSdk,
+  cursor: loadCursorSdkForSession,
 };
 
 function cursorToolPath(meta: ReturnType<typeof cursorMeta>): string | undefined {
@@ -33,7 +57,7 @@ function cursorToolPath(meta: ReturnType<typeof cursorMeta>): string | undefined
   return file && file !== 'patch' ? file : undefined;
 }
 
-export async function createSession(options: SessionOptions, loaders = sdkLoaders, inProcess = false): Promise<AgentSession> {
+export async function createSession(options: SessionOptions, loaders = sdkLoaders, inProcess = false, dependencies: SessionDependencies = {}): Promise<AgentSession> {
   if (options.provider === 'codex' && options.backend === 'app-server') return createCodexAppServerSession(options);
   if (options.provider === 'cursor' && options.backend === 'acp') return createCursorAcpSession(options);
   if (options.provider === 'cursor' && loaders === sdkLoaders && !inProcess) return createCursorWorker(options);
@@ -81,7 +105,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
       async run(prompt, signal, emit, extras, turn) {
         signal.throwIfAborted();
         retarget(turn?.selection);
-        const images = await writeImageFiles(extras?.images ?? []);
+        const images = await (dependencies.writeImages ?? writeImageFiles)(extras?.images ?? []);
         const input = images.length
           ? [{ type: 'text' as const, text: prompt }, ...images.map((imagePath) => ({ type: 'local_image' as const, path: imagePath }))]
           : prompt;
@@ -95,13 +119,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
             }
             if (event.type === 'turn.completed') {
               emit({ id: `usage-${event.type}`, role: 'status', text: '', meta: { type: 'usage', usage: {
-                inputTokens: event.usage.input_tokens,
-                outputTokens: event.usage.output_tokens,
-                cachedInputTokens: event.usage.cached_input_tokens,
-                cacheWriteInputTokens: event.usage.cache_write_input_tokens,
-                reasoningTokens: event.usage.reasoning_output_tokens,
-                totalTokens: event.usage.input_tokens + event.usage.output_tokens,
-                scope: 'session', source: 'codex-sdk', inputIncludesCache: true,
+                ...codexUsage(event.usage), scope: 'session', source: 'codex-sdk', inputIncludesCache: true,
               } } });
             }
             if (event.type === 'turn.failed') throw new Error(event.error.message);
@@ -126,8 +144,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
     };
   }
 
-  const [major = 0, minor = 0] = process.versions.node.split('.').map(Number);
-  if (major < 22 || (major === 22 && minor < 13)) {
+  if (!cursorNodeVersionSupported(dependencies.nodeVersion ?? process.versions.node)) {
     throw new Error('Cursor SDKにはNode.js 22.13以降が必要です。VS Codeを更新してください。');
   }
   const { Agent, Cursor, JsonlLocalAgentStore } = await loaders.cursor();
@@ -167,7 +184,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
   const terminalListeners = new Set<(update: AgentUpdate) => void>();
   const terminals = options.cursorTerminalDataDir ? new CursorTerminals(options.cursorTerminalDataDir, (update) => {
     for (const listener of terminalListeners) listener(update);
-  }, undefined, options.cwd, (shellId, pid) => cursorBackgroundRuntime()?.interrupt(shellId, pid) ?? false) : undefined;
+  }, undefined, options.cwd, interruptCursorBackgroundShell) : undefined;
   let activeMode = mode;
   return {
     sessionId: agent.agentId,
@@ -246,7 +263,6 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
       let index = 0;
       let hasAssistant = false;
       let sawUsage = false;
-      let assistantText = '';
       let thinkingText = '';
       try {
         for await (const event of run.stream()) {
@@ -265,7 +281,6 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
             const chunk = event.message.content.filter((block) => block.type === 'text').map((block) => block.text).join('');
             const segment = chunk ? segments.push(chunk) : undefined;
             if (segment) {
-              assistantText = segment.text;
               hasAssistant = true;
               emit({ id: segment.id, role: 'assistant', text: segment.text });
             }
@@ -350,8 +365,11 @@ function transcriptText(message: unknown): string {
   return body.flatMap((block) => block && typeof block === 'object' && 'text' in block && typeof block.text === 'string' ? [block.text] : []).join('');
 }
 
-export async function listCursorSdkSessions(options: Pick<SessionOptions, 'cwd' | 'storagePath' | 'apiKey'>): Promise<SessionSummary[]> {
-  const { Agent, JsonlLocalAgentStore } = await import('@cursor/sdk');
+export async function listCursorSdkSessions(
+  options: Pick<SessionOptions, 'cwd' | 'storagePath' | 'apiKey'>,
+  load: () => Promise<typeof import('@cursor/sdk')> | typeof import('@cursor/sdk') = loadPublishedCursorSdk,
+): Promise<SessionSummary[]> {
+  const { Agent, JsonlLocalAgentStore } = await load();
   await mkdir(options.storagePath, { recursive: true });
   const listed = await Agent.list({ runtime: 'local', cwd: options.cwd, store: new JsonlLocalAgentStore(options.storagePath) });
   return listed.items.map((item) => ({

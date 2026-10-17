@@ -15,11 +15,12 @@ function lcsLength(left: string[], right: string[]): number {
   let current = new Uint16Array(right.length + 1);
   for (let row = 1; row <= left.length; row += 1) {
     for (let column = 1; column <= right.length; column += 1) {
-      const leftLine = left[row - 1] ?? '';
-      const rightLine = right[column - 1] ?? '';
-      const above = previous[column] ?? 0;
-      const leftValue = current[column - 1] ?? 0;
-      const diagonal = previous[column - 1] ?? 0;
+      // The loop bounds keep every index inside its corresponding array.
+      const leftLine = left[row - 1]!;
+      const rightLine = right[column - 1]!;
+      const above = previous[column]!;
+      const leftValue = current[column - 1]!;
+      const diagonal = previous[column - 1]!;
       current[column] = leftLine === rightLine ? diagonal + 1 : Math.max(above, leftValue);
     }
     const swap = previous;
@@ -27,7 +28,7 @@ function lcsLength(left: string[], right: string[]): number {
     current = swap;
     current.fill(0);
   }
-  return previous[right.length] ?? 0;
+  return previous[right.length]!;
 }
 
 export function countUnifiedDiff(diff: string): { additions: number; deletions: number } {
@@ -64,9 +65,9 @@ export function previewTextDiff(before: string | null, after: string | null, max
     const oldHasFinalNewline = before?.endsWith('\n') ?? false;
     const newHasFinalNewline = after?.endsWith('\n') ?? false;
     if (oldHasFinalNewline === newHasFinalNewline) return [];
-    const tail = newLines.at(-1);
+    // Empty and null text both have no final newline, so a mismatch has a displayed tail.
     return [
-      ...(tail !== undefined ? [{ kind: 'context' as const, line: newLines.length, text: tail }] : []),
+      { kind: 'context', line: newLines.length, text: newLines.at(-1)! },
       { kind: 'eof', text: newHasFinalNewline ? 'Newline at end of file' : 'No newline at end of file' },
     ];
   }
@@ -204,7 +205,8 @@ export function previousTextFromDiff(diff: string, kind: FileChange['kind']): st
 }
 
 export function extensionBadge(fileName: string): string {
-  const base = fileName.split(/[\\/]/).pop() ?? fileName;
+  const parts = fileName.split(/[\\/]/);
+  const base = parts[parts.length - 1]!;
   const dot = base.lastIndexOf('.');
   const ext = dot > 0 ? base.slice(dot + 1, dot + 5).toUpperCase() : base.slice(0, 4).toUpperCase();
   return ext || 'FILE';

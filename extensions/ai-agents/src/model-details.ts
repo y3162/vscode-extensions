@@ -38,7 +38,7 @@ export class ModelDetails implements vscode.Disposable {
       picker.buttons = [];
       picker.value = '';
       picker.items = [
-        ...(this.draft.model.parameters ?? []).filter((parameter) => parameter.values.length).map((parameter): DetailItem => ({
+        ...this.draft.model.parameters!.filter((parameter) => parameter.values.length).map((parameter): DetailItem => ({
           id: `parameter:${parameter.id}`, action: 'parameter', parameter,
           label: parameter.label, description: parameterLabel(parameter),
         })),

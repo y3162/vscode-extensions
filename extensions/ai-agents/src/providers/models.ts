@@ -90,6 +90,7 @@ export async function listModels(options: ModelListOptions): Promise<AgentModel[
   signal.throwIfAborted();
   if (options.provider === 'cursor') {
     const { Cursor } = await import('@cursor/sdk');
+    signal.throwIfAborted();
     if (!options.apiKey && !process.env.CURSOR_API_KEY) {
       const auth = await abortable(Cursor.auth.status(), signal);
       if (auth.status !== 'logged-in') {

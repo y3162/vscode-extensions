@@ -24,7 +24,7 @@
 
 ## テスト証拠
 
-`npx tsx --test test/cursor-background-runtime.test.ts test/cursor-terminals.test.ts test/terminal-monitor.test.ts`: **11 passed / 0 failed**。sandbox の tsx IPC `EPERM` を受け、承認された sandbox 外実行で確認した。patch の version/hash 拒否と、置換を戻すと元ソースと完全一致することも成功した。共有 Cursor directory 内の他 worker の PID は一覧に登録せず interrupt も呼ばないことを追加検証した。
+`npx tsx --test test/providers/cursor/cursor-background-runtime.test.ts test/providers/cursor/cursor-terminals.test.ts test/core/terminal-monitor.test.ts`: **11 passed / 0 failed**。sandbox の tsx IPC `EPERM` を受け、承認された sandbox 外実行で確認した。patch の version/hash 拒否と、置換を戻すと元ソースと完全一致することも成功した。共有 Cursor directory 内の他 worker の PID は一覧に登録せず interrupt も呼ばないことを追加検証した。
 
 `npm run test:runtime`: **12 passed / 0 failed / 0 skipped**、375.44 秒。既存認証・sandbox を維持して実 CLI / App Server で実行した。
 

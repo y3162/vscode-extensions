@@ -75,7 +75,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
     vscode.postMessage(shell ? { provider: shell.provider, cwd: shell.cwd, ...(shell.conversationId ? { conversationId: shell.conversationId } : {}), ...message } : message);
   };
   const menu = new Menu(dom, root);
-  let show = (_panel: 'history' | 'settings' | 'chat') => {};
+  let show: (panel: 'history' | 'settings' | 'chat') => void;
   const header = new Header(dom, headerHost, copy, (anchor) => {
     if (!shell) return;
     menu.open(anchor, [
@@ -163,8 +163,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
     transcript.render(messages, shell, copy);
     const last = [...messages].reverse().find((message) => message.role === 'user');
     composer.notePrompt(last?.text ?? '');
-    const jumpLabel = jump.querySelector('.btn-label');
-    if (jumpLabel) jumpLabel.textContent = copy.latest;
+    jump.querySelector('.btn-label')!.textContent = copy.latest;
     jump.title = copy.latest;
     const marker = `${page}:${log.version}:${shell.statusText}:${history.hidden}:${settings.hidden}`;
     if (marker !== painted && stick && page === 'chat') thread.scrollTop = thread.scrollHeight;

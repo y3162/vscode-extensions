@@ -11,98 +11,246 @@
     "url": "https://github.com/y3162/vscode-extensions.git",
     "directory": "extensions/ai-agents"
   },
-  "engines": { "vscode": "^1.109.0", "node": ">=22.13" },
-  "categories": ["AI", "Other"],
-  "extensionKind": ["workspace"],
+  "engines": {
+    "vscode": "^1.109.0",
+    "node": ">=22.13"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
   "capabilities": {
-    "untrustedWorkspaces": { "supported": false },
-    "virtualWorkspaces": { "supported": false }
+    "untrustedWorkspaces": {
+      "supported": false
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
   },
   "main": "./dist/extension.js",
-  "activationEvents": ["onView:ai-agents.chat", "onView:ai-agents.secondaryChat"],
+  "activationEvents": [
+    "onView:ai-agents.chat",
+    "onView:ai-agents.secondaryChat"
+  ],
   "contributes": {
     "viewsContainers": {
-      "activitybar": [{ "id": "ai-agents", "title": "AI Agents", "icon": "resources/agents.svg" }],
-      "secondarySidebar": [{ "id": "ai-agents-secondary", "title": "AI Agents", "icon": "resources/agents.svg" }]
+      "activitybar": [
+        {
+          "id": "ai-agents",
+          "title": "AI Agents",
+          "icon": "resources/agents.svg"
+        }
+      ],
+      "secondarySidebar": [
+        {
+          "id": "ai-agents-secondary",
+          "title": "AI Agents",
+          "icon": "resources/agents.svg"
+        }
+      ]
     },
     "views": {
-      "ai-agents": [{ "type": "webview", "id": "ai-agents.chat", "name": "Chat" }],
-      "ai-agents-secondary": [{ "type": "webview", "id": "ai-agents.secondaryChat", "name": "Chat" }]
+      "ai-agents": [
+        {
+          "type": "webview",
+          "id": "ai-agents.chat",
+          "name": "Chat"
+        }
+      ],
+      "ai-agents-secondary": [
+        {
+          "type": "webview",
+          "id": "ai-agents.secondaryChat",
+          "name": "Chat"
+        }
+      ]
     },
     "commands": [
-      { "command": "ai-agents.clearLocalHistory", "title": "AI Agents: Delete Local Display History" },
-      { "command": "ai-agents.open", "title": "AI Agents: Open Sidebar" },
-      { "command": "ai-agents.newChat", "title": "AI Agents: New Chat", "icon": "$(add)" },
-      { "command": "ai-agents.showHistory", "title": "%command.showHistory%", "icon": "$(history)" },
-      { "command": "ai-agents.showSettings", "title": "%command.showSettings%", "icon": "$(settings-gear)" },
-      { "command": "ai-agents.signIn", "title": "%command.signIn%" },
-      { "command": "ai-agents.usage", "title": "%command.usage%" },
-      { "command": "ai-agents.instructions", "title": "%command.instructions%" },
-      { "command": "ai-agents.apiKey", "title": "%command.apiKey%" },
-      { "command": "ai-agents.selectModel", "title": "AI Agents: Select Model" },
-      { "command": "ai-agents.configureModel", "title": "AI Agents: Configure Model Details" },
-      { "command": "ai-agents.cursorLogin", "title": "AI Agents: Sign in to Cursor" },
-      { "command": "ai-agents.setCursorApiKey", "title": "AI Agents: Set Cursor API Key" },
-      { "command": "ai-agents.setCodexApiKey", "title": "AI Agents: Set Codex API Key" },
-      { "command": "ai-agents.showLogs", "title": "AI Agents: Show Logs" },
-      { "command": "ai-agents.stop", "title": "%command.stop%", "icon": "$(debug-stop)" },
-      { "command": "ai-agents.openSecondary", "title": "%command.openSecondary%" },
-      { "command": "ai-agents.addFile", "title": "%command.addFile%" },
-      { "command": "ai-agents.addSelection", "title": "%command.addSelection%" },
-      { "command": "ai-agents.diagnose", "title": "%command.diagnose%" }
+      {
+        "command": "ai-agents.clearLocalHistory",
+        "title": "AI Agents: Delete Local Display History"
+      },
+      {
+        "command": "ai-agents.open",
+        "title": "AI Agents: Open Sidebar"
+      },
+      {
+        "command": "ai-agents.newChat",
+        "title": "AI Agents: New Chat",
+        "icon": "$(add)"
+      },
+      {
+        "command": "ai-agents.showHistory",
+        "title": "%command.showHistory%",
+        "icon": "$(history)"
+      },
+      {
+        "command": "ai-agents.showSettings",
+        "title": "%command.showSettings%",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "ai-agents.signIn",
+        "title": "%command.signIn%"
+      },
+      {
+        "command": "ai-agents.usage",
+        "title": "%command.usage%"
+      },
+      {
+        "command": "ai-agents.instructions",
+        "title": "%command.instructions%"
+      },
+      {
+        "command": "ai-agents.apiKey",
+        "title": "%command.apiKey%"
+      },
+      {
+        "command": "ai-agents.selectModel",
+        "title": "AI Agents: Select Model"
+      },
+      {
+        "command": "ai-agents.configureModel",
+        "title": "AI Agents: Configure Model Details"
+      },
+      {
+        "command": "ai-agents.cursorLogin",
+        "title": "AI Agents: Sign in to Cursor"
+      },
+      {
+        "command": "ai-agents.setCursorApiKey",
+        "title": "AI Agents: Set Cursor API Key"
+      },
+      {
+        "command": "ai-agents.setCodexApiKey",
+        "title": "AI Agents: Set Codex API Key"
+      },
+      {
+        "command": "ai-agents.showLogs",
+        "title": "AI Agents: Show Logs"
+      },
+      {
+        "command": "ai-agents.stop",
+        "title": "%command.stop%",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "ai-agents.openSecondary",
+        "title": "%command.openSecondary%"
+      },
+      {
+        "command": "ai-agents.addFile",
+        "title": "%command.addFile%"
+      },
+      {
+        "command": "ai-agents.addSelection",
+        "title": "%command.addSelection%"
+      },
+      {
+        "command": "ai-agents.diagnose",
+        "title": "%command.diagnose%"
+      }
     ],
     "menus": {
       "editor/context": [
-        { "command": "ai-agents.addFile", "when": "editorTextFocus", "group": "ai-agents" },
-        { "command": "ai-agents.addSelection", "when": "editorHasSelection", "group": "ai-agents" }
+        {
+          "command": "ai-agents.addFile",
+          "when": "editorTextFocus",
+          "group": "ai-agents"
+        },
+        {
+          "command": "ai-agents.addSelection",
+          "when": "editorHasSelection",
+          "group": "ai-agents"
+        }
       ]
     },
     "keybindings": [
-      { "command": "ai-agents.open", "key": "ctrl+alt+a", "mac": "ctrl+alt+a" },
-      { "command": "ai-agents.newChat", "key": "ctrl+alt+n", "mac": "ctrl+alt+n" },
-      { "command": "ai-agents.stop", "key": "ctrl+alt+.", "mac": "ctrl+alt+." }
+      {
+        "command": "ai-agents.open",
+        "key": "ctrl+alt+a",
+        "mac": "ctrl+alt+a"
+      },
+      {
+        "command": "ai-agents.newChat",
+        "key": "ctrl+alt+n",
+        "mac": "ctrl+alt+n"
+      },
+      {
+        "command": "ai-agents.stop",
+        "key": "ctrl+alt+.",
+        "mac": "ctrl+alt+."
+      }
     ],
     "configuration": {
       "title": "AI Agents",
       "properties": {
         "ai-agents.history.enabled": {
-          "type": "boolean", "default": true,
+          "type": "boolean",
+          "default": true,
           "description": "Save chat history and safe text-file turn checkpoints locally until manually deleted (up to 8 MB per conversation). May contain conversation text and tool output. Never replays prompts to the model."
         },
         "ai-agents.defaultProvider": {
-          "type": "string", "enum": ["codex", "cursor"], "default": "codex",
+          "type": "string",
+          "enum": [
+            "codex",
+            "cursor"
+          ],
+          "default": "codex",
           "description": "Provider selected when opening a new sidebar."
         },
         "ai-agents.codex.model": {
-          "type": "string", "default": "",
+          "type": "string",
+          "default": "",
           "description": "Codex model ID. Empty uses your Codex configuration."
         },
         "ai-agents.cursor.model": {
-          "type": "string", "default": "auto",
+          "type": "string",
+          "default": "auto",
           "description": "Cursor model ID, for example auto."
         },
         "ai-agents.codex.executablePath": {
-          "type": "string", "default": "", "scope": "machine",
+          "type": "string",
+          "default": "",
+          "scope": "machine",
           "description": "Optional absolute path to a Codex CLI. Empty uses the SDK's bundled CLI."
         },
         "ai-agents.codex.backend": {
-          "type": "string", "enum": ["sdk", "app-server"], "default": "sdk",
+          "type": "string",
+          "enum": [
+            "sdk",
+            "app-server"
+          ],
+          "default": "sdk",
           "description": "Codex transport. SDK keeps the verified exec path. App Server enables interactive approvals, plan mode, review, and thread management."
         },
         "ai-agents.cursor.backend": {
-          "type": "string", "enum": ["sdk", "acp"], "default": "sdk",
+          "type": "string",
+          "enum": [
+            "sdk",
+            "acp"
+          ],
+          "default": "sdk",
           "description": "Cursor transport. SDK uses @cursor/sdk. ACP uses the local Cursor CLI for interactive approvals and Ask mode."
         },
         "ai-agents.cursor.agentPath": {
-          "type": "string", "default": "agent", "scope": "machine",
+          "type": "string",
+          "default": "agent",
+          "scope": "machine",
           "description": "Command used to launch the Cursor CLI for ACP."
         },
         "ai-agents.maxBackgroundSessions": {
-          "type": "number", "default": 3, "minimum": 1,
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
           "description": "Maximum number of conversations that can run at the same time."
         },
         "ai-agents.autoApprove": {
-          "type": "boolean", "default": false,
+          "type": "boolean",
+          "default": false,
           "description": "Allow tool actions without a prompt. This does not disable the agent sandbox. Off by default."
         }
       }
@@ -112,8 +260,8 @@
     "build": "node scripts/build.mjs",
     "watch": "node scripts/build.mjs --watch",
     "check": "tsc --noEmit && tsc -p tsconfig.webview.json --noEmit",
-    "test": "tsx --test test/*.test.ts test/webview/*.test.ts",
-    "test:coverage": "node --import tsx --test --experimental-test-coverage --test-coverage-exclude=test/** --test-coverage-exclude=scripts/** --test-coverage-exclude=node_modules/** test/*.test.ts test/webview/*.test.ts",
+    "test": "node scripts/test-unit.mjs",
+    "test:coverage": "node scripts/test-coverage.mjs",
     "test:hygiene": "node scripts/check-test-assets.mjs",
     "test:integration": "npm run build && node scripts/test-integration.mjs",
     "test:protocol": "AI_AGENTS_REAL_PROTOCOL=1 tsx --test test/live/protocol.test.ts",
@@ -126,5 +274,8 @@
     "@cursor/sdk": "1.0.37",
     "@openai/codex": "0.162.1",
     "@openai/codex-sdk": "0.162.1"
+  },
+  "devDependencies": {
+    "c8": "12.0.0"
   }
 }

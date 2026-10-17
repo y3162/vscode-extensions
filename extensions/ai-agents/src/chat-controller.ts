@@ -131,15 +131,12 @@ export class ChatController {
     let journal: Awaited<ReturnType<typeof prepareTurnRewindJournal>> | undefined;
     let switched = false;
     try {
-      const { turn, targetIndex, plan } = await this.preflightRewind(targetId, true);
+      const { turn, targetIndex, plan, session: currentSession, backendTurnId, forkBeforeTurn } = await this.preflightRewind(targetId, true);
       const oldTurns = this.state.turns.slice();
       const removedTurns = oldTurns.slice(targetIndex);
       const userId = turn.userMessageId ?? turn.id;
       const userMessageIndex = this.state.messages.findIndex((message) => message.id === userId && message.role === 'user');
       if (userMessageIndex < 0) throw new Error('The selected user message is missing from local history.');
-      if (!turn.backendTurnId) throw new Error('Codex did not record a backend turn id for this prompt.');
-      const currentSession = this.session;
-      if (!currentSession?.forkBeforeTurn) throw new Error(currentSession?.rewindUnsupportedReason?.() || 'This backend cannot branch at an earlier user turn.');
       oldSession = currentSession;
       oldBackendSessionId = currentSession.sessionId;
       oldRetainedId = this.retainedId;
@@ -148,7 +145,7 @@ export class ChatController {
 
       this.state.operationLabel = 'rewind-branch';
       this.publish();
-      const branchId = await currentSession.forkBeforeTurn(turn.backendTurnId);
+      const branchId = await forkBeforeTurn.call(currentSession, backendTurnId);
       if (!branchId || branchId === currentSession.sessionId) throw new Error('The backend did not create a separate conversation branch.');
       if (currentSession.activateFork) {
         currentSession.activateFork(branchId);
@@ -157,14 +154,15 @@ export class ChatController {
         branchSession = await this.factory(cloneSelection(this.state.selection), { resumeId: branchId });
       }
       if (branchSession.sessionId !== branchId || branchSession.closed) throw new Error('The new Codex branch could not be opened safely.');
-      const branchTerminals = await branchSession.listBackgroundTerminals?.();
+      if (!branchSession.listBackgroundTerminals) throw new Error('Background Terminal の状態を確認できないため、安全に巻き戻せません。');
+      const branchTerminals = await branchSession.listBackgroundTerminals();
       if (branchTerminals?.some((terminal) => !terminal.status || !/complete|exit|done|terminat|kill|dead|fail|cancel|abort|succeed/i.test(terminal.status))) {
         throw new Error('The new branch reports a live background terminal. Rewind was cancelled.');
       }
 
       const conversationId = this.rewindPersistence.conversationId();
       if (!conversationId) throw new Error('The local conversation id is not available for a recoverable rewind.');
-      const trimmed = await this.trimmedState(targetId, targetIndex, plan, branchTerminals ?? []);
+      const trimmed = await this.trimmedState(targetIndex, userMessageIndex, plan, branchTerminals ?? []);
       journal = await prepareTurnRewindJournal(this.rewindPersistence.journalDirectory, conversationId, branchId, this.state.selection.cwd, plan);
       this.state.operationLabel = 'rewind-files';
       this.publish();
@@ -240,6 +238,7 @@ export class ChatController {
   }
 
   restoreSnapshot(saved: ChatState, id?: string): void {
+    if (this.rewinding) return;
     const sessions = this.state.sessions;
     Object.assign(this.state, structuredClone(saved), { busy: false, queue: [], pendingPermission: null, pendingPlan: null, pendingQuestion: null, autoApprove: false, sessions });
     this.retainedId = id;
@@ -270,7 +269,14 @@ export class ChatController {
     return ids;
   }
 
-  private async preflightRewind(targetId: string, operationOwnsBusy = false): Promise<{ turn: TurnRecord; targetIndex: number; plan: TurnRewindPlan }> {
+  private async preflightRewind(targetId: string, operationOwnsBusy = false): Promise<{
+    turn: TurnRecord;
+    targetIndex: number;
+    plan: TurnRewindPlan;
+    session: AgentSession;
+    backendTurnId: string;
+    forkBeforeTurn: NonNullable<AgentSession['forkBeforeTurn']>;
+  }> {
     if (!this.rewindPersistence?.enabled()) throw new Error('ローカル履歴の保存が無効なため、安全な巻き戻しを実行できません。');
     if (this.active || this.resetting || this.changingModel || this.state.busy && !operationOwnsBusy) throw new Error('実行中の会話は巻き戻せません。');
     if (this.state.queue.length || this.permissionWait || this.planWait || this.questionWait) throw new Error('Queue または保留中の操作を解決してから巻き戻してください。');
@@ -279,8 +285,10 @@ export class ChatController {
     if (this.hasLiveTerminals()) throw new Error('稼働中または状態を確認できない Background Terminal があります。');
     if (!this.session && !this.retainedId) throw new Error('このローカル履歴には再開できる Backend セッションがありません。');
     if (!this.session) await this.openAgent();
-    const session = this.session;
-    if (!session?.forkBeforeTurn) throw new Error(session?.rewindUnsupportedReason?.() || 'この Backend は過去ターンへの安全な分岐に対応していません。');
+    // openAgent either assigns a session or throws; a retained id alone is never treated as a live session.
+    const session = this.session!;
+    const forkBeforeTurn = session.forkBeforeTurn;
+    if (!forkBeforeTurn) throw new Error(session.rewindUnsupportedReason?.() || 'この Backend は過去ターンへの安全な分岐に対応していません。');
     const unsupported = session.rewindUnsupportedReason?.();
     if (unsupported) throw new Error(unsupported);
     if (!session.listBackgroundTerminals) throw new Error('Background Terminal の状態を確認できないため、安全に巻き戻せません。');
@@ -290,13 +298,14 @@ export class ChatController {
     if (matches.length !== 1) throw new Error('対象の User ターンを一意に特定できません。');
     const { turn, index: targetIndex } = matches[0]!;
     if (!turn.backendTurnId) throw new Error('対象ターンの Backend turn ID が保存されていません。');
+    const backendTurnId = turn.backendTurnId;
     for (const later of this.state.turns.slice(targetIndex)) {
       if (!later.backendTurnId) throw new Error('後続ターンの Backend turn ID が不足しています。');
       if (!later.planBefore || !later.todosBefore) throw new Error('後続ターンの Plan / Todo チェックポイントが不足しています。');
     }
     await this.rewindPersistence.flush();
     const plan = await buildTurnRewindPlan(this.state.turns, turn.id, this.state.selection.cwd);
-    return { turn, targetIndex, plan };
+    return { turn, targetIndex, plan, session, backendTurnId, forkBeforeTurn };
   }
 
   private async captureTurnFileCheckpoint(turnId: string): Promise<void> {
@@ -307,7 +316,8 @@ export class ChatController {
     turn.backendTurnId ??= session.latestBackendTurnId?.();
     const root = this.workspaceRealPath;
     const unsupported = (reason: string): void => {
-      turn.fileCheckpoint = { status: 'unsupported', ...(root ? { workspaceRoot: root } : {}), files: [], reason };
+      // This method only runs from send() after openAgent() has resolved the workspace path.
+      turn.fileCheckpoint = { status: 'unsupported', workspaceRoot: root!, files: [], reason };
     };
     try {
       const reason = session.rewindUnsupportedReason?.();
@@ -341,12 +351,12 @@ export class ChatController {
     this.publish();
   }
 
-  private async trimmedState(targetId: string, targetIndex: number, plan: TurnRewindPlan, terminals: TerminalRecord[]): Promise<Partial<ChatState>> {
-    const turn = this.state.turns[targetIndex];
-    if (!turn?.planBefore || !turn.todosBefore) throw new Error('The target turn does not have saved Plan / Todo state.');
-    const userId = turn.userMessageId ?? turn.id;
-    const userIndex = this.state.messages.findIndex((message) => message.id === userId && message.role === 'user');
-    if (userIndex < 0 || userId !== targetId) throw new Error('The selected user turn cannot be safely separated from retry history.');
+  private async trimmedState(targetIndex: number, userIndex: number, plan: TurnRewindPlan, terminals: TerminalRecord[]): Promise<Partial<ChatState>> {
+    // preflightRewind validates every turn from targetIndex onward, and rewind ownership
+    // prevents snapshot replacement until this trim has completed.
+    const turn = this.state.turns[targetIndex]!;
+    const planBefore = turn.planBefore!;
+    const todosBefore = turn.todosBefore!;
     const removedIds = new Set(this.state.turns.slice(targetIndex).map((item) => item.id));
     const planFiles = new Map(plan.files.map((file) => [file.path, file]));
     const changes: FileChange[] = [];
@@ -382,8 +392,8 @@ export class ChatController {
       messages: this.state.messages.slice(0, userIndex),
       turns: prefixTurns,
       changes,
-      todos: structuredClone(turn.todosBefore),
-      plan: structuredClone(turn.planBefore),
+      todos: structuredClone(todosBefore),
+      plan: structuredClone(planBefore),
       usage,
       usageSamples,
       subagents,
@@ -509,7 +519,11 @@ export class ChatController {
           const message = this.stamp(turnId, update);
           const existing = this.state.messages.findIndex((item) => item.id === message.id);
           if (existing < 0) this.state.messages.push(message);
-          else this.state.messages[existing] = { ...message, at: this.state.messages[existing]?.at ?? message.at };
+          else {
+            // Review updates replace an earlier stamped update with the same request-local ID.
+            const previous = this.state.messages[existing]!;
+            this.state.messages[existing] = { ...message, at: previous.at };
+          }
           this.publish();
         }, operation.abort.signal);
       } catch (error) {
@@ -583,8 +597,8 @@ export class ChatController {
     const todosBefore = structuredClone(this.state.todos);
     const next = requestBuild(this.state.plan, planId, revision, selection, this.sessionId());
     if ('error' in next) throw new Error(next.error);
-    const plan = next.state.current;
-    if (!plan) return;
+    // requestBuild only succeeds when a ready plan is present.
+    const plan = next.state.current!;
     this.state.plan = next.state;
     this.publish();
     try {
@@ -613,8 +627,8 @@ export class ChatController {
     if (this.rewinding) return Promise.reject(new Error('巻き戻し処理中です。'));
     const index = this.state.queue.findIndex((item) => item.id === id);
     if (index < 0) return Promise.resolve();
-    const [item] = this.state.queue.splice(index, 1);
-    if (!item) return Promise.resolve();
+    // The queue cannot change between findIndex and splice because this path is synchronous.
+    const item = this.state.queue.splice(index, 1)[0]!;
     this.state.queue.unshift(item);
     this.autoDrain = true;
     this.publish();
@@ -816,9 +830,21 @@ export class ChatController {
     if (update.meta?.type !== 'terminals' && !(update.meta?.type === 'usage' && !update.text)) {
       const message = this.stamp(origin, update);
       let index = this.state.messages.findIndex((item) => item.id === message.id);
+      if (index < 0 && message.role === 'error') {
+        index = this.state.messages.findIndex((item) => item.role === 'error' && item.turnId === message.turnId
+          && (item.text === message.text || item.text.endsWith(message.text) || message.text.endsWith(item.text)));
+      }
       if (index < 0 && update.meta?.subagent) index = this.state.messages.findIndex((item) => item.meta?.subagent?.id === update.meta?.subagent?.id);
       if (index < 0) this.state.messages.push(message);
-      else this.state.messages[index] = { ...message, id: this.state.messages[index]!.id, at: this.state.messages[index]?.at ?? message.at };
+      else {
+        const previous = this.state.messages[index]!;
+        this.state.messages[index] = {
+          ...message,
+          id: previous.id,
+          ...(message.role === 'error' ? { text: previous.text } : {}),
+          at: previous.at ?? message.at,
+        };
+      }
 
     }
     this.publish();
@@ -842,15 +868,16 @@ export class ChatController {
         const key = `run:${turnId}:${next.sampleId ?? update.id}`;
         samples[key] = next;
         const own = Object.entries(samples).filter(([id]) => id.startsWith(`run:${turnId}:`)).map(([, value]) => value);
-        if (turn) turn.usage = own.reduce<import('./types.js').UsageStats | null>((sum, value) => addUsage(sum, value), null) ?? undefined;
+        // The current sample was inserted above, so this reduction always has at least one value.
+        if (turn) turn.usage = own.reduce<import('./types.js').UsageStats | null>((sum, value) => addUsage(sum, value), null)!;
         this.state.usage = Object.entries(samples).filter(([id]) => id.startsWith('run:')).reduce<import('./types.js').UsageStats | null>((sum, [, value]) => addUsage(sum, value), null);
         if (this.state.usage) this.state.usage.scope = 'session';
       }
     }
     const workspacePath = (name: string): string => {
       const resolved = path.resolve(this.state.selection.cwd, name);
-      if (!this.workspaceRealPath) return resolved;
-      const relative = path.relative(this.workspaceRealPath, resolved);
+      // absorb() is reached only for events from an openAgent() session.
+      const relative = path.relative(this.workspaceRealPath!, resolved);
       return !relative.startsWith('..') && !path.isAbsolute(relative) ? path.resolve(this.state.selection.cwd, relative) : resolved;
     };
     if (update.meta?.type === 'files' && update.meta.files) this.state.changes = mergeFileChanges(this.state.changes, update.meta.files.map((file) => ({
@@ -1030,11 +1057,12 @@ export class ChatController {
     try {
       await this.openAgent(signal);
       signal.throwIfAborted();
-      if (!this.session) throw new Error('セッションを再開できませんでした。');
-      if (this.session.sessionId) this.retainedId = this.session.sessionId;
-      if (this.session.loadTranscript && !this.replayed) {
+      // openAgent either leaves an assigned session or throws before returning.
+      const session = this.session!;
+      if (session.sessionId) this.retainedId = session.sessionId;
+      if (session.loadTranscript && !this.replayed) {
         const replay: ChatMessage[] = [];
-        await this.session.loadTranscript((message) => replay.push(message));
+        await session.loadTranscript((message) => replay.push(message));
         signal.throwIfAborted();
         if (replay.length) {
           const knownTurns = new Set(this.state.turns.map((turn) => turn.backendTurnId).filter(Boolean));
@@ -1062,7 +1090,7 @@ export class ChatController {
         } else if (!this.state.messages.length) this.addStatus('セッションは再開しましたが、表示履歴は未取得です。保存開始前の会話や非対応バックエンドの可能性があります。');
         this.replayed = true;
       } else if (!this.state.messages.length) this.addStatus('セッションを再開しました。表示履歴は未取得です。');
-      await this.session.listBackgroundTerminals?.().catch(() => undefined);
+      await session.listBackgroundTerminals?.().catch(() => undefined);
       this.state.status = 'idle';
     } catch (error) {
       this.state.status = signal.aborted ? 'idle' : 'error';

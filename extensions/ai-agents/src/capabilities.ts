@@ -1,4 +1,4 @@
-import type { AgentMode, Backend, ModelApplyMode, Provider } from './types.js';
+import type { AgentMode, Backend, Provider, SupportedModelApplyMode } from './types.js';
 
 export interface Choice {
   id: string;
@@ -36,10 +36,10 @@ export interface ProviderCapabilities {
   subagentTracking: 'none' | 'observe';
   backgroundTerminals: 'none' | 'experimental';
   plan: 'none' | 'events' | 'approval';
-  buildModel: ModelApplyMode;
+  buildModel: SupportedModelApplyMode;
   networkToggle: boolean;
   additionalDirectories: boolean;
-  modelSettings: ModelApplyMode;
+  modelSettings: SupportedModelApplyMode;
 }
 
 export interface AgentControls {
@@ -219,7 +219,7 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
   };
 }
 
-export function modelApplyMode(provider: Provider, backend: Backend): ModelApplyMode {
+export function modelApplyMode(provider: Provider, backend: Backend): SupportedModelApplyMode {
   return capabilitiesFor(provider, backend).modelSettings;
 }
 

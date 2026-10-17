@@ -1,10 +1,12 @@
 import { execFile } from 'node:child_process';
+import type { Dirent } from 'node:fs';
 import { lstat, open, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import type { AgentUpdate, TerminalRecord } from '../types.js';
 
 interface CursorTerminal extends TerminalRecord { pid?: number; startedAt: string }
+type ReadDirectory = (directory: string, options: { withFileTypes: true }) => Promise<Dirent[]>;
 
 export function parseCursorTerminal(id: string, text: string): CursorTerminal | undefined {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/.exec(text);
@@ -27,13 +29,17 @@ export function parseCursorTerminal(id: string, text: string): CursorTerminal | 
     output: match[2]!, ...(exit ? { exitCode: Number(exit[1]) } : {}) };
 }
 
-async function ownsProcess(pid: number): Promise<boolean> {
-  const ps = promisify(execFile);
+export async function parentPidFromPs(pid: number, run: (file: string, args: string[]) => Promise<{ stdout: string }> = promisify(execFile)): Promise<number> {
+  const { stdout } = await run('/bin/ps', ['-o', 'ppid=', '-p', String(pid)]);
+  return Number(stdout.trim());
+}
+
+/** Walks parent pids. The default reader is `/bin/ps`; tests pass a synthetic reader. */
+export async function ownsProcess(pid: number, readParent: (pid: number) => Promise<number> = parentPidFromPs): Promise<boolean> {
   let parent = pid;
   try {
     for (let depth = 0; depth < 20 && parent > 1; depth++) {
-      const { stdout } = await ps('/bin/ps', ['-o', 'ppid=', '-p', String(parent)]);
-      parent = Number(stdout.trim());
+      parent = await readParent(parent);
       if (parent === process.pid) return true;
     }
   } catch { /* An exited process cannot establish ownership. */ }
@@ -51,7 +57,9 @@ export class CursorTerminals {
   private pending: Promise<TerminalRecord[]> = Promise.resolve([]);
 
   constructor(private readonly dataDir: string, private readonly emit: (update: AgentUpdate) => void,
-    private readonly owns: (pid: number) => Promise<boolean> = ownsProcess, private readonly workspace?: string, private readonly nativeInterrupt?: (shellId: number, pid: number) => boolean) {}
+    private readonly owns: (pid: number) => Promise<boolean> = ownsProcess, private readonly workspace?: string, private readonly nativeInterrupt?: (shellId: number, pid: number) => boolean,
+    private readonly signal: (pid: number, signal?: NodeJS.Signals | number) => boolean = process.kill,
+    private readonly readDirectory: ReadDirectory = readdir) {}
 
   start(): void { this.active = true; this.schedule(); }
 
@@ -83,7 +91,7 @@ export class CursorTerminals {
   private async scan(): Promise<TerminalRecord[]> {
     if (this.disposed) return [];
     const projects = path.join(this.dataDir, 'projects');
-    const directories = await readdir(projects, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+    const directories = await this.readDirectory(projects, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
       if (error.code === 'ENOENT') return []; throw error;
     });
     const next = new Map<string, CursorTerminal>();
@@ -93,7 +101,7 @@ export class CursorTerminals {
       const folder = path.join(projects, directory.name, 'terminals');
       const folderInfo = await lstat(folder).catch((error: NodeJS.ErrnoException) => { if (error.code === 'ENOENT') return undefined; throw error; });
       if (!folderInfo?.isDirectory()) continue;
-      const files = await readdir(folder, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+      const files = await this.readDirectory(folder, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
         if (error.code === 'ENOENT') return []; throw error;
       });
       for (const file of files) {
@@ -152,10 +160,10 @@ export class CursorTerminals {
     if (Number.isSafeInteger(shellId) && this.nativeInterrupt?.(shellId, row.pid)) return;
     // A log-provided PID alone is insufficient: re-check worker ancestry before signalling.
     if (!await this.owns(row.pid)) throw new Error('このワーカーに所属するプロセスと確認できないため、停止できません。');
-    try { process.kill(-row.pid, 'SIGINT'); }
+    try { this.signal(-row.pid, 'SIGINT'); }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
-      process.kill(row.pid, 'SIGINT');
+      this.signal(row.pid, 'SIGINT');
     }
   }
 

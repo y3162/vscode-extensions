@@ -79,8 +79,7 @@ export class Header {
   }
 
   private caption(button: HTMLButtonElement, text: string): void {
-    const label = button.querySelector('.btn-label');
-    if (label) label.textContent = text;
+    button.querySelector('.btn-label')!.textContent = text;
     button.title = text;
     button.setAttribute('aria-label', text);
   }

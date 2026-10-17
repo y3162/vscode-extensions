@@ -17,23 +17,22 @@ export function parseMarkdown(source: string): Block[] {
   const lines = source.replace(/\r\n/g, '\n').split('\n');
   const blocks: Block[] = [];
   let index = 0;
-  const next = () => lines[index] ?? '';
   while (index < lines.length) {
-    const line = next();
+    const line = lines[index]!;
     if (!line.trim()) { index += 1; continue; }
     if (line.startsWith('```')) {
       const lang = line.slice(3).trim();
       const code: string[] = [];
       index += 1;
-      while (index < lines.length && !lines[index]?.startsWith('```')) code.push(lines[index++] ?? '');
+      while (index < lines.length && !lines[index]!.startsWith('```')) code.push(lines[index++]!);
       const closed = index < lines.length;
       if (closed) index += 1;
       blocks.push({ type: 'code', lang, code: code.join('\n'), closed });
       continue;
     }
     const heading = /^(#{1,6})\s+(.*)$/.exec(line);
-    if (heading?.[1] && heading[2] !== undefined) {
-      blocks.push({ type: 'heading', level: Math.min(heading[1].length, 3), text: heading[2] });
+    if (heading) {
+      blocks.push({ type: 'heading', level: Math.min(heading[1]!.length, 3), text: heading[2]! });
       index += 1;
       continue;
     }
@@ -42,18 +41,18 @@ export function parseMarkdown(source: string): Block[] {
       const header = splitRow(line);
       index += 2;
       const rows: string[][] = [];
-      while (index < lines.length && /^\s*\|.*\|\s*$/.test(lines[index] ?? '')) rows.push(splitRow(lines[index++] ?? ''));
+      while (index < lines.length && /^\s*\|.*\|\s*$/.test(lines[index]!)) rows.push(splitRow(lines[index++]!));
       blocks.push({ type: 'table', header, rows });
       continue;
     }
     const list = /^(\s*)([-*+]|\d+\.)\s+(.*)$/.exec(line);
     if (list) {
-      const ordered = /^\d+\./.test(list[2] ?? '');
+      const ordered = /^\d+\./.test(list[2]!);
       const items: string[] = [];
       while (index < lines.length) {
-        const item = /^(\s*)([-*+]|\d+\.)\s+(.*)$/.exec(lines[index] ?? '');
-        if (!item || /^\d+\./.test(item[2] ?? '') !== ordered) break;
-        items.push(item[3] ?? '');
+        const item = /^(\s*)([-*+]|\d+\.)\s+(.*)$/.exec(lines[index]!);
+        if (!item || /^\d+\./.test(item[2]!) !== ordered) break;
+        items.push(item[3]!);
         index += 1;
       }
       blocks.push({ type: 'list', ordered, items });
@@ -61,27 +60,27 @@ export function parseMarkdown(source: string): Block[] {
     }
     if (line.startsWith('>')) {
       const quote: string[] = [];
-      while (index < lines.length && (lines[index]?.startsWith('>') || !(lines[index] ?? '').trim())) {
-        if (!(lines[index] ?? '').trim()) break;
-        quote.push((lines[index] ?? '').replace(/^>\s?/, ''));
+      while (index < lines.length && (lines[index]!.startsWith('>') || !lines[index]!.trim())) {
+        if (!lines[index]!.trim()) break;
+        quote.push(lines[index]!.replace(/^>\s?/, ''));
         index += 1;
       }
       blocks.push({ type: 'quote', text: quote.join('\n') });
       continue;
     }
     const paragraph: string[] = [];
-    while (index < lines.length && (lines[index] ?? '').trim() && !special(lines[index] ?? '')) paragraph.push(lines[index++] ?? '');
+    while (index < lines.length && lines[index]!.trim() && !special(lines[index]!)) paragraph.push(lines[index++]!);
     blocks.push({ type: 'paragraph', text: paragraph.join('\n') });
   }
   return blocks;
 }
 
 function special(line: string): boolean {
-  return line.startsWith('```') || line.startsWith('>') || /^(#{1,6})\s+/.test(line) || /^(\s*)([-*+]|\d+\.)\s+/.test(line) || /^\s*\|.*\|\s*$/.test(line);
+  return line.startsWith('```') || line.startsWith('>') || /^(#{1,6})\s+/.test(line) || /^(\s*)([-*+]|\d+\.)\s+/.test(line);
 }
 
 function isTableStart(lines: string[], index: number): boolean {
-  return /^\s*\|.*\|\s*$/.test(lines[index] ?? '') && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index + 1] ?? '');
+  return /^\s*\|.*\|\s*$/.test(lines[index]!) && /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(lines[index + 1] ?? '');
 }
 
 function splitRow(line: string): string[] {
@@ -99,9 +98,7 @@ export function renderMarkdown(host: HTMLElement, source: string, dom: Dom, copy
   const sigs = blocks.map((block) => JSON.stringify(block));
   const state = rendered.get(host) ?? { sigs: [], nodes: [] };
   const nodes: HTMLElement[] = [];
-  for (let index = 0; index < blocks.length; index += 1) {
-    const block = blocks[index];
-    if (!block) continue;
+  for (const [index, block] of blocks.entries()) {
     const previous = state.nodes[index];
     if (previous && state.sigs[index] === sigs[index]) nodes.push(previous);
     else nodes.push(renderBlock(block, dom, copyLabel));
@@ -177,7 +174,6 @@ function renderBlock(block: Block, dom: Dom, copyLabel: string): HTMLElement {
       wrap.append(bar, pre);
       return wrap;
     }
-    default: return dom.el('p');
   }
 }
 
@@ -198,7 +194,7 @@ export function renderInline(parent: HTMLElement, text: string, dom: Dom): void 
   let cursor = 0;
   for (const match of text.matchAll(pattern)) {
     const token = match[0];
-    const start = match.index ?? 0;
+    const start = match.index!;
     if (start > cursor) parent.append(text.slice(cursor, start));
     appendToken(parent, token, dom);
     cursor = start + token.length;
@@ -229,8 +225,8 @@ function appendToken(parent: HTMLElement, token: string, dom: Dom): void {
     parent.append(anchor);
     return;
   }
-  const file = /^(.*?)(?::(\d+)(?::(\d+))?|#L(\d+)(?:C(\d+))?)?$/.exec(target);
-  let filePath = file?.[1] ?? target;
+  const file = /^(.*?)(?::(\d+)(?::(\d+))?|#L(\d+)(?:C(\d+))?)?$/.exec(target)!;
+  let filePath = file[1]!;
   const fileUri = /^file:\/\//i.test(filePath);
   if (!filePath || (!fileUri && !/^[a-z]:[\\/]/i.test(filePath) && /^[a-z][a-z\d+.-]*:/i.test(filePath))) {
     parent.append(token);
@@ -263,7 +259,7 @@ function highlight(code: string, lang: string, dom: Dom): DocumentFragment {
   let cursor = 0;
   for (const match of code.matchAll(pattern)) {
     const token = match[0];
-    const start = match.index ?? 0;
+    const start = match.index!;
     if (start > cursor) fragment.append(code.slice(cursor, start));
     const span = dom.el('span');
     span.className = token.startsWith('"') || token.startsWith("'") || token.startsWith('`') ? 'tok-str'
@@ -284,10 +280,6 @@ function keywordPattern(lang: string): string | undefined {
     [/^(sh|bash|zsh|shell)$/, 'if|then|else|fi|for|in|do|done|case|esac|function|return|echo'],
     [/^(go)$/, 'func|return|if|else|for|range|package|import|type|struct|var|const'],
     [/^(rs|rust)$/, 'fn|let|mut|return|if|else|for|while|struct|enum|impl|use|pub|mod'],
-    [/^(css|scss)$/, ''],
-    [/^(json)$/, ''],
   ];
-  const found = groups.find(([pattern]) => pattern.test(lang));
-  if (!found || !found[1]) return lang === 'json' || lang === 'css' || lang === 'scss' ? undefined : undefined;
-  return found[1] || undefined;
+  return groups.find(([pattern]) => pattern.test(lang))?.[1];
 }
