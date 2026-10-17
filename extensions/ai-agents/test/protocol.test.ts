@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -39,7 +39,12 @@ test('Cursor ACP streams text, file diffs, and answers a permission request', { 
       const files: AgentUpdate[] = [];
       await session.run('hello', new AbortController().signal, (update) => files.push(update));
       assert.match(files.map((update) => update.text).join('\n'), /acp answer/);
-      assert.equal(files.some((update) => update.meta?.type === 'files'), true);
+      const changedFile = files.find((update) => update.meta?.type === 'files')?.meta?.files?.[0];
+      assert.ok(changedFile);
+      assert.deepEqual(changedFile.preview, [
+        { kind: 'remove', line: 1, text: 'old' },
+        { kind: 'add', line: 1, text: 'new' },
+      ]);
       assert.ok(session.setMode);
       await assert.rejects(() => session.setMode!('plan'), /mode rejected/);
       const afterMode: AgentUpdate[] = [];
@@ -94,6 +99,9 @@ test('Codex App Server streams deltas, lists threads, and returns an approval de
       assert.match(await session.rateLimits?.() ?? '', /12%/);
       assert.match(await session.instructions?.() ?? '', /fixture-skill/);
       assert.equal(await session.fork?.(), 'thread-2');
+      assert.equal(session.rewindUnsupportedReason?.(), undefined);
+      assert.equal(await session.forkBeforeTurn?.('turn-b'), 'thread-3');
+      await assert.rejects(() => session.forkBeforeTurn!('missing-turn'), /no longer present/);
       await assert.rejects(() => session.run('FAIL_TURN', new AbortController().signal, () => {}), /boom/);
       await session.dispose();
       assert.equal(session.closed, true);
@@ -235,6 +243,41 @@ test('captured native move_path identifies the destination and preserves the sou
     assert.equal(changes[0]?.additions, 1);
     assert.equal(changes[0]?.deletions, 1);
     assert.match(changes[0]?.diff ?? '', /-alpha\n\+beta/);
+  } finally { await controller.dispose(); await cleanup(); }
+});
+
+test('editing an earlier App Server prompt restores its per-turn file checkpoint and branches history', { timeout: 20000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+  execFileSync('git', ['init', '-q'], { cwd });
+  const journalDirectory = path.join(cwd, 'journal');
+  const controller = new ChatController({ provider: 'codex', cwd, model: 'fixture' }, async (selection, context) => createCodexAppServerSession({
+    ...selection, storagePath: cwd, codexPath: command, resumeId: context?.resumeId,
+  }), () => {}, {
+    journalDirectory,
+    conversationId: () => 'conversation-1',
+    enabled: () => true,
+    flush: async () => {},
+  });
+  try {
+    await controller.send('touch a.txt');
+    await controller.send('write abcd into a.txt');
+    assert.equal(await readFile(path.join(cwd, 'a.txt'), 'utf8'), 'abcd');
+    await controller.send('write later into a.txt');
+    assert.equal(await readFile(path.join(cwd, 'a.txt'), 'utf8'), 'later');
+    const turns = controller.snapshot().turns;
+    assert.equal(turns[0]?.fileCheckpoint?.status, 'captured');
+    assert.equal(turns[1]?.fileCheckpoint?.status, 'captured');
+    assert.equal(turns[2]?.fileCheckpoint?.status, 'captured');
+    const preview = await controller.previewRewind(turns[1]!.id);
+    assert.deepEqual(preview.files, ['a.txt']);
+    assert.equal(preview.removedTurns, 2);
+    await controller.rewindAndSend(turns[1]!.id, 'write 1234 into a.txt', { displayText: 'write 1234 into a.txt' });
+    assert.equal(await readFile(path.join(cwd, 'a.txt'), 'utf8'), '1234');
+    assert.deepEqual(controller.snapshot().messages.filter((message) => message.role === 'user').map((message) => message.text), [
+      'touch a.txt', 'write 1234 into a.txt',
+    ]);
+    assert.equal(controller.sessionId(), 'thread-2');
+    assert.equal(controller.snapshot().turns.length, 2);
   } finally { await controller.dispose(); await cleanup(); }
 });
 

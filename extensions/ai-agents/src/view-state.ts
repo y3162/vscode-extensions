@@ -112,13 +112,20 @@ function choice(id: string, label: string, description?: string): ViewChoice {
 function statusText(state: ChatState, locale: 'ja' | 'en', folderReady: boolean): string {
   const waiting = Boolean(state.pendingPermission || state.pendingPlan || state.pendingQuestion);
   const ja = locale === 'ja';
-  const base = waiting ? (ja ? '承認待ち' : 'Waiting for approval')
+  const operation = state.operationLabel ? ({
+    'rewind-check': ja ? '巻き戻し可否を確認中…' : 'Checking rewind safety…',
+    'rewind-branch': ja ? '会話を分岐中…' : 'Branching conversation…',
+    'rewind-files': ja ? 'ファイルを復元中…' : 'Restoring files…',
+    'rewind-prepare': ja ? '編集した依頼を準備中…' : 'Preparing edited prompt…',
+    'rewind-send': ja ? '編集した依頼を実行中…' : 'Running edited prompt…',
+  } as const)[state.operationLabel] : undefined;
+  const base = operation ?? (waiting ? (ja ? '承認待ち' : 'Waiting for approval')
     : state.status === 'cancelling' ? (ja ? '停止中…' : 'Stopping…')
       : state.status === 'restoring' ? (ja ? '復元中…' : 'Restoring…')
         : state.status === 'error' ? (ja ? 'エラー' : 'Error')
           : state.busy ? (ja ? '実行中…' : 'Running…')
             : folderReady ? (ja ? '準備完了' : 'Ready')
-              : (ja ? '作業フォルダを開いてください' : 'Open a workspace folder');
+              : (ja ? '作業フォルダを開いてください' : 'Open a workspace folder'));
   const usage = state.usage ? ` · in ${state.usage.inputTokens} / out ${state.usage.outputTokens}` : '';
   return base + usage;
 }
@@ -186,6 +193,7 @@ export function buildShell(source: ShellSource): ViewShell {
     busy: state.busy,
     presence,
     statusText: statusText(state, locale, Boolean(folder)),
+    ...(state.operationLabel ? { operationLabel: state.operationLabel } : {}),
     sessionTitle: sessionTitle(state, state.sessions, source.sessionId, locale),
     ...(source.sessionId ? { sessionId: source.sessionId } : {}),
     modelLabel: source.modelLabel,
@@ -275,13 +283,14 @@ export function buildShell(source: ShellSource): ViewShell {
   };
 }
 
-export function toViewMessage(message: ChatMessage): ViewMessage {
+export function toViewMessage(message: ChatMessage, canRewind = false): ViewMessage {
   const meta = message.meta;
   const files = meta?.files?.map((file) => ({
     path: file.path,
     kind: file.kind,
     ...(file.additions !== undefined ? { additions: file.additions } : {}),
     ...(file.deletions !== undefined ? { deletions: file.deletions } : {}),
+    ...(file.preview?.length ? { preview: file.preview } : {}),
   }));
   return {
     id: message.id,
@@ -289,6 +298,7 @@ export function toViewMessage(message: ChatMessage): ViewMessage {
     text: message.text,
     ...(message.turnId ? { turnId: message.turnId } : {}),
     ...(message.failure ? { failure: message.failure } : {}),
+    ...(message.role === 'user' ? { canRewind } : {}),
     ...(message.at !== undefined ? { at: message.at } : {}),
     ...(message.attachments?.length ? { attachments: message.attachments } : {}),
     ...(message.final ? { final: true } : {}),

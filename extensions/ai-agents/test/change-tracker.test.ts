@@ -57,7 +57,10 @@ test('shell changes exclude pre-existing edits and retain a content-preserving G
     git('mv', 'old.txt', 'new.txt');
     const changes = await baselines.changes();
     assert.equal(changes.length, 2);
-    assert.deepEqual(changes.find((change) => change.path === 'note.txt'), { path: 'note.txt', kind: 'update', previousText: 'user\n', additions: 1, deletions: 1 });
-    assert.deepEqual(changes.find((change) => change.path === 'new.txt'), { path: 'new.txt', kind: 'rename', oldPath: 'old.txt', previousText: 'same\n', additions: 0, deletions: 0 });
+    assert.deepEqual(changes.find((change) => change.path === 'note.txt'), {
+      path: 'note.txt', kind: 'update', previousText: 'user\n', previousMode: 0o644, mode: 0o644,
+      preview: [{ kind: 'remove', line: 1, text: 'user' }, { kind: 'add', line: 1, text: 'agent' }], additions: 1, deletions: 1,
+    });
+    assert.deepEqual(changes.find((change) => change.path === 'new.txt'), { path: 'new.txt', kind: 'rename', oldPath: 'old.txt', previousText: 'same\n', previousMode: 0o644, mode: 0o644, additions: 0, deletions: 0 });
   } finally { await rm(cwd, { recursive: true, force: true }); }
 });

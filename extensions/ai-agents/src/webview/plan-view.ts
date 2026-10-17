@@ -6,7 +6,11 @@ import type { Post } from './cards.js';
 
 export function renderPlanView(host: HTMLElement, shell: ViewShell, dom: Dom, copy: Copy, post: Post, onPickModel: (anchor: HTMLElement) => void): void {
   const plan = shell.planView;
-  if (!plan) { host.replaceChildren(); host.hidden = true; return; }
+  if (!plan) {
+    if (host.childElementCount) host.replaceChildren();
+    host.hidden = true;
+    return;
+  }
   host.hidden = false;
   const signature = JSON.stringify({ id: plan.id, revision: plan.revision, phase: plan.phase, markdown: plan.markdown, canBuild: plan.canBuild, model: plan.buildModelId, params: plan.buildParams, todos: plan.todos, error: plan.error });
   if (host.dataset.signature === signature && host.childElementCount) return;

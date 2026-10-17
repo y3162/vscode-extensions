@@ -1,4 +1,4 @@
-import { lineChangeCounts } from '../diff-stats.js';
+import { lineChangeCounts, previewTextDiff } from '../diff-stats.js';
 import type {
   AgentMode, AgentSession, AgentUpdate, ChatMessage, FileChange, PermissionDecision, PlanRequest, QuestionRequest, Selection, SessionSummary, SubagentRecord, TodoEntry,
 } from '../types.js';
@@ -7,6 +7,7 @@ import { acpCreatePlanPolicy, acpCreatePlanReleaseOutcome } from './plan-policy.
 import { AssistantSegments } from './segments.js';
 import { StdioJsonRpc } from './stdio-rpc.js';
 import { classifyTool, toolStatus } from '../tool-kind.js';
+import { readLocation } from './read-location.js';
 import { extensionVersion } from '../version.js';
 
 function record(value: unknown): Record<string, unknown> {
@@ -299,16 +300,22 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       const status = typeof update.status === 'string' ? update.status : kind;
       const files = filesFrom(update);
       const kindName = typeof update.kind === 'string' ? update.kind : '';
-      const target = files[0]?.path;
+      const rawInput = record(update.rawInput);
+      const inputPath = [rawInput.path, rawInput.filePath, rawInput.file_path, rawInput.filename, rawInput.uri].find((value) => typeof value === 'string' && value.trim());
+      const target = files[0]?.path ?? (typeof inputPath === 'string' ? inputPath : undefined);
+      const toolKind = classifyTool(`${kindName} ${title}`, target);
+      const location = toolKind === 'read' ? readLocation(title, target, rawInput) : {};
       const output = textOf(update.content) || textOf(update.rawOutput);
       if (output) toolOutputs.set(id, output);
       emitUpdate({
         id, role: 'tool', text: toolOutputs.get(id) ?? `${status}: ${title}`,
         tool: {
-          kind: classifyTool(`${kindName} ${title}`, target),
+          kind: toolKind,
           name: title,
           status: toolStatus(status),
-          ...(target ? { target } : {}),
+          ...(location.path ? { target: location.path } : target ? { target } : {}),
+          ...(location.line ? { line: location.line } : {}),
+          ...(location.endLine ? { endLine: location.endLine } : {}),
         },
         ...(files.length ? { meta: { type: 'files' as const, files } } : {}),
       }, transcript);
@@ -332,14 +339,16 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       if (!filePath) continue;
       const previous = typeof diff.oldText === 'string' || diff.oldText === null ? diff.oldText as string | null : undefined;
       const next = typeof diff.newText === 'string' ? diff.newText : undefined;
-      const counts = previous !== undefined && next !== undefined ? lineChangeCounts(previous ?? '', next) : undefined;
       const kind: FileChange['kind'] = toolKind.includes('delete') ? 'delete'
         : previous === null ? 'add'
           : toolKind.includes('move') ? 'rename' : 'update';
+      const after = kind === 'delete' ? null : next;
+      const counts = previous !== undefined && after !== undefined ? lineChangeCounts(previous ?? '', after ?? '') : undefined;
       files.push({
         path: filePath,
         kind,
         ...(previous !== undefined ? { previousText: previous } : {}),
+        ...(previous !== undefined && after !== undefined ? { preview: previewTextDiff(previous, after) } : {}),
         ...(counts ? { additions: counts.additions, deletions: counts.deletions } : {}),
       });
     }

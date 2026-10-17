@@ -2,6 +2,7 @@ import type { SDKMessage } from '@cursor/sdk';
 import type { ThreadItem } from '@openai/codex-sdk';
 import type { ToolInfo } from '../types.js';
 import { classifyTool, toolStatus } from '../tool-kind.js';
+import { readLocation } from './read-location.js';
 
 export { classifyTool, toolStatus };
 
@@ -36,16 +37,26 @@ export function cursorTool(event: SDKMessage): ToolInfo | undefined {
   const args = event.args && typeof event.args === 'object' ? event.args as Record<string, unknown> : {};
   const target = textField(args.command) ?? textField(args.path) ?? textField(args.file_path) ?? textField(args.query)
     ?? textField(args.pattern) ?? textField(args.glob_pattern);
+  const kind = classifyTool(event.name, target);
+  const location = kind === 'read' ? readLocation(event.name, target, args) : {};
   return {
-    kind: classifyTool(event.name, target),
+    kind,
     name: event.name,
     status: toolStatus(event.status),
-    ...(target ? { target } : {}),
+    ...(location.path ? { target: location.path } : target ? { target } : {}),
+    ...(location.line ? { line: location.line } : {}),
+    ...(location.endLine ? { endLine: location.endLine } : {}),
   };
 }
 
 export function describedTool(type: string, text: string, status?: string): ToolInfo {
   const kind = classifyTool(type, text);
   const target = text.split('\n')[0]?.slice(0, 240);
-  return { kind, name: type || kind, status: toolStatus(status), ...(target ? { target } : {}) };
+  const location = kind === 'read' ? readLocation(type, target) : {};
+  return {
+    kind, name: type || kind, status: toolStatus(status),
+    ...(location.path ? { target: location.path } : target ? { target } : {}),
+    ...(location.line ? { line: location.line } : {}),
+    ...(location.endLine ? { endLine: location.endLine } : {}),
+  };
 }

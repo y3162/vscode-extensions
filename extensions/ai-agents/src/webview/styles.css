@@ -19,7 +19,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   outline-offset: 1px;
 }
 .shell { height: 100%; display: flex; flex-direction: column; min-height: 0; }
-.top-bar, .composer-row, .row-left, .row-right, .panel-bar, .card-actions, .change-bar, .banner, .env, .tool-row, .file-row, .queue-item {
+.top-bar, .composer-row, .row-left, .row-right, .panel-bar, .card-actions, .change-bar, .banner, .env, .tool-row, .file-header, .queue-item {
   display: flex; align-items: center; gap: .4em;
 }
 .top-bar { flex: 0 0 auto; min-height: 2.6em; padding: .45em .6em; border-bottom: 1px solid var(--vscode-panel-border, transparent); }
@@ -50,6 +50,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .thread { flex: 1; min-height: 0; overflow: auto; padding: .8em .85em 1em; display: flex; flex-direction: column; gap: .9em; }
 .turn.done { content-visibility: auto; contain-intrinsic-size: auto 8em; }
 .user-row { display: flex; flex-direction: column; align-items: flex-end; margin-bottom: 1.2em; }
+.prompt-editor {
+  width: min(92%, 45em);
+  padding: .45em .55em .4em;
+  border: 1px solid var(--vscode-input-border, var(--vscode-focusBorder));
+  border-radius: .7em;
+  background: var(--vscode-input-background);
+}
+.prompt-editor:focus-within { border-color: var(--vscode-focusBorder); }
+.prompt-editor textarea { min-height: 6em; max-height: 45vh; resize: vertical; }
+.edit-attachments { margin: .2em 0 .4em; }
+.edit-actions { display: flex; justify-content: flex-end; gap: .4em; }
+.edit-actions .send { width: auto; height: auto; min-width: 0; min-height: 0; border-radius: .35em; padding: .25em .55em; }
+.edit-actions .btn-label { position: static; width: auto; height: auto; overflow: visible; clip-path: none; }
 .bubble {
   max-width: 92%;
   padding: .45em .7em;
@@ -65,8 +78,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .log-toggle { color: var(--vscode-descriptionForeground); padding-left: 0; width: 100%; align-items: flex-start; text-align: left; }
 .log-toggle .btn-label { white-space: normal; }
 .log-toggle[aria-expanded="true"] .codicon-chevron-right { transform: rotate(90deg); }
-.log { display: flex; flex-direction: column; gap: .35em; margin: .2em 0 .4em; }
+.log { display: flex; flex-direction: column; gap: .35em; margin: .2em 0 .4em; color: var(--vscode-descriptionForeground); }
 .answer { position: relative; line-height: 1.55; }
+.answer .md.is-streaming { white-space: pre-wrap; overflow-wrap: anywhere; }
 .answer .md > * + * { margin-top: .7em; }
 .answer h2, .progress-note h2 { font-size: 1.05em; margin: .8em 0 .3em; }
 .answer h3, .progress-note h3 { font-size: 1em; margin: .7em 0 .25em; }
@@ -93,12 +107,37 @@ a { color: var(--vscode-textLink-foreground); }
 .tok-num { color: var(--vscode-debugTokenExpression-number, var(--vscode-foreground)); }
 .tok-cmt { color: var(--vscode-descriptionForeground); }
 .tool-summary, .note, .session-time, .stats, .tool-target, .menu-note, .empty-copy { color: var(--vscode-descriptionForeground); }
-.tool-line, .file-row { width: 100%; min-width: 0; }
+.tool-line { width: 100%; min-width: 0; }
+.file-row, .shell-tool { display: block; width: 100%; min-width: 0; overflow: hidden; border: 1px solid var(--vscode-panel-border, transparent); border-radius: .6em; color: var(--vscode-foreground); }
+.shell-tool-heading { min-height: 2.2em; padding: .35em .55em; }
+.shell-tool-heading > .codicon:first-child, .shell-prompt { color: var(--vscode-descriptionForeground); flex: 0 0 auto; }
+.shell-command-line { display: flex; align-items: baseline; gap: .65em; min-width: 0; padding: .35em .65em; border-top: 1px solid var(--vscode-panel-border, transparent); font-family: var(--vscode-editor-font-family, monospace); white-space: pre-wrap; overflow-wrap: anywhere; }
+.shell-command-line code { color: var(--vscode-terminal-ansiBrightBlue, var(--vscode-textLink-foreground)); background: transparent; padding: 0; border: 0; border-radius: 0; }
+.shell-command-output { max-height: 15em; overflow: auto; padding: .4em .65em; border-top: 1px solid var(--vscode-panel-border, transparent); color: var(--vscode-descriptionForeground); }
+.shell-tool > .ghost { margin: 0 .4em .25em; }
+.file-header { min-width: 0; min-height: 1.8em; padding: .18em .5em; }
+.file-header > .codicon { color: var(--vscode-descriptionForeground); flex: 0 0 auto; }
+.file-link { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-header .stats { display: flex; gap: .4em; margin-left: auto; flex: 0 0 auto; }
+.stats-add { color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950); }
+.stats-remove { color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149); }
+.file-inline-diff { max-height: 12em; overflow: auto; border-top: 1px solid var(--vscode-panel-border, transparent); font-family: var(--vscode-editor-font-family, monospace); font-size: .9em; }
+.diff-preview-line { display: grid; grid-template-columns: 2.4em 1.3em minmax(0, 1fr); min-height: 1.35em; line-height: 1.35; white-space: pre; background: transparent; }
+.diff-preview-line.add { background: var(--vscode-diffEditor-insertedLineBackground, rgba(46, 160, 67, .18)); }
+.diff-preview-line.remove { background: var(--vscode-diffEditor-removedLineBackground, rgba(248, 81, 73, .15)); }
+.diff-preview-number { padding-right: .35em; color: var(--vscode-descriptionForeground); text-align: right; user-select: none; }
+.diff-preview-sign { color: var(--vscode-descriptionForeground); text-align: center; user-select: none; }
+.diff-preview-text { overflow: hidden; text-overflow: ellipsis; background: transparent; }
+.diff-preview-more { grid-column: 1 / -1; padding: .1em .5em; color: var(--vscode-descriptionForeground); font-family: var(--vscode-font-family); white-space: normal; }
+.diff-preview-line .diff-preview-more { font-style: italic; }
 .tool-line .codicon:last-child { margin-left: auto; }
 .tool-name, .tool-target, .session-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-target { flex: 1; }
 .tool-row-item.is-error { color: var(--vscode-errorForeground); }
 .tool-row-item.is-running .codicon-loading { color: var(--vscode-progressBar-background); }
+.thinking > summary { list-style: none; }
+.thinking > summary::-webkit-details-marker { display: none; }
+.thinking[open] > summary .codicon-chevron-right { transform: rotate(90deg); }
 .tool-row-item pre, .thinking pre, .card pre, .inspector pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: .25em 0; font-family: var(--vscode-editor-font-family, monospace); font-size: .85em; }
 .todos { list-style: none; margin: 0; padding: 0; }
 .todos li.done { text-decoration: line-through; color: var(--vscode-descriptionForeground); }

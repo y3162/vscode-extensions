@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { ChatController } from '../src/chat-controller.js';
 import { isInsideWorkspace, mergeFileChanges, revertChange } from '../src/change-review.js';
+import { previousTextFromDiff } from '../src/diff-stats.js';
 import { capabilitiesFor } from '../src/capabilities.js';
 import { builtinCommand, expandPrompt, resolveInside } from '../src/context-text.js';
 import { sanitizeImages } from '../src/images.js';
@@ -109,6 +110,30 @@ test('workspace path checks reject traversal and symlink escapes, and previous t
     await rm(root, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
   }
+});
+
+test('Revert preserves final newlines, CRLF bytes and captured file permissions', async () => {
+  const cwd = await mkdtemp(path.join(tmpdir(), 'ai-agents-exact-revert-'));
+  const file = path.join(cwd, 'note.txt');
+  try {
+    await writeFile(file, 'changed');
+    await chmod(file, 0o600);
+    await revertChange({ path: file, kind: 'update', previousText: 'original\r\nsecond\r\n', previousMode: 0o755 }, [cwd]);
+    assert.deepEqual(await readFile(file), Buffer.from('original\r\nsecond\r\n'));
+    assert.equal((await stat(file)).mode & 0o777, 0o755);
+    await writeFile(file, 'changed again');
+    await revertChange({ path: 'note.txt', kind: 'update', previousText: 'relative restore\n' }, [cwd]);
+    assert.deepEqual(await readFile(file), Buffer.from('relative restore\n'));
+    await writeFile(file, 'changed');
+    await chmod(file, 0o755);
+    await revertChange({ path: 'note.txt', kind: 'update', previousText: 'preserve mode' }, [cwd]);
+    assert.equal((await stat(file)).mode & 0o777, 0o755);
+    const deleted = path.join(cwd, 'deleted.txt');
+    const diff = 'diff --git a/deleted.txt b/deleted.txt\ndeleted file mode 100644\n--- a/deleted.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-original\n';
+    await revertChange({ path: deleted, kind: 'delete', previousText: previousTextFromDiff(diff, 'delete'), previousMode: 0o755 }, [cwd]);
+    assert.deepEqual(await readFile(deleted), Buffer.from('original\n'));
+    assert.equal((await stat(deleted)).mode & 0o777, 0o755);
+  } finally { await rm(cwd, { recursive: true, force: true }); }
 });
 
 test('prompt expansion reads workspace files and ignores paths outside the workspace', async () => {

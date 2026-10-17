@@ -194,7 +194,10 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
   const key = options.apiKey || process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY;
   const rpc = new StdioJsonRpc(codexSpawn(options.codexPath, ['app-server', '--listen', 'stdio://'], options.cwd, key));
   let threadId = options.resumeId ?? '';
+  const ownedThreadIds = new Set<string>(options.resumeId ? [options.resumeId] : []);
+  const branchHistoryModes = new Map<string, string>();
   let threadModel = options.model || '';
+  let historyMode = '';
   let turnId = '';
   let mode = options.mode ?? 'agent';
   // turn/start overrides persist on the server, so restore this exact policy on every Build/Agent turn.
@@ -566,6 +569,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
     if (started.approvalPolicy !== undefined && started.approvalPolicy !== null) configuredApproval = started.approvalPolicy;
     const thread = record(started.thread);
     threadId = typeof thread.id === 'string' ? thread.id : typeof started.threadId === 'string' ? started.threadId : options.resumeId ?? '';
+    historyMode = typeof thread.historyMode === 'string' ? thread.historyMode : '';
     const reportedModel = typeof thread.model === 'string' ? thread.model : typeof started.model === 'string' ? started.model : '';
     if (reportedModel) threadModel = reportedModel;
     instructionSources = Array.isArray(started.instructionSources) ? started.instructionSources.filter((item): item is string => typeof item === 'string') : [];
@@ -575,6 +579,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       childThreads.add(message.meta.subagent.id);
     }
     if (!threadId) throw new Error('Codex App Server did not return a thread id.');
+    ownedThreadIds.add(threadId);
     identify('Codex');
   } catch (error) {
     await rpc.dispose();
@@ -622,7 +627,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
   }
 
   return {
-    sessionId: threadId,
+    get sessionId() { return threadId; },
     subscribeBackgroundUpdates(emit) {
       backgroundListeners.add(emit);
       schedulePoll();
@@ -658,6 +663,10 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
         }
       }
     },
+    rewindUnsupportedReason() {
+      return historyMode === 'paginated' ? undefined : 'This Codex thread does not advertise paginated history, so turn-boundary branching is disabled.';
+    },
+    latestBackendTurnId() { return turnId || undefined; },
     async listSessions() {
       const listed = record(await rpc.request('thread/list', { cwd: options.cwd, limit: 30, sortKey: 'updated_at', sortDirection: 'desc' }));
       const threads = Array.isArray(listed.data) ? listed.data : Array.isArray(listed.threads) ? listed.threads : [];
@@ -678,6 +687,63 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       const forked = record(await rpc.request('thread/fork', { threadId }));
       const id = typeof record(forked.thread).id === 'string' ? String(record(forked.thread).id) : undefined;
       return id;
+    },
+    async forkBeforeTurn(backendTurnId) {
+      if (historyMode !== 'paginated') throw new Error('This Codex thread does not support safe turn-boundary branching.');
+      const listTurns = async (id: string): Promise<string[]> => {
+        let cursor: string | undefined;
+        const rows: string[] = [];
+        const seen = new Set<string>();
+        do {
+          const page = record(await rpc.request('thread/turns/list', { threadId: id, limit: 50, itemsView: 'full', sortDirection: 'asc', ...(cursor ? { cursor } : {}) }));
+          if (!Array.isArray(page.data)) throw new Error('Codex did not return a verifiable paginated thread history.');
+          for (const row of page.data) {
+            const id = record(row).id;
+            if (typeof id !== 'string' || !id) throw new Error('Codex returned a history turn without an id.');
+            rows.push(id);
+          }
+          cursor = typeof page.nextCursor === 'string' && page.nextCursor ? page.nextCursor : undefined;
+          if (cursor && seen.has(cursor)) throw new Error('Codex repeated a history cursor.');
+          if (cursor) seen.add(cursor);
+        } while (cursor);
+        return rows;
+      };
+      const sourceTurns = await listTurns(threadId);
+      const boundary = sourceTurns.indexOf(backendTurnId);
+      if (boundary < 0) throw new Error('The selected turn is no longer present in Codex history.');
+      if (boundary === sourceTurns.length - 1 && turnId === backendTurnId && finished.get(turnId) === undefined) throw new Error('The selected Codex turn is still running.');
+      const forked = record(await rpc.request('thread/fork', { threadId, beforeTurnId: backendTurnId, excludeTurns: true }));
+      const branchId = typeof record(forked.thread).id === 'string' ? String(record(forked.thread).id) : '';
+      if (!branchId || branchId === threadId) throw new Error('Codex did not create a distinct conversation branch.');
+      const branchTurns = await listTurns(branchId);
+      const expected = sourceTurns.slice(0, boundary);
+      if (branchTurns.length !== expected.length || branchTurns.some((id, index) => id !== expected[index])) {
+        throw new Error('Codex returned a branch whose history does not end immediately before the selected turn.');
+      }
+      ownedThreadIds.add(branchId);
+      const forkedThread = record(forked.thread);
+      branchHistoryModes.set(branchId, typeof forkedThread.historyMode === 'string' ? forkedThread.historyMode : historyMode);
+      return branchId;
+    },
+    activateFork(branchId) {
+      if (!ownedThreadIds.has(branchId)) throw new Error('Codex App Server cannot switch to a branch it did not create.');
+      if (turnId && finished.get(turnId) === undefined) throw new Error('The active Codex turn must finish before switching branches.');
+      threadId = branchId;
+      historyMode = branchHistoryModes.get(branchId) ?? historyMode;
+      turnId = '';
+      replay.length = 0;
+      finished.clear();
+      childThreads.clear();
+      children.clear();
+      childText.clear();
+      buffers.clear();
+      agentTexts.clear();
+      turnFilePaths.clear();
+      turnRenames.clear();
+      commands.clear();
+      terminals = [];
+      terminalListError = undefined;
+      publishTerminals();
     },
     async compact() { await rpc.request('thread/compact/start', { threadId }); },
     async review(target, emit, signal) {
@@ -774,7 +840,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
           changes = (changes ?? []).filter((change) => !moved.includes(path.resolve(options.cwd, change.path)));
           changes.push({ ...file, ...(previous !== undefined ? { previousText: previous } : {}) });
         }
-        if (changes?.length) emitBackground({ id: `workspace-changes:${turnId}`, role: 'tool', text: 'diff updated', meta: { type: 'files', files: changes } });
+        if (baselines) emitBackground({ id: `workspace-changes:${turnId}`, role: 'tool', text: 'diff updated', meta: { type: 'files', files: changes ?? [] } });
         if (!disposed && !rpc.isClosed) await refreshTerminals().catch(terminalError);
         emitLive.current = undefined;
         schedulePoll();

@@ -1,6 +1,6 @@
 import type { ViewFile, ViewMessage, ViewSubagent, ViewTurnTiming } from '../protocol.js';
 import { classifyTool, toolStatus } from '../tool-kind.js';
-import type { ToolInfo } from '../types.js';
+import type { FileDiffLine, ToolInfo } from '../types.js';
 
 export interface ToolRow {
   id: string;
@@ -8,6 +8,8 @@ export interface ToolRow {
   kind: ToolInfo['kind'];
   status: ToolInfo['status'];
   target?: string;
+  line?: number;
+  endLine?: number;
   detail: string;
   exitCode?: number;
 }
@@ -18,10 +20,11 @@ export interface FileRow {
   kind: string;
   additions?: number;
   deletions?: number;
+  preview?: FileDiffLine[];
 }
 
 export type Segment =
-  | { type: 'thinking'; id: string; text: string }
+  | { type: 'thinking'; id: string; text: string; startedAt?: number; durationMs?: number }
   | { type: 'tools'; id: string; tools: ToolRow[] }
   | { type: 'files'; id: string; files: FileRow[] }
   | { type: 'todo'; id: string; items: { content: string; status: string }[] }
@@ -31,7 +34,7 @@ export type Segment =
 
 export interface TurnModel {
   id: string;
-  user?: { id: string; text: string; attachments?: string[]; at?: number };
+  user?: { id: string; text: string; attachments?: string[]; at?: number; canRewind?: boolean; rewindReason?: string };
   log: Segment[];
   answer?: { id: string; text: string };
   errors: { id: string; text: string }[];
@@ -65,6 +68,7 @@ function fileRow(file: ViewFile): FileRow {
     kind: file.kind,
     ...(file.additions !== undefined ? { additions: file.additions } : {}),
     ...(file.deletions !== undefined ? { deletions: file.deletions } : {}),
+    ...(file.preview ? { preview: file.preview } : {}),
   };
 }
 
@@ -73,6 +77,8 @@ function toolRow(message: ViewMessage): ToolRow | undefined {
     return {
       id: message.id, name: message.tool.name, kind: message.tool.kind, status: message.tool.status,
       ...(message.tool.target ? { target: message.tool.target } : {}),
+      ...(message.tool.line !== undefined ? { line: message.tool.line } : {}),
+      ...(message.tool.endLine !== undefined ? { endLine: message.tool.endLine } : {}),
       detail: message.text,
       ...(message.tool.exitCode !== undefined ? { exitCode: message.tool.exitCode } : {}),
     };
@@ -87,7 +93,7 @@ function toolRow(message: ViewMessage): ToolRow | undefined {
 function segmentFrom(message: ViewMessage): Segment | null {
   if (message.meta?.type === 'plan' || message.meta?.type === 'terminals') return null;
   if (message.meta?.type === 'subagent' && message.meta.subagent) return { type: 'subagent', id: message.id, items: [message.meta.subagent] };
-  if (message.meta?.type === 'thinking') return { type: 'thinking', id: message.id, text: message.text };
+  if (message.meta?.type === 'thinking') return { type: 'thinking', id: message.id, text: message.text, ...(message.at !== undefined ? { startedAt: message.at } : {}) };
   if (message.meta?.type === 'todo' && message.meta.todos?.length) return { type: 'todo', id: message.id, items: message.meta.todos };
   if (message.meta?.type === 'files' && message.meta.files?.length) return { type: 'files', id: message.id, files: message.meta.files.map(fileRow) };
   if (message.meta?.type === 'image' && message.meta.imagePath) return { type: 'note', id: message.id, text: message.meta.imagePath };
@@ -104,7 +110,21 @@ function segmentFrom(message: ViewMessage): Segment | null {
 function pushSegment(list: Segment[], segment: Segment): void {
   const last = list.at(-1);
   if (last?.type === 'tools' && segment.type === 'tools') { last.tools.push(...segment.tools); return; }
-  if (last?.type === 'files' && segment.type === 'files') { last.files.push(...segment.files); return; }
+  if (last?.type === 'files' && segment.type === 'files') {
+    for (const file of segment.files) {
+      const index = last.files.findIndex((item) => item.path === file.path);
+      if (index < 0) { last.files.push(file); continue; }
+      const previous = last.files[index]!;
+      last.files[index] = {
+        ...previous,
+        ...file,
+        ...(file.additions === undefined && previous.additions !== undefined ? { additions: previous.additions } : {}),
+        ...(file.deletions === undefined && previous.deletions !== undefined ? { deletions: previous.deletions } : {}),
+        ...(!file.preview?.length && previous.preview?.length ? { preview: previous.preview } : {}),
+      };
+    }
+    return;
+  }
   if (last?.type === 'subagent' && segment.type === 'subagent') { last.items.push(...segment.items); return; }
   if (last?.type === 'thinking' && segment.type === 'thinking') {
     last.text = segment.text.startsWith(last.text) ? segment.text : `${last.text}${last.text.endsWith(segment.text) ? '' : `\n${segment.text}`}`;
@@ -124,8 +144,9 @@ export function buildTurns(messages: readonly ViewMessage[], busy: boolean, pend
   let endedAt: number | undefined;
   const finish = () => {
     if (!id) return;
-    const answer = takeAnswer(segments);
     const timing = timings.find((item) => item.id === id);
+    closeThinking(segments, timing?.endedAt ?? (!busy && !pending ? endedAt : undefined));
+    const answer = takeAnswer(segments);
     turns.push({
       id, ...(user ? { user } : {}), log: segments,
       ...(answer ? { answer } : {}),
@@ -151,7 +172,13 @@ export function buildTurns(messages: readonly ViewMessage[], busy: boolean, pend
     if (message.role === 'user') {
       finish();
       id = message.id;
-      user = { id: message.id, text: message.text, ...(message.attachments?.length ? { attachments: message.attachments } : {}), ...(message.at !== undefined ? { at: message.at } : {}) };
+      user = {
+        id: message.id, text: message.text,
+        ...(message.attachments?.length ? { attachments: message.attachments } : {}),
+        ...(message.at !== undefined ? { at: message.at } : {}),
+        ...(message.canRewind !== undefined ? { canRewind: message.canRewind } : {}),
+        ...(message.rewindReason ? { rewindReason: message.rewindReason } : {}),
+      };
       segments = [];
       errors = [];
       startedAt = message.at;
@@ -159,11 +186,22 @@ export function buildTurns(messages: readonly ViewMessage[], busy: boolean, pend
       continue;
     }
     if (!id) id = `pre-${message.id}`;
-    if (message.at !== undefined) endedAt = message.at;
+    if (message.at !== undefined) {
+      if (message.meta?.type !== 'thinking') closeThinking(segments, message.at);
+      endedAt = message.at;
+    }
     if (message.role === 'error') { errors.push({ id: message.id, text: message.text }); continue; }
     const segment = segmentFrom(message);
     if (segment) pushSegment(segments, segment);
   }
   finish();
   return turns.map((turn, index) => ({ ...turn, done: index < turns.length - 1 || (!busy && !pending) }));
+}
+
+function closeThinking(segments: Segment[], endAt?: number): void {
+  const last = segments.at(-1);
+  if (last?.type === 'thinking' && last.durationMs === undefined && last.startedAt !== undefined
+    && endAt !== undefined && Number.isFinite(endAt) && endAt >= last.startedAt) {
+    last.durationMs = endAt - last.startedAt;
+  }
 }

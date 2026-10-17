@@ -374,6 +374,38 @@ export async function run(): Promise<void> {
     console.log('UI_HOST_READY', cwd);
     await until(async () => { try { await readFile(join(cwd, 'ui-done')); return true; } catch { return false; } }, 1200000);
   }
+  if (process.env.AI_AGENTS_REWIND_UI_HOLD === '1') {
+    execFileSync('git', ['init', '-q'], { cwd });
+    const useMock = process.env.AI_AGENTS_REWIND_UI_MOCK === '1';
+    await config.update('codex.executablePath', useMock ? join(cwd, 'mock-app-server.cjs') : '', vscode.ConfigurationTarget.Global);
+    await sidebar.handleMessage({ type: 'configure', backend: 'app-server', mode: 'agent', sandbox: 'workspace-write', approval: 'never' });
+    if (!useMock) {
+      await sidebar.handleMessage({ type: 'loadModelCatalog', refresh: true, requestId: 991 });
+      await sidebar.handleMessage({ type: 'setModel', modelId: 'gpt-6-luna' });
+    }
+    await sidebar.controller.send('touch a.txt');
+    await sidebar.controller.send('write abcd into a.txt');
+    assert.equal(await readFile(join(cwd, 'a.txt'), 'utf8'), 'abcd');
+    const oldTargetTurnId = sidebar.controller.snapshot().turns[1]?.id;
+    const oldSessionId = sidebar.controller.sessionId();
+    assert.ok(oldTargetTurnId);
+    Object.defineProperty(vscode.window, 'showWarningMessage', {
+      configurable: true,
+      value: async (message: string, _options: { modal?: boolean }, ...items: string[]) =>
+        vscode.window.showQuickPick(items, { title: 'Confirm rewind', placeHolder: message }),
+    });
+    await sidebar.openPanel('chat');
+    await vscode.commands.executeCommand('ai-agents.open');
+    console.log('REWIND_GUI_READY', cwd);
+    await until(async () => { try { await readFile(join(cwd, 'ui-done')); return true; } catch { return false; } }, 1200000);
+    assert.equal(await readFile(join(cwd, 'a.txt'), 'utf8'), '1234');
+    const state = sidebar.controller.snapshot();
+    assert.deepEqual(state.messages.filter((item) => item.role === 'user').map((item) => item.text), ['touch a.txt', 'write 1234 into a.txt']);
+    assert.equal(state.messages.some((item) => item.id.startsWith(`${oldTargetTurnId}:`)), false);
+    assert.equal(state.turns.length, 2);
+    assert.notEqual(sidebar.controller.sessionId(), oldSessionId);
+    console.log('PASS: real Extension Development Host edited a prompt, branched history, and restored the file checkpoint');
+  }
   if (process.env.AI_AGENTS_GUI_MOCK_HOLD === '1') {
     await sidebar.newChat();
     await sidebar.handleMessage({ type: 'select', provider: 'codex', cwd });

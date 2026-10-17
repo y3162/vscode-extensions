@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { ChatController } from '../src/chat-controller.js';
-import { lineChangeCounts, normalizeChangeKind, parseUnifiedDiff, previousTextFromDiff } from '../src/diff-stats.js';
+import { lineChangeCounts, normalizeChangeKind, parseUnifiedDiff, previewTextDiff, previewUnifiedDiff, previousTextFromDiff } from '../src/diff-stats.js';
 import { buildPrompt, requestBuild } from '../src/plan-state.js';
 import { emptyPlanState, type Selection } from '../src/types.js';
 import { buildTurns } from '../src/webview/turns.js';
@@ -177,8 +177,19 @@ test('build prompt keeps the plan text and file kinds accept object form', () =>
   assert.deepEqual(lineChangeCounts('a\n', 'a\nb\n'), { additions: 1, deletions: 0 });
   assert.equal(emptyPlanState().phase, 'idle');
   assert.equal(previousTextFromDiff('diff --git a/n.ts b/n.ts\n--- /dev/null\n+++ b/n.ts\n@@ -0,0 +1 @@\n+a\n', 'add'), null);
-  assert.equal(previousTextFromDiff('diff --git a/n.ts b/n.ts\n--- a/n.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-a\n', 'delete'), 'a');
+  assert.equal(previousTextFromDiff('diff --git a/n.ts b/n.ts\n--- a/n.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-a\n', 'delete'), 'a\n');
+  assert.equal(previousTextFromDiff('diff --git a/n.ts b/n.ts\n--- a/n.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-a\n\\ No newline at end of file\n', 'delete'), 'a');
+  assert.equal(previousTextFromDiff('diff --git a/n.ts b/n.ts\n--- a/n.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-a\r\n', 'delete'), 'a\r\n');
+  const crlfDeletion = parseUnifiedDiff('diff --git a/n.ts b/n.ts\n--- a/n.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-a\r\n')[0]?.diff;
+  assert.equal(crlfDeletion ? previousTextFromDiff(crlfDeletion, 'delete') : undefined, 'a\r\n');
   assert.equal(previousTextFromDiff('diff --git a/n.ts b/n.ts\n--- a/n.ts\n+++ b/n.ts\n@@ -1 +1 @@\n-a\n+b\n', 'update'), undefined);
+  assert.deepEqual(previewTextDiff('1234', '1234\n'), [
+    { kind: 'context', line: 1, text: '1234' },
+    { kind: 'eof', text: 'Newline at end of file' },
+  ]);
+  const preview = previewUnifiedDiff('diff --git a/README.md b/README.md\nindex 123..456 100644\n--- a/README.md\n+++ b/README.md\n@@ -1,2 +1,2 @@\n context\n-old\n+new\n');
+  assert.deepEqual(preview.map((line) => line.text), ['context', 'old', 'new']);
+  assert.equal(preview.some((line) => line.text.includes('README.md')), false);
 });
 
 test('an earlier assistant segment stays in the log when the final answer comes after tools', () => {

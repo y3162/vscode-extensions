@@ -29,6 +29,18 @@ test('message diffs send only changed rows and file stats come from a diff', () 
   assert.equal(synthetic.patch, '+only\n');
 });
 
+test('file diff previews survive the message projection to the webview', () => {
+  const preview = [
+    { kind: 'remove' as const, line: 3, text: 'before' },
+    { kind: 'add' as const, line: 3, text: 'after' },
+  ];
+  const message = toViewMessage({
+    id: 'files', role: 'tool', text: 'Changed README.md',
+    meta: { type: 'files', files: [{ path: 'README.md', kind: 'update', preview }] },
+  });
+  assert.deepEqual(message.meta?.files?.[0]?.preview, preview);
+});
+
 test('the access banner follows the real sandbox and can be dismissed', () => {
   const controls = { ...defaultControls('codex', 'app-server'), sandbox: 'danger-full-access', approval: 'on-request' };
   const source = {
