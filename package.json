@@ -12,6 +12,8 @@
     "watch": "npm run watch --workspace ai-agents",
     "check": "npm run check --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspace ai-agents",
+    "test:hygiene": "npm run test:hygiene --workspace ai-agents",
     "test:integration": "npm run test:integration --workspace ai-agents",
     "test:protocol": "npm run test:protocol --workspace ai-agents",
     "test:live": "npm run test:live --workspace ai-agents",

@@ -1,5 +1,12 @@
 #!/usr/bin/env node
+const synthetic = require('./synthetic-runtime.cjs');
 const emit = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
+const replayAcp = (events) => {
+  for (const row of events) {
+    if (row.method === 'request') emit({ id: 100, method: row.params.method, params: row.params.params });
+    else emit({ method: row.method, params: row.params });
+  }
+};
 let sessionId = 'acp-session';
 let pendingPrompt;
 let setModeOk = 0;
@@ -62,12 +69,8 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       pendingPrompt = undefined;
       return;
     }
-    if (prompt.includes('REAL_TASKS')) {
-      const captured = require('./runtime-090.json');
-      for (const row of captured.acp) {
-        if (row.method === 'request') emit({ id: 100, method: row.params.method, params: row.params.params });
-        else emit({ method: row.method, params: row.params });
-      }
+    if (prompt.includes('ACP_TASKS') || prompt.includes('ACP_CHILD_OUTCOMES')) {
+      replayAcp(prompt.includes('ACP_CHILD_OUTCOMES') ? synthetic.acpChildOutcomes() : synthetic.acpTasks());
       emit({ id: request.id, result: { stopReason: 'end_turn' } });
       pendingPrompt = undefined;
       return;

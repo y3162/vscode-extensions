@@ -379,7 +379,12 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
         const statusText = typeof state.status === 'string' ? state.status : activity ? String(item.kind ?? '')
           : /spawn/i.test(String(item.tool ?? type)) ? 'pendingInit' : '';
         const previous = children.get(child);
-        const status = activity && item.kind === 'completed' && previous && ['error', 'cancelled'].includes(previous.status) ? previous.status : subagentStatus(statusText);
+        const incoming = subagentStatus(statusText);
+        const finished = previous?.status === 'completed' || previous?.status === 'error' || previous?.status === 'cancelled';
+        const status = activity && previous && (
+          (item.kind === 'completed' && (previous.status === 'error' || previous.status === 'cancelled'))
+          || (finished && (incoming === 'running' || incoming === 'unknown'))
+        ) ? previous.status : incoming;
         updateChild(child, {
           status,
           ...(typeof item.agentPath === 'string' ? { name: item.agentPath } : {}),

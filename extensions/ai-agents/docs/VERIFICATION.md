@@ -260,7 +260,7 @@ macOS arm64、通常 Node 26.7.0、Extension Host Node 24.21.0、VS Code 1.142.0
 
 ### 子エージェント並列の実証
 
-実イベントの抜粋は [runtime fixture](../test/fixtures/real/runtime-090.json)、正規化したライブ結果は [runtime evidence](evidence/runtime-090.json) に保存した。テストプロンプトと必要イベントだけを残し、個人の一時パスは `/verification` へ置換した。認証情報は含めていない。
+実機で確認した構造（子2件の `subAgentActivity`、`kind: "started"` の item/completed は子の完了ではない、空の `wait`、子スレッドの delta と final answer、ACP の `cursor/task`、`kind.type=update` の `move_path`）は、リポジトリ内の合成イベント `test/fixtures/synthetic-runtime.cjs` で再現する。採取した生 JSON、正規化ログ、スクリーンショットはテストの入力ではない。個人の一時パスと認証情報は含めていない。
 
 - App Server の事前実機記録では alpha の実コマンド区間が 06:21:54–06:22:02 UTC、beta が 06:21:57–06:22:05 UTC。約 5 秒重複した。`subAgentActivity` と子の commandExecution 開始 / 終了で確認した。
 - 修正後ライブでは子 `01a14382-ce0d-7eb0-b55e-50b6292acf83` と `01a14382-e542-7dc0-9d72-0e97c36402c7` が completed。イベントの開始 / 終了から両区間の重複を確認した。モデルは gpt-6-luna。
@@ -309,7 +309,7 @@ Review / 復元は確実に取得した原文だけを使う。Git 管理外、i
 
 既存 Run AI Agents を起動した上で、操作を続けるホストは同じ拡張ソースをロードする VS Code 1.142.0 の隔離テストホストに統一した。ウィンドウタイトル `[Extension Development Host]` と Webview URL の `extensionId=y3162.ai-agents` を確認した。親ウィンドウが写った初期撮影は証拠に含めない。
 
-保存先と各条件: [screen manifest](screenshots/0.9.0-host/README.md)。ブラウザの UI mock ではない。
+保存した画面はローカルの検証記録であり、テスト実行には不要である。ブラウザの UI mock ではない。
 
 - Primary / Secondary Side Bar、Home / Chat、幅 300 / 390 px、Abyss（dark）/ Light Modern / Dark High Contrast の実レイアウトを確認した。
 - 実 Plan View、Build 操作、モデルカタログと選択、Effort メニュー、Thought / Tool Call の展開、ターミナル、File Changes、Review の `vscode.changes` 差分を確認した。子カードの詳細操作と代表画像、Effort の別値での実推論、実承認カードの手操作は未確認。承認要求 / 応答自体は実 CLI の自動テストで確認した。
@@ -412,7 +412,7 @@ AI_AGENTS_RELIABILITY=1 AI_AGENTS_RELIABILITY_EVIDENCE=/private/tmp/ai-agents-ho
 
 VSIXでは`AI_AGENTS_TEST_EXTENSION_PATH`へ隔離インストール先を指定する。スクリプトは同じworkspace／profileでinitial→reloadの2プロセスを起動する。これはプロセス再起動の確認で、手操作によるReload Windowコマンド確認とは区別する。
 
-証拠の要約は[RELIABILITY_090_EVIDENCE.json](RELIABILITY_090_EVIDENCE.json)と[VSIX内容検証](RELIABILITY_090_VSIX.json)。各backendの実Usage、3Turn時点の件数、再起動結果を記録した。最後のログ出力追記で推論経路は変更していない。その追記を含む最終VSIXを再インストールし、通常integrationも再実行して成功した。source／VSIX／installedのJS3成果物はバイト一致を再確認した。
+証拠の要約は当時のローカル記録に残した。各backendの実Usage、3Turn時点の件数、再起動結果を記録した。最後のログ出力追記で推論経路は変更していない。その追記を含む最終VSIXを再インストールし、通常integrationも再実行して成功した。source／VSIX／installedのJS3成果物はバイト一致を再確認した。これらの JSON はテストの入力ではない。
 
 ### コピー・実画面の確認範囲（GUI再試行後）
 
@@ -427,9 +427,9 @@ VSIXでは`AI_AGENTS_TEST_EXTENSION_PATH`へ隔離インストール先を指定
 - **Plan → Build／Review**: GUIでPlanを選び、`gui-check.txt`作成を計画。Build前にファイル不存在、Buildクリック後に`GUI_BUILD_OK\n`を実ファイルで確認した。Build finished、File Changes +1 −0、Reviewのdiff editorが開くことを確認した。
 - **診断・ログ**: Run Connection DiagnosticsからSettingsのDiagnosticsを表示し、Host Node・CLI・SDK auth・sandbox helperの検出を確認。LogsボタンでAI Agents Outputが開いた。診断にアカウント情報が含まれるため、その画面は保存画像に含めていない。
 
-画像: [dark 300](screenshots/reliability-090/dark-300.png)、[dark 390](screenshots/reliability-090/dark-390.png)、[light 300](screenshots/reliability-090/light-300.png)、[light 390](screenshots/reliability-090/light-390.png)、[high contrast 300](screenshots/reliability-090/high-contrast-300.png)、[high contrast 390](screenshots/reliability-090/high-contrast-390.png)、[SDK履歴](screenshots/reliability-090/cursor-sdk-restored.png)、[ACP履歴](screenshots/reliability-090/cursor-acp-restored.png)、[SDK実行中](screenshots/reliability-090/cursor-sdk-running.png)、[Plan](screenshots/reliability-090/cursor-sdk-plan.png)、[Build](screenshots/reliability-090/cursor-sdk-build.png)、[Review](screenshots/reliability-090/cursor-sdk-review.png)。
+画像は Dark 300、Dark 390、Light 300、Light 390、High Contrast 300、High Contrast 390、SDK履歴、ACP履歴、SDK実行中、Plan、Build、Review をローカルに保存した。リポジトリには含めず、テストも参照しない。
 
-追加GUI／再起動検証の要約は[RELIABILITY_090_GUI.json](RELIABILITY_090_GUI.json)。今回も同じprofileのプロセス再起動後、4backendの保存3TurnとUsageの復元・追加の実回答を確認した（終了コード0）。これは手操作のReload Windowとは別の検証である。製品コードとバージョンはこのGUI再試行では変更していない。
+追加GUI／再起動検証でも、同じprofileのプロセス再起動後、4backendの保存3TurnとUsageの復元・追加の実回答を確認した（終了コード0）。これは手操作のReload Windowとは別の検証である。製品コードとバージョンはこのGUI再試行では変更していない。要約JSONはローカル記録であり、テストの入力ではない。
 
 ### GUI追加検証で発見した未解決事項
 
@@ -519,7 +519,7 @@ Cursor SDK 1.0.37の実記録では、背景sleep 120は開始約1.2秒後にsta
 <a id="final-audit"></a>
 ## 2026-10-17 最終再監査（現行未コミットツリー）
 
-開始HEAD/変更/追加修正は[AUDIT.md](AUDIT.md)先頭を参照。過去ログを今回の合格として再利用していない。実行ログと受入要約を`evidence/final-audit/`へ保存する。
+開始HEAD/変更/追加修正は[AUDIT.md](AUDIT.md)先頭を参照。過去ログを今回の合格として再利用していない。実行ログと受入要約はローカルの検証出力であり、クリーンなテスト実行には不要である。
 
 - 型チェック成功、単体156/156成功（開始時144/144）。追加回帰は修正前の失敗を確認してから修正。DOMは30件を含む。
 - build成功。通常Extension Development Host結合成功。Retry準備返信と自動実行なしのHost検査も追加した。
@@ -547,7 +547,7 @@ Cursor SDK 1.0.37の実記録では、背景sleep 120は開始約1.2秒後にsta
 
 App Serverの「processIdなしstarted→outputDelta→listがitemId/processId広告」で既受信出力を捨てる順序バグを修正。修正前fixture失敗、修正後protocol/TerminalMonitor回帰成功。
 
-ただしno-tty実CLIでは、初期printが公開outputDeltaにも一覧にも来ず、自然終了時のaggregatedOutputでREADY/DONE全文が初めて揃う挙動を確認した。修正後も初期stdout=false、最終全文=true、exit0=true。Backendが配信していない初期出力を推測生成・別process attach・自動write_stdinで補っていない。TTYありのライブattach成功と区別し、リアルタイム出力の制限として残す。証拠`evidence/final-audit/no-tty.json`。
+ただしno-tty実CLIでは、初期printが公開outputDeltaにも一覧にも来ず、自然終了時のaggregatedOutputでREADY/DONE全文が初めて揃う挙動を確認した。修正後も初期stdout=false、最終全文=true、exit0=true。Backendが配信していない初期出力を推測生成・別process attach・自動write_stdinで補っていない。TTYありのライブattach成功と区別し、リアルタイム出力の制限として残す。合成イベントでこの欠落を埋めて成功扱いにしない。
 
 ### 実GUI追加範囲
 
@@ -568,7 +568,7 @@ ACP Agentモードの実GUIでACP_GUI_ONEを確認。2ターン目のuser本文�
 
 Codex SDKは実GUIでCODEX_SDK_GUI_ONE/TWOの両回答を確認。4経路とも実GUIで送信・非空finalに到達したが、モデル意味的誤答・ACP子timeoutと未実施の全機能操作を含めて無条件Goにはしない。
 
-ACP GUIの3ターン目は実Askへ変更し、ACP_GUI_ASK_FINALの要求どおりのfinal、Ready、Ask表示を確認。2ターン目のBackend誤答の記録は残す。最終VSIXはextension/worker/webview JS・CSS・patched runtime・LICENSE・CHANGELOGのbuild/source一致、manifest0.10.0と固定SDKをzipから検査（vsceはchangelog.mdへ正規化）。SHA256は`evidence/final-audit/vsix.json`。最終git diff --check成功、HEAD不変、変更は未コミット。
+ACP GUIの3ターン目は実Askへ変更し、ACP_GUI_ASK_FINALの要求どおりのfinal、Ready、Ask表示を確認。2ターン目のBackend誤答の記録は残す。最終VSIXはextension/worker/webview JS・CSS・patched runtime・LICENSE・CHANGELOGのbuild/source一致、manifest0.10.0と固定SDKをzipから検査（vsceはchangelog.mdへ正規化）。SHA256はローカルの検証出力に残した。最終git diff --check成功、HEAD不変、変更は未コミット。
 
 
 ### 過去プロンプトの編集・巻き戻し・再実行

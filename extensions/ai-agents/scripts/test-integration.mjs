@@ -1,17 +1,25 @@
 import { access, cp, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { build } from 'esbuild';
 import { runTests } from '@vscode/test-electron';
 
 const root = resolve(import.meta.dirname, '..');
+const repoRoot = resolve(root, '../..');
+const evidence = process.env.AI_AGENTS_RELIABILITY_EVIDENCE;
+if (evidence) {
+  const resolved = resolve(evidence);
+  if (resolved === repoRoot || resolved.startsWith(`${repoRoot}${sep}`)) {
+    throw new Error('AI_AGENTS_RELIABILITY_EVIDENCE must be outside the repository. Set it to a temporary directory.');
+  }
+}
 const fixture = await mkdtemp(join(tmpdir(), 'ai-agents-integration-'));
 const profile = await mkdtemp(join(tmpdir(), 'ai-agents-test-profile-'));
 const testBundle = join(root, 'dist', 'integration.js');
 await build({ entryPoints: [join(root, 'test', 'integration.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: testBundle, external: ['vscode'] });
 await cp(join(root, 'test', 'fixtures', 'mock-codex.cjs'), join(fixture, 'mock-codex.cjs'));
 await cp(join(root, 'test', 'fixtures', 'mock-app-server.cjs'), join(fixture, 'mock-app-server.cjs'));
-await cp(join(root, 'test', 'fixtures', 'real', 'runtime-090.json'), join(fixture, 'runtime-090.json'));
+await cp(join(root, 'test', 'fixtures', 'synthetic-runtime.cjs'), join(fixture, 'synthetic-runtime.cjs'));
 
 let executable = process.env.VSCODE_EXECUTABLE_PATH;
 if (!executable && process.platform === 'darwin') {

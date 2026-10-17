@@ -54,4 +54,4 @@ Cursor SDK の Task tool の検出と親の結果は取得できるが、ACP の
 
 ## 最終再監査の追加
 
-今回のruntime初回はApp Server Plan/parentStopにusage_limit_exceededがあり、途中中断したため12/12成功とは扱わない。再試験で同2ケースは成功、ACP実並列子は200秒run timeoutで失敗。最終件数は総合検証の今回節と`evidence/final-audit/runtime-final.log`を参照。過去の12/12記録は今回の全成功証拠ではない。
+今回のruntime初回はApp Server Plan/parentStopにusage_limit_exceededがあり、途中中断したため12/12成功とは扱わない。再試験で同2ケースは成功、ACP実並列子は200秒run timeoutで失敗。最終件数は総合検証の今回節を参照する。過去の12/12記録は今回の全成功証拠ではない。ACPの並列タイムアウトは拡張機能の合成イベント成功とは区別する。

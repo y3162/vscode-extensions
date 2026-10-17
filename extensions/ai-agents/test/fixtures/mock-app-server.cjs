@@ -1,5 +1,12 @@
 #!/usr/bin/env node
+const synthetic = require('./synthetic-runtime.cjs');
 const emit = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
+const replay = (events) => {
+  for (const row of events) {
+    if (row.item) emit({ method: row.method, params: { threadId: 'thread-1', item: row.item } });
+    else emit({ method: row.method, params: row.params });
+  }
+};
 const fs = require('node:fs');
 const path = require('node:path');
 let pendingTurn;
@@ -69,16 +76,24 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       setTimeout(() => process.exit(1), 20);
       return;
     }
-    if (text === 'REAL_SUBAGENTS') {
-      const captured = require('./runtime-090.json');
-      for (const row of captured.appServer) {
-        const params = structuredClone(row.params);
-        if (params.threadId === captured.provenance.parentThreadId) params.threadId = 'thread-1';
-        emit({ method: row.method, params });
-      }
-      emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'real-turn', status: 'completed' } } });
-      emit({ id: request.id, result: { turn: { id: 'real-turn' } } });
+    if (text === 'PARALLEL_CHILDREN' || text === 'DUPLICATE_CHILD' || text === 'REORDERED_CHILD' || text === 'USAGE_TOTAL') {
+      const events = text === 'PARALLEL_CHILDREN' ? synthetic.parallelChildren()
+        : text === 'DUPLICATE_CHILD' ? synthetic.duplicateChild()
+          : text === 'REORDERED_CHILD' ? synthetic.reorderedChild()
+            : synthetic.usageSnapshots();
+      replay(events);
+      emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'synthetic-turn', status: 'completed' } } });
+      emit({ id: request.id, result: { turn: { id: 'synthetic-turn' } } });
       pendingTurn = undefined;
+      return;
+    }
+    if (text === 'DELAYED_CHILD') {
+      const delayed = synthetic.delayedChild();
+      replay(delayed.immediate);
+      emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'delayed-turn', status: 'completed' } } });
+      emit({ id: request.id, result: { turn: { id: 'delayed-turn' } } });
+      pendingTurn = undefined;
+      setTimeout(() => replay(delayed.late), 40);
       return;
     }
     if (text === 'CHILD_FAILURES') {
@@ -101,14 +116,10 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       pendingTurn = undefined;
       return;
     }
-    if (text === 'REAL_RENAME') {
+    if (text === 'NATIVE_MOVE') {
       const fs = require('node:fs');
-      const captured = require('./runtime-090.json');
       fs.renameSync('a.txt', 'b.txt'); fs.writeFileSync('b.txt', 'beta\n');
-      for (const row of captured.rename) {
-        const item = JSON.parse(JSON.stringify(row.item).replaceAll('/verification/rename', process.cwd()));
-        emit({ method: row.method, params: { threadId: 'thread-1', item } });
-      }
+      replay(synthetic.nativeMove(process.cwd()));
       emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'rename-turn', status: 'completed' } } });
       emit({ id: request.id, result: { turn: { id: 'rename-turn' } } });
       pendingTurn = undefined;

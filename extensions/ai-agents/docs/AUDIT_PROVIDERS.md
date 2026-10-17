@@ -69,4 +69,4 @@ Final root verification: the checked-in opt-in live test `Plan denies requested 
 
 ## 最終再監査の追加
 
-ACP再開時のAgent mode再適用、App Server公開履歴final_answer保持、背景process ID判明前のbuffer/itemId結合を追加修正。いずれも修正前にfixture失敗を確認。no-tty初期stdout未配信は実ライブでも残り、終了時全文を取得。今回の根拠と判定は総合監査先頭と`evidence/final-audit/no-tty.json`を優先。
+ACP再開時のAgent mode再適用、App Server公開履歴final_answer保持、背景process ID判明前のbuffer/itemId結合を追加修正。いずれも修正前にfixture失敗を確認。no-tty初期stdout未配信は実ライブでも残り、終了時全文を取得。合成fixtureの成功は、この実CLI制限の解消ではない。判定は総合監査の本文を優先する。

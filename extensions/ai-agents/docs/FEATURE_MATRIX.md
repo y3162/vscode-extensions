@@ -100,4 +100,4 @@ Copy・表示履歴・可視Usageは実装済み。自動テスト・実Extensio
 
 Debug/Multitaskは広告・実行対応がなく追加しない。未取得数値を0で埋めない。画像only送信・Queue・Retryは追加修正/Controller・DOM検証済み、実GUI画像試験は未完了。300/390px Dark/Light実画面と実App Server Plan/Buildは今回確認。全4経路のGUI受入が残るためNo-Go。中央Composer・新規Agent editorは依頼の対象外。
 
-App Server no-tty背景コマンドでは公開通知/一覧が初期stdoutを配信せず、終了時aggregatedOutputで全文を取得する場合がある。リアルタイムの完全な初期出力を保証しない。既配信bufferのitemId結合は修正・回帰検証済み。
+App Server no-tty背景コマンドでは公開通知/一覧が初期stdoutを配信せず、終了時aggregatedOutputで全文を取得する場合がある。リアルタイムの完全な初期出力を保証しない。既配信bufferのitemId結合は修正・回帰検証済み。この制限は合成イベントでは再現せず、Live Testの結果と分ける。
