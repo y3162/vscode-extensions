@@ -42,7 +42,11 @@ Plan の状態は `PlanState` が持つ。Plan モードの送信は計画を作
 
 `ChatController` は1つの実行だけを持ちます。Webview を閉じても実行は止めません。停止、前面の新しい会話、プロバイダー変更、サンドボックス変更で前面を破棄します。モード変更は、接続中のセッションが `setMode` を実装していれば会話を維持します。
 
-復元は `Agent.resume`、`resumeThread`、ACP `session/load`、App Server `thread/resume` を使います。表示用の履歴がプロトコルから来ない場合は、その旨を状態メッセージにします。
+復元は `Agent.resume`、`resumeThread`、ACP `session/load`、App Server `thread/resume` を使います。`HistoryStore`は既存ChatControllerの表示snapshotをworkspace storageの`history/v1`へ直列・atomic保存し、接続より先に復元します。保存済みbackend/cwdを採用し、backend turn IDで再生と照合します。表示用データをモデルへ再送しません。保存済みターンはローカルの本文・時刻・metadataを優先し、未知のbackendターンを追加します。既存ターンへ外部から加筆された未対応itemの完全な競合解決は保証しません。
+
+Cursor SDKは`dist/cursor-worker.cjs`をNodeモードでforkし、IPCで既存AgentSessionを提供します。SDK 1.0.37がargv[1]からplatform helperを探索するためです。SDKは外部依存のままとし、プロセス全体のargv変更やsandbox解除は行いません。認証はIPC内で渡し、引数・Webview・ログへ公開しません。
+
+UsageはRunごとの記録／セッション累積snapshotを区別し、再通知を置換します。Codex SDKのturn.completedが実際には累積値を返すため、保存した基準との差分をTurnへ割り当てます。基準不明ではTurn値を捏造しません。コピーはWebviewの原文データをrequest ID付きでHostへ送り、vscode.env.clipboard.writeTextの結果を返します。
 
 ## ファイル変更
 
@@ -57,6 +61,8 @@ Plan の状態は `PlanState` が持つ。Plan モードの送信は計画を作
 Rules、Skills、MCP の実行はランタイムです。Cursor SDK では `settingSources: ['project', 'user']` を渡して読み込ませます。拡張機能はファイル名とサーバー名だけを表示し、`mcp.json` の環境変数は出しません。
 
 ## Webview
+
+Cursor SDKの背景shellは、専用worker内で会話の寿命まで保持する。SDK 1.0.37はターン終了時に背景executorもdisposeするため、ビルド時にCJSランタイムをコピーし、その呼び出し1箇所をleaseへ置換する。バージョン・元ファイルSHA-256・置換数を検証し、不一致ならビルドを失敗させる。実行・sandbox・権限判定はSDKのまま。全shell終了時または会話dispose時に元executorを解放する。Ctrl+Cはshell IDとPIDの一致を確認して保持中のnative managerへ渡す。
 
 スクリプトは nonce 付きで、CSP は `default-src 'none'` です。画像プレビューだけ `img-src data:` を許可します。エージェント出力は `textContent` か、エスケープしたテキストから作る DOM で描画し、HTMLとして解釈しません。Webview からのメッセージは種別とフィールドを確認してから使います。APIキーは Webview へ送りません。
 

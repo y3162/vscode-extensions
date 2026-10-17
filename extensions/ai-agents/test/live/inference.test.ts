@@ -69,7 +69,7 @@ test('Cursor SDK live inference', { skip: !on('AI_AGENTS_LIVE_CURSOR_TEST'), tim
   const { cwd, cleanup } = await temporary();
   try {
     await exercise({
-      provider: 'cursor', backend: 'sdk', cwd, model: 'auto', storagePath: cwd, sandbox: 'enabled', interactions,
+      provider: 'cursor', backend: 'sdk', cwd, model: 'composer-2.5', storagePath: cwd, sandbox: 'enabled', interactions,
     });
     console.log('PASS cursor sdk text stream follow-up cancel resume');
   } finally { await cleanup(); }
@@ -81,7 +81,7 @@ test('Cursor ACP live inference', { skip: !on('AI_AGENTS_LIVE_ACP_TEST'), timeou
   const { cwd, cleanup } = await temporary();
   try {
     await exercise({
-      provider: 'cursor', backend: 'acp', cwd, model: '', storagePath: cwd, agentPath, sandbox: 'enabled', interactions,
+      provider: 'cursor', backend: 'acp', cwd, model: 'composer-2.5', storagePath: cwd, agentPath, sandbox: 'enabled', interactions,
     });
     console.log('PASS cursor acp text stream follow-up cancel resume');
   } finally { await cleanup(); }
@@ -91,7 +91,7 @@ test('Codex SDK live inference', { skip: !on('AI_AGENTS_LIVE_TEST'), timeout: 24
   const { cwd, cleanup } = await temporary();
   try {
     await exercise({
-      provider: 'codex', backend: 'sdk', cwd, model: '', storagePath: cwd, sandbox: 'read-only', approval: 'never',
+      provider: 'codex', backend: 'sdk', cwd, model: 'gpt-6-luna', storagePath: cwd, sandbox: 'read-only', approval: 'never',
       modelParams: [{ id: 'modelReasoningEffort', value: 'low' }], interactions,
     });
     console.log('PASS codex sdk text stream follow-up cancel resume effort');
@@ -102,7 +102,7 @@ test('Codex App Server live inference', { skip: !on('AI_AGENTS_LIVE_APP_SERVER_T
   const { cwd, cleanup } = await temporary();
   try {
     await exercise({
-      provider: 'codex', backend: 'app-server', cwd, model: '', storagePath: cwd, sandbox: 'read-only', approval: 'never',
+      provider: 'codex', backend: 'app-server', cwd, model: 'gpt-6-luna', storagePath: cwd, sandbox: 'read-only', approval: 'never',
       modelParams: [{ id: 'modelReasoningEffort', value: 'low' }], interactions,
     });
     console.log('PASS codex app-server text stream follow-up cancel resume effort');
@@ -116,12 +116,12 @@ test('provider switch keeps each live backend on its own session', { skip: !on('
     cursor: { mode: 'agent' as const, sandbox: 'enabled', approval: 'never', backend: 'sdk' as const, network: false, webSearch: '', additionalDirectories: [] as string[] },
   };
   try {
-    const controller = new ChatController({ provider: 'codex', cwd, model: '' }, async (selection: Selection) => createSession({
+    const controller = new ChatController({ provider: 'codex', cwd, model: 'gpt-6-luna' }, async (selection: Selection) => createSession({
       ...selection, ...controls[selection.provider], storagePath: cwd, interactions,
     }), () => {});
     await controller.send('Reply with exactly the word pong. Do not use tools.');
     assert.match(controller.snapshot().messages.map((message) => message.text).join('\n'), /pong/i);
-    await controller.select({ provider: 'cursor', cwd, model: 'auto' });
+    await controller.select({ provider: 'cursor', cwd, model: 'composer-2.5' });
     assert.equal(controller.snapshot().messages.length, 0);
     await controller.send('Reply with exactly the word pong. Do not use tools.');
     assert.match(controller.snapshot().messages.map((message) => message.text).join('\n'), /pong/i);

@@ -22,6 +22,7 @@ function textOf(value: unknown): string {
   if (Array.isArray(value)) return value.map((item) => textOf(item)).join('');
   const item = record(value);
   if (typeof item.text === 'string') return item.text;
+  if ('content' in item) return textOf(item.content);
   if (typeof item.command === 'string') return item.command;
   if (typeof item.query === 'string') return item.query;
   if (typeof item.message === 'string') return item.message;
@@ -40,11 +41,15 @@ function decisionOf(decision: PermissionDecision): string {
 
 function usageOf(value: unknown): UsageStats | undefined {
   const usage = record(value);
-  const source = record(usage.last ?? usage.total ?? usage);
+  const source = record(usage.total ?? usage.last ?? usage);
   const input = source.inputTokens ?? source.input_tokens;
   const output = source.outputTokens ?? source.output_tokens;
   if (typeof input !== 'number' && typeof output !== 'number') return undefined;
   return {
+    scope: usage.total ? 'session' : 'request', source: 'codex-app-server', inputIncludesCache: true,
+    contextWindow: typeof usage.modelContextWindow === 'number' ? usage.modelContextWindow : undefined,
+    contextTokens: typeof record(usage.last).totalTokens === 'number' ? Number(record(usage.last).totalTokens) : undefined,
+    cacheWriteInputTokens: typeof source.cacheWriteInputTokens === 'number' ? source.cacheWriteInputTokens : undefined,
     inputTokens: typeof input === 'number' ? input : 0,
     outputTokens: typeof output === 'number' ? output : 0,
     cachedInputTokens: typeof source.cachedInputTokens === 'number' ? source.cachedInputTokens : undefined,
@@ -169,7 +174,9 @@ function messagesFrom(value: unknown): ChatMessage[] {
       const role = type.toLowerCase().includes('user') ? 'user'
         : type.toLowerCase().includes('error') ? 'error'
           : type.toLowerCase().includes('agent') || type.toLowerCase().includes('message') ? 'assistant' : 'tool';
-      messages.push({ id: typeof item.id === 'string' ? item.id : `history-${messages.length}`, role, text });
+      const backendTurnId = String(record(turn).id ?? '');
+      const backendId = typeof item.id === 'string' ? item.id : `history-${messages.length}`;
+      messages.push({ id: `${backendTurnId}:${backendId}`, backendTurnId, backendId, role, text });
     }
   }
   return messages;
@@ -304,7 +311,8 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
   };
 
   const emitItem = (item: Record<string, unknown>) => {
-    const emit = emitLive.current ?? emitBackground;
+    const destination = emitLive.current ?? emitBackground;
+    const emit = (update: AgentUpdate) => destination({ ...update, backendTurnId: turnId });
     const type = itemType(item).toLowerCase();
     const id = typeof item.id === 'string' ? item.id : type || 'item';
     const text = textOf(item) || buffers.get(id) || '';
@@ -314,7 +322,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       const output = typeof item.aggregatedOutput === 'string' ? item.aggregatedOutput : buffers.get(id) ?? saved?.output;
       const status = typeof item.status === 'string' ? item.status : saved?.status ?? 'unknown';
       if (processId) {
-        const command: TerminalRecord = { ...saved, processId, itemId: id, status, ...(typeof item.command === 'string' ? { command: item.command } : {}), ...(output !== undefined ? { output: output.slice(-32000) } : {}), ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}) };
+        const command: TerminalRecord = { ...saved, processId, itemId: id, status, ...(typeof item.command === 'string' ? { command: item.command } : {}), ...(output !== undefined ? { output } : {}), ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}) };
         commands.set(id, command);
         const active = terminals.findIndex((row) => row.processId === processId);
         if (active >= 0) {
@@ -325,6 +333,8 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
         if (active >= 0) publishTerminals();
         return;
       }
+      emit({ id, role: 'tool', text: [typeof item.command === 'string' ? item.command : '', output].filter(Boolean).join('\n'), tool: { ...describedTool('shell', typeof item.command === 'string' ? item.command : '', status), ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}) } });
+      return;
     }
     if (type.includes('file')) {
       const files = /progress|pending|fail|declin|cancel|interrupt/i.test(String(item.status ?? '')) ? [] : filesOf(item).map((file) => ({ ...file, path: workspacePath(file.path), ...(file.oldPath ? { oldPath: workspacePath(file.oldPath) } : {}) }));
@@ -615,7 +625,23 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       return true;
     },
     async loadTranscript(emit) {
-      for (const message of replay) emit(message);
+      let cursor: string | undefined;
+      const turns: unknown[] = [];
+      try {
+        do {
+          const page = record(await rpc.request('thread/turns/list', { threadId, limit: 50, itemsView: 'full', sortDirection: 'asc', ...(cursor ? { cursor } : {}) }));
+          if (Array.isArray(page.data)) turns.push(...page.data);
+          else if (replay.length) { for (const message of replay) emit(message); return; }
+          cursor = typeof page.nextCursor === 'string' ? page.nextCursor : undefined;
+        } while (cursor);
+        for (const message of messagesFrom({ turns })) emit(message);
+      } catch (error) {
+        if (replay.length) { for (const message of replay) emit(message); }
+        else {
+          const read = await rpc.request('thread/read', { threadId, includeTurns: true });
+          for (const message of messagesFrom(read)) emit(message);
+        }
+      }
     },
     async listSessions() {
       const listed = record(await rpc.request('thread/list', { cwd: options.cwd, limit: 30, sortKey: 'updated_at', sortDirection: 'desc' }));
@@ -681,6 +707,15 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       const result = record(await rpc.request('thread/backgroundTerminals/terminate', { threadId, processId }));
       await refreshTerminals();
       if (result.terminated !== true && terminals.some((item) => item.processId === processId)) throw new Error('Background terminal was not terminated.');
+    },
+    async interruptBackgroundTerminal(processId: string) {
+      // Agent-owned executions have no public stdin/PTY attachment endpoint.
+      // Use their owning runtime's cancellation, never signal an inferred OS PID.
+      const current = (await refreshTerminals()).find((item) => item.processId === processId);
+      if (!current) throw new Error('このバックグラウンドターミナルは終了しています。');
+      const result = record(await rpc.request('thread/backgroundTerminals/terminate', { threadId, processId }));
+      await refreshTerminals();
+      if (result.terminated !== true && terminals.some((item) => item.processId === processId)) throw new Error('Background terminal was not interrupted.');
     },
     async run(prompt, signal, emit, extras, turn) {
       emitLive.current = emit;

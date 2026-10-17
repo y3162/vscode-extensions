@@ -1,3 +1,4 @@
+import { runReliability } from './reliability-host.js';
 import assert from 'node:assert/strict';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -6,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { errorMessage } from '../src/types.js';
 import * as vscode from 'vscode';
 import type { AgentsSidebar } from '../src/sidebar.js';
+import { BackgroundTerminalViews } from '../src/background-terminal.js';
 
 async function until(check: () => boolean | Promise<boolean>, timeout = 15000): Promise<void> {
   const deadline = Date.now() + timeout;
@@ -33,7 +35,30 @@ export async function run(): Promise<void> {
   const { sidebar } = await extension.activate();
   await vscode.commands.executeCommand('ai-agents.open');
   await until(() => sidebar.isReady());
+  if (process.env.AI_AGENTS_RELIABILITY === '1') { await runReliability(sidebar, cwd); return; }
   console.log('PASS: sidebar webview loaded its script and completed the ready handshake');
+  const terminalViews = new BackgroundTerminalViews();
+  let interruptedProcess = '';
+  let terminated = false;
+  const attached = { processId: 'native-terminal-test', itemId: 'native-item', command: 'native terminal attachment' };
+  const attachmentSession = {
+    async run() { throw new Error('Opening a terminal must not run a prompt'); },
+    async dispose() {},
+    async listBackgroundTerminals() { return [attached]; },
+    async interruptBackgroundTerminal(id: string) { interruptedProcess = id; },
+    async terminateBackgroundTerminal() { terminated = true; },
+  };
+  const nativeTerminal = terminalViews.open(attachmentSession, attached, false);
+  try {
+    assert.equal(terminalViews.open(attachmentSession, attached, false), nativeTerminal);
+    await until(() => vscode.window.terminals.includes(nativeTerminal));
+    nativeTerminal.sendText('\x03', false);
+    await until(() => interruptedProcess === attached.processId);
+    nativeTerminal.dispose();
+    await until(() => !vscode.window.terminals.includes(nativeTerminal));
+    assert.equal(terminated, false);
+    console.log('PASS: integrated terminal attaches once, forwards Ctrl+C, and closing only detaches');
+  } finally { terminalViews.dispose(); }
   const selection = { provider: 'codex', cwd, model: '' };
   const send = (prompt: string) => sidebar.handleMessage({ type: 'send', ...selection, prompt });
   await send('first message');
@@ -119,8 +144,6 @@ export async function run(): Promise<void> {
   const models = await sidebar.listAvailableModels();
   assert.deepEqual(models.map((model) => model.id), ['fixture-model', 'fixture-second']);
   const selecting = sidebar.selectModel();
-  await until(() => sidebar.isModelPickerReady());
-  await vscode.commands.executeCommand('workbench.action.quickOpenSelectNext');
   await until(() => sidebar.isModelPickerReady('fixture-model'));
   await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
   await selecting;
@@ -303,6 +326,18 @@ export async function run(): Promise<void> {
       } finally { clearTimeout(deadline); }
     } catch (error) { console.log('SDK_HOST_LIMITATION', process.versions.node, errorMessage(error)); }
     finally { await agent[Symbol.asyncDispose](); }
+  }
+
+  if (process.env.AI_AGENTS_TERMINAL_UI_HOLD === '1') {
+    await sidebar.newChat();
+    await sidebar.handleMessage({ type: 'select', provider: 'cursor', cwd });
+    await sidebar.handleMessage({ type: 'configure', backend: 'sdk' });
+    await sidebar.handleMessage({ type: 'setModel', modelId: 'composer-2.5' });
+    await sidebar.openPanel('chat');
+    await sidebar.handleMessage({ type: 'send', provider: 'cursor', cwd, prompt: 'Use the Shell tool native background mode with block_until_ms 0 to run exactly: python3 -u -c \'import time; print("TERMINAL_UI_READY",flush=True); time.sleep(45)\'. Do not use & or nohup. Return immediately, do not poll or wait. No file changes.' });
+    assert.ok(sidebar.controller.snapshot().terminals.length);
+    console.log('TERMINAL_GUI_READY', JSON.stringify(sidebar.controller.snapshot().terminals.map(({ command, status }) => ({ command, status }))));
+    await new Promise((resolve) => setTimeout(resolve, 55000));
   }
 
   if (process.env.AI_AGENTS_UI_HOLD === '1') {

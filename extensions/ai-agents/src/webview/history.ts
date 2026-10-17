@@ -34,7 +34,7 @@ export class HistoryPanel {
       const activity = session.activity && session.activity !== 'idle' ? session.activity : session.id === shell.sessionId && (shell.presence === 'running' || shell.presence === 'waiting') ? shell.presence : '';
       if (activity) card.append(this.dom.el('span', `presence ${activity}`));
       card.append(this.dom.el('span', 'session-name', title));
-      card.addEventListener('click', () => this.onSelect(session.id));
+      card.addEventListener('click', () => this.onSelect(session.conversationId ?? session.id));
       this.list.append(card);
     }
   }

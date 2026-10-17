@@ -1,12 +1,18 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import type { Run, ConversationTurn } from '@cursor/sdk';
 import type { ModelReasoningEffort } from '@openai/codex-sdk';
 import { applyTextStats, captureGitBaselines, readWorkspaceText, type GitBaselines } from '../change-tracker.js';
 import { captureBaseline } from '../change-review.js';
 import { writeImageFiles } from '../images.js';
 import type { AgentSession, AgentUpdate, FileChange, Selection, SessionSummary, TurnOptions, UpdateMeta } from '../types.js';
 import { createCodexAppServerSession } from './codex-app-server.js';
+import { cursorStoredMessages } from './cursor-history.js';
+import { loadCursorSdk } from './cursor-sdk.js';
+import { cursorBackgroundRuntime } from './cursor-background-runtime.js';
+import { CursorTerminals } from './cursor-terminals.js';
+import { createCursorWorker } from './cursor-worker-client.js';
 import { createCursorAcpSession } from './cursor-acp.js';
 import { codexMeta, cursorMeta } from './details.js';
 import { codexUpdate, cursorUpdate } from './events.js';
@@ -19,7 +25,7 @@ export type { SessionOptions } from './session-options.js';
 
 const sdkLoaders = {
   codex: () => import('@openai/codex-sdk'),
-  cursor: () => import('@cursor/sdk'),
+  cursor: () => loadCursorSdk(),
 };
 
 function cursorToolPath(meta: ReturnType<typeof cursorMeta>): string | undefined {
@@ -27,9 +33,10 @@ function cursorToolPath(meta: ReturnType<typeof cursorMeta>): string | undefined
   return file && file !== 'patch' ? file : undefined;
 }
 
-export async function createSession(options: SessionOptions, loaders = sdkLoaders): Promise<AgentSession> {
+export async function createSession(options: SessionOptions, loaders = sdkLoaders, inProcess = false): Promise<AgentSession> {
   if (options.provider === 'codex' && options.backend === 'app-server') return createCodexAppServerSession(options);
   if (options.provider === 'cursor' && options.backend === 'acp') return createCursorAcpSession(options);
+  if (options.provider === 'cursor' && loaders === sdkLoaders && !inProcess) return createCursorWorker(options);
   if (options.provider === 'codex') {
     if (options.approval && options.approval !== 'never') {
       throw new Error('この承認ポリシーは対話操作が必要です。バックエンドを Codex App Server に切り替えてください。');
@@ -94,6 +101,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
                 cacheWriteInputTokens: event.usage.cache_write_input_tokens,
                 reasoningTokens: event.usage.reasoning_output_tokens,
                 totalTokens: event.usage.input_tokens + event.usage.output_tokens,
+                scope: 'session', source: 'codex-sdk', inputIncludesCache: true,
               } } });
             }
             if (event.type === 'turn.failed') throw new Error(event.error.message);
@@ -156,9 +164,23 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
     cwd: options.cwd,
   });
   const baselines = new Map<string, FileChange>();
+  const terminalListeners = new Set<(update: AgentUpdate) => void>();
+  const terminals = options.cursorTerminalDataDir ? new CursorTerminals(options.cursorTerminalDataDir, (update) => {
+    for (const listener of terminalListeners) listener(update);
+  }, undefined, options.cwd, (shellId, pid) => cursorBackgroundRuntime()?.interrupt(shellId, pid) ?? false) : undefined;
   let activeMode = mode;
   return {
     sessionId: agent.agentId,
+    subscribeBackgroundUpdates(emit) { terminalListeners.add(emit); return () => terminalListeners.delete(emit); },
+    async listBackgroundTerminals() { return await terminals?.refresh() ?? []; },
+    async interruptBackgroundTerminal(id) {
+      if (!terminals) throw new Error('Cursor terminal monitoring is unavailable.');
+      await terminals.interrupt(id);
+    },
+    async terminateBackgroundTerminal(id) {
+      if (!terminals) throw new Error('Cursor terminal monitoring is unavailable.');
+      await terminals.interrupt(id);
+    },
     setModel(selection) {
       activeModel = { id: selection.model || 'auto', ...(selection.modelParams?.length ? { params: selection.modelParams } : {}) };
     },
@@ -167,11 +189,25 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
       activeMode = next;
     },
     async loadTranscript(emit) {
-      const messages = await Agent.messages.list(agent.agentId, { runtime: 'local', cwd: options.cwd, store });
-      for (const message of messages) {
+      const runs: Run[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await Agent.listRuns(agent.agentId, { runtime: 'local', cwd: options.cwd, store, cursor, limit: 100 });
+        runs.push(...page.items); cursor = page.nextCursor;
+      } while (cursor);
+      const rows: Awaited<ReturnType<typeof Agent.messages.list>> = [];
+      for (let offset = 0; ; offset += 100) {
+        const page = await Agent.messages.list(agent.agentId, { runtime: 'local', cwd: options.cwd, store, limit: 100, offset });
+        rows.push(...page); if (page.length < 100) break;
+      }
+      const stored = cursorStoredMessages(rows, runs);
+      if (stored.length) { for (const message of stored) emit(message); return; }
+      for (const run of runs.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))) {
+        if (run.supports('conversation')) for (const message of conversationMessages(run.id, await run.conversation())) emit(message);
+      }
+      if (!runs.length) for (const message of rows) {
         const text = transcriptText(message.message);
-        if (!text) continue;
-        emit({ id: message.uuid, role: message.type === 'user' ? 'user' : 'assistant', text });
+        if (text) emit({ id: message.uuid, role: message.type === 'user' ? 'user' : 'assistant', text });
       }
     },
     async run(prompt, signal, emit, extras, turn) {
@@ -197,6 +233,9 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
           emit({ id: `plan-${update.callId}`, role: 'status', text: plan, meta: { type: 'plan', plan: { markdown: plan, source: 'sdk-createPlan' } } });
         },
       });
+      terminals?.start();
+      const forward = emit;
+      emit = (update) => forward({ ...update, backendTurnId: run.id });
       let cancellation: Promise<void> | undefined;
       const cancel = () => {
         cancellation ??= run.cancel();
@@ -206,6 +245,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
       if (signal.aborted) cancel();
       let index = 0;
       let hasAssistant = false;
+      let sawUsage = false;
       let assistantText = '';
       let thinkingText = '';
       try {
@@ -232,6 +272,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
             continue;
           }
           if (event.type === 'usage' && !signal.aborted) {
+            sawUsage = true;
             const meta = cursorMeta(event);
             if (meta) emit({ id: `usage-${index}`, role: 'status', text: '', meta });
           }
@@ -249,6 +290,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
           }
         }
         const result = await run.wait();
+        if (!sawUsage && result.usage) emit({ id: 'usage-result', role: 'status', text: '', meta: { type: 'usage', usage: { ...result.usage, cachedInputTokens: result.usage.cacheReadTokens, cacheWriteInputTokens: result.usage.cacheWriteTokens, scope: 'run', source: 'cursor-sdk', inputIncludesCache: false } } });
         if (result.status === 'error') throw new Error(result.error?.message ?? 'Cursorの実行に失敗しました。');
         if (result.status === 'cancelled') throw new DOMException('Cancelled', 'AbortError');
         if (!hasAssistant && result.result && !signal.aborted) {
@@ -262,9 +304,10 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
       } finally {
         signal.removeEventListener('abort', cancel);
         await cancellation;
+        await terminals?.finishRun().catch(() => undefined);
       }
     },
-    async dispose() { await agent[Symbol.asyncDispose](); },
+    async dispose() { terminals?.dispose(); terminalListeners.clear(); await agent[Symbol.asyncDispose](); },
   };
 }
 
@@ -317,4 +360,26 @@ export async function writeBaselineFile(storagePath: string, change: FileChange)
   const file = path.join(storagePath, name);
   await writeFile(file, change.previousText ?? '', 'utf8');
   return file;
+}
+
+function conversationMessages(runId: string, turns: ConversationTurn[]): import('../types.js').ChatMessage[] {
+  const messages: import('../types.js').ChatMessage[] = [];
+  let assistant = 0;
+  for (const [index, entry] of turns.entries()) {
+    if (entry.type === 'shellConversationTurn') {
+      messages.push({ id: `${runId}:shell-${index}`, backendTurnId: runId, role: 'tool', text: [entry.turn.shellCommand?.command, entry.turn.shellOutput?.stdout, entry.turn.shellOutput?.stderr].filter(Boolean).join('\n') });
+      continue;
+    }
+    if (entry.turn.userMessage) messages.push({ id: `${runId}:user-${index}`, backendTurnId: runId, role: 'user', text: entry.turn.userMessage.text });
+    for (const [stepIndex, step] of entry.turn.steps.entries()) {
+      if (step.type === 'assistantMessage') {
+        const backendId = `assistant-${++assistant}`;
+        messages.push({ id: `${runId}:${backendId}`, backendId, backendTurnId: runId, role: 'assistant', text: step.message.text });
+      } else if (step.type === 'thinkingMessage') {
+        messages.push({ id: `${runId}:thinking-${stepIndex}`, backendTurnId: runId, role: 'status', text: step.message.text, meta: { type: 'thinking' } });
+      } else messages.push({ id: `${runId}:tool-${stepIndex}`, backendTurnId: runId, role: 'tool', text: JSON.stringify(step.message, null, 2), tool: { kind: 'other', name: step.message.type, status: 'completed' } });
+    }
+  }
+  const last = messages.filter((m) => m.role === 'assistant').at(-1); if (last) last.final = true;
+  return messages;
 }

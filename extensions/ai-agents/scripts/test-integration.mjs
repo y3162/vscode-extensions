@@ -19,11 +19,15 @@ if (!executable && process.platform === 'darwin') {
   try { await access(installed); executable = installed; } catch { /* Download a test copy below. */ }
 }
 try {
-  await runTests({
+  for (const stage of process.env.AI_AGENTS_RELIABILITY === '1' ? ['initial', 'reload'] : ['normal']) await runTests({
     vscodeExecutablePath: executable,
     extensionDevelopmentPath: process.env.AI_AGENTS_TEST_EXTENSION_PATH || root,
     extensionTestsPath: testBundle,
     extensionTestsEnv: {
+      AI_AGENTS_RELIABILITY: process.env.AI_AGENTS_RELIABILITY,
+      AI_AGENTS_RELIABILITY_HOLD: process.env.AI_AGENTS_RELIABILITY_HOLD,
+      AI_AGENTS_RELIABILITY_STAGE: stage,
+      AI_AGENTS_RELIABILITY_EVIDENCE: process.env.AI_AGENTS_RELIABILITY_EVIDENCE,
       ELECTRON_RUN_AS_NODE: undefined,
       AI_AGENTS_TEST_WORKSPACE: fixture,
       AI_AGENTS_LIVE_TEST: process.env.AI_AGENTS_LIVE_TEST,
@@ -35,6 +39,7 @@ try {
       AI_AGENTS_REAL_PROTOCOL: process.env.AI_AGENTS_REAL_PROTOCOL,
       AI_AGENTS_LIVE_RUNTIME: process.env.AI_AGENTS_LIVE_RUNTIME,
       AI_AGENTS_UI_HOLD: process.env.AI_AGENTS_UI_HOLD,
+      AI_AGENTS_TERMINAL_UI_HOLD: process.env.AI_AGENTS_TERMINAL_UI_HOLD,
     },
     launchArgs: [fixture, '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes',
       '--user-data-dir', join(profile, 'user-data'), '--extensions-dir', join(profile, 'extensions')],

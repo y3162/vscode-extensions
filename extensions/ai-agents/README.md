@@ -82,7 +82,15 @@ SDKは選択したフォルダを作業ディレクトリとして、ファイ�
 
 `@` でワークスペース内のファイルやフォルダ、`/` でコマンドやスキルを参照できます。補完候補は上下キーで選び、Tabまたはクリックで確定します。画像の貼り付け、選択範囲、Problems、Git差分、シェル統合で見えた最近のコマンドも添付できます。変更ファイルは VS Code の Diff Editor で開き、変更前の内容を保持しているものはワークスペース内に限って復元できます。
 
-会話は現在の拡張機能ホスト内で継続します。サイドバーを隠しても継続し、ウィンドウをリロードすると新しい会話になります。履歴から、SDK・ACP・App Server が返すセッションを開き直せます。CursorのSDK履歴は拡張機能のglobalStorage配下、Codexの履歴はCodex標準の保存先に置かれます。
+会話はサイドバーを隠しても継続します。表示履歴はワークスペースごとの拡張機能専用保存領域 `history/v1` に保存し、Reload後も履歴から本文・ツール結果・Plan・Usageを復元します。バックエンドの会話コンテキストとは別の保存で、過去プロンプトをモデルに再送しません。Cursor SDKの会話ストアはglobalStorage配下、Codexの会話はCodex標準の保存先です。
+
+表示履歴は手動削除までローカルに保持します。会話本文やツール出力に含まれる機密情報も保存され得ます。認証設定・承認トークン・画像バイナリは保存しません。`ai-agents.history.enabled` で新しい保存を無効化でき、`AI Agents: Delete Local Display History` で現在／すべてのローカル履歴を削除できます。バックエンド側の会話は削除しません。旧Codex SDK会話で、この拡張機能が保存していなかった表示履歴は取得できません。
+
+回答全文・コード・ユーザー本文・ツール出力のCopyはExtension HostのクリップボードAPIを使い、完了または失敗を表示します。回答全文はMarkdown原文、コードはコード本文をコピーします。
+
+Token Usageは会話とターンの概要から確認できます。Cursor SDKはRun計測、Codex SDKは累積値からの差分、App Serverはtotal／lastを区別します。cacheの包含関係を表示し、reasoningを二重計上しません。Cursor ACPは非対応、未取得値は「—」です。課金額を推定しません。
+
+Cursor SDK 1.0.37のヘルパー探索に合わせ、拡張機能配下の専用プロセスで実行します。sandboxは有効のままです。起動できない場合はDiagnoseでSDK・実行環境・ヘルパー・設定の適用元を確認してください。Retryは入力を戻す操作で、実行には明示Sendが必要です。設定エラーの自動再送は行いません。
 
 設計と機能差分は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、[docs/UI_ARCHITECTURE.md](docs/UI_ARCHITECTURE.md)、[docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md)、[docs/UI_GAP_ANALYSIS.md](docs/UI_GAP_ANALYSIS.md) を参照してください。
 
@@ -110,4 +118,4 @@ Plan の改訂に失敗した場合や Stop した場合は、改訂前の版と
 
 Codex SDK / App Server の変更前全文は、ターン前の Git 状態から確実に取得できた場合だけ Review / 復元に利用します。未コミットのユーザー変更を保持し、変更前全文が不明なファイルは復元できません。Git 管理外・バイナリ・大きなファイルには制限があります。Rename の復元先にファイルが再作成されていた場合は上書きしません。
 
-この macOS 環境では、Cursor SDK の Task を伴うローカルコマンド実行がサンドボックス非対応エラーで停止しました。通常の推論・編集・Plan / Build の成功と分けて扱います。保護設定は解除していません。実機結果・未検証項目は [検証記録](docs/VERIFICATION.md) を参照してください。
+旧実行経路では、このmacOS環境でCursor SDKのsandbox helper探索が失敗していました。専用プロセス経由への修復後は、sandbox有効の通常推論・編集・Plan / Buildと、実Task 1子のshell実行を確認しました。子別モデル・全継承・Foreground / Backgroundの全組合せと、今回のGUI手動受入は未完了です。保護設定は解除していません。実機結果・未検証項目は [検証記録](docs/VERIFICATION.md) を参照してください。

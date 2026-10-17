@@ -19,6 +19,7 @@ function textOf(value: unknown): string {
   if (Array.isArray(value)) return value.map((item) => textOf(item)).join('');
   const item = record(value);
   if (typeof item.text === 'string') return item.text;
+  if (typeof item.stdout === 'string' || typeof item.stderr === 'string') return [item.stdout, item.stderr].filter((value) => typeof value === 'string').join('\n');
   if ('content' in item) return textOf(item.content);
   return '';
 }
@@ -61,29 +62,34 @@ function todosOf(value: unknown): TodoEntry[] {
 export async function createCursorAcpSession(options: SessionOptions): Promise<AgentSession> {
   const rpc = new StdioJsonRpc({
     command: options.agentPath || 'agent',
-    args: ['--sandbox', options.sandbox === 'disabled' ? 'disabled' : 'enabled', 'acp'],
+    args: ['--sandbox', options.sandbox === 'disabled' ? 'disabled' : 'enabled', ...(options.model ? ['--model', options.model] : []), 'acp'],
     cwd: options.cwd,
   });
   const replay: ChatMessage[] = [];
   let sessionId = options.resumeId ?? '';
   let mode = options.mode ?? 'agent';
+  let turnOrdinal = 0;
   let thought = '';
   const segments = { current: new AssistantSegments() };
   const sawPlan = { current: false };
   const emitLive = { current: undefined as ((update: AgentUpdate) => void) | undefined };
   const backgroundListeners = new Set<(update: AgentUpdate) => void>();
+  const toolOutputs = new Map<string, string>();
   const tasks = new Map<string, SubagentRecord>();
   const fail = (error: unknown) => {
     emitLive.current?.({ id: 'acp-error', role: 'error', text: error instanceof Error ? error.message : String(error) });
   };
 
   const emitUpdate = (update: AgentUpdate, transcript: boolean) => {
+    update = { ...update, backendTurnId: `acp-turn-${turnOrdinal}` };
     if (update.meta?.type === 'subagent' && backgroundListeners.size) {
       for (const listener of backgroundListeners) listener(update);
       return;
     }
     if (transcript && !emitLive.current) {
-      replay.push({ id: update.id, role: update.role === 'tool' || update.role === 'status' || update.role === 'error' ? update.role : 'assistant', text: update.text, meta: update.meta });
+      const previous = replay.findIndex((m) => m.id === update.id);
+      const message: ChatMessage = { id: update.id, role: update.role === 'tool' || update.role === 'status' || update.role === 'error' ? update.role : 'assistant', text: update.text, meta: update.meta, tool: update.tool, backendTurnId: update.backendTurnId, backendId: update.id };
+      if (previous < 0) replay.push(message); else replay[previous] = message;
       return;
     }
     emitLive.current?.(update);
@@ -196,7 +202,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     if (kind === 'agent_message_chunk' || kind === 'agent_message') {
       const chunk = textOf(update.content ?? update);
       const segment = chunk ? segments.current.push(chunk, kind === 'agent_message' ? 'snapshot' : 'delta') : undefined;
-      if (segment) emitUpdate({ id: segment.id, role: 'assistant', text: segment.text }, transcript);
+      if (segment) emitUpdate({ id: transcript ? `history-${replay.filter((m) => m.role === 'user').length}:${segment.id}` : segment.id, role: 'assistant', text: segment.text }, transcript);
       return;
     }
     if (kind === 'plan') {
@@ -216,7 +222,11 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     }
     if (kind === 'user_message_chunk' || kind === 'user_message') {
       const text = textOf(update.content ?? update);
-      if (text) replay.push({ id: `user-${replay.length}`, role: 'user', text });
+      if (text && transcript) {
+        const previous = replay.at(-1);
+        if (kind === 'user_message_chunk' && previous?.role === 'user') previous.text += text;
+        else { turnOrdinal++; replay.push({ id: `acp-turn-${turnOrdinal}:user`, backendTurnId: `acp-turn-${turnOrdinal}`, role: 'user', text }); segments.current = new AssistantSegments(); thought = ''; }
+      }
       return;
     }
     if (kind === 'tool_call' || kind === 'tool_call_update') {
@@ -231,8 +241,10 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       const files = filesFrom(update);
       const kindName = typeof update.kind === 'string' ? update.kind : '';
       const target = files[0]?.path;
+      const output = textOf(update.content) || textOf(update.rawOutput);
+      if (output) toolOutputs.set(id, output);
       emitUpdate({
-        id, role: 'tool', text: `${status}: ${title}`,
+        id, role: 'tool', text: toolOutputs.get(id) ?? `${status}: ${title}`,
         tool: {
           kind: classifyTool(`${kindName} ${title}`, target),
           name: title,
@@ -391,6 +403,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       });
     },
     async run(prompt, signal, emit, extras, turn) {
+      turnOrdinal++;
       emitLive.current = emit;
       thought = '';
       segments.current = new AssistantSegments();

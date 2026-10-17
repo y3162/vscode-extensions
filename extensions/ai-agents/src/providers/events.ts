@@ -32,9 +32,9 @@ export function cursorUpdate(event: SDKMessage, index: number): AgentUpdate | un
       id: `assistant-${index}`, role: 'assistant',
       text: event.message.content.filter((block) => block.type === 'text').map((block) => block.text).join(''),
     };
-    case 'tool_call': return { id: `tool-${event.call_id}`, role: 'tool', text: `${event.status}: ${event.name}` };
+    case 'tool_call': return { id: `tool-${event.call_id}`, role: 'tool', text: event.result === undefined ? `${event.status}: ${event.name}` : `${event.status}: ${event.name}\n${JSON.stringify(event.result, null, 2)}` };
     case 'task': return event.text ? { id: `task-${index}`, role: 'status', text: event.text } : undefined;
-    case 'status': return { id: 'status', role: 'status', text: event.message ?? event.status };
+    case 'status': if (/^(finished|running|completed|started)$/i.test(event.message ?? event.status)) return undefined; return { id: 'status', role: 'status', text: event.message ?? event.status };
     default: return undefined;
   }
 }

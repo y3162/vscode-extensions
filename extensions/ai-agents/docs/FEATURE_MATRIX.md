@@ -57,3 +57,14 @@
 | 差分 / 復元 | Codex の Git baseline、App Server 実 Rename と未コミット原文の復元を確認 | 不明な原文は復元不可。シェルの unstaged move は delete / add の場合あり |
 
 移行判断は **Not Ready**。詳細・画面・残作業は [VERIFICATION.md](VERIFICATION.md) の今回追記を参照。
+
+### 0.9.0 チャット信頼性修復（2026-10-17）
+
+| 経路 | 新規・継続・Stop | 表示履歴 | Usage | 制限 |
+| --- | --- | --- | --- | --- |
+| Cursor SDK 1.0.37 | sandbox有効で専用プロセス経由 | ローカルsnapshot + 公開messages/run API | Run / 会話、cache別枠 | context windowは未取得 |
+| Cursor ACP | 実CLIで確認 | snapshot + session/load再生 | 非対応 | 未広告のsession/resumeは呼ばない |
+| Codex SDK 0.162.1 | 実CLIで確認 | snapshot | 累積snapshotと差分 | 保存前の旧会話本文は公開SDKから取得不可 |
+| Codex App Server 0.162.1 | 実CLIで確認 | snapshot + 公開turnページング | total / last / cache / reasoning / context | lastは直近リクエスト。Turnは累積差分 |
+
+Copy・表示履歴・可視Usageは実装済み。自動テスト・実Extension Hostのプログラム操作と、目視／手操作の完了は区別する。今回のGUIアクセス拒否により、テーマ別・幅別の実画面撮影は未検証。詳細はVERIFICATION.md。

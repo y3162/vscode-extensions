@@ -5,6 +5,7 @@ import { refreshChangeStats } from './change-tracker.js';
 import { sameModelParams } from './model-settings.js';
 import { applyPlanTodos, beginPlanning, buildPrompt, cloneSelection, commitDraft, finishBuild, inferIntent, planningFailed, requestBuild, setBuildSelection, stageDraft } from './plan-state.js';
 import { upsertSession } from './session-index.js';
+import { usageDifference } from './usage.js';
 import { addUsage, lightMeta } from './providers/details.js';
 import { mergeFileChanges } from './change-review.js';
 import {
@@ -21,6 +22,8 @@ interface QuestionWait { request: QuestionRequest; token: string; resolve: (answ
 
 export class ChatController {
   private session?: AgentSession;
+  private readonly retryInputs = new Map<string, { prompt: string; extras?: SendExtras }>();
+  private restored = false;
   private unsubscribeBackground?: () => void;
   private readonly updateTurns = new Map<string, string>();
   private workspaceRealPath?: string;
@@ -67,13 +70,29 @@ export class ChatController {
   prepareResume(id: string): void { this.retainedId = id; }
   planSnapshot(): PlanState { return structuredClone(this.state.plan); }
 
+  restoreSnapshot(saved: ChatState, id?: string): void {
+    const sessions = this.state.sessions;
+    Object.assign(this.state, structuredClone(saved), { busy: false, queue: [], pendingPermission: null, pendingPlan: null, pendingQuestion: null, autoApprove: false, sessions });
+    this.retainedId = id;
+    this.restored = true;
+    this.state.status = 'idle';
+    for (const turn of this.state.turns) if (turn.status === 'running') { turn.status = 'cancelled'; turn.endedAt = Date.now(); }
+    for (const child of this.state.subagents) if (child.status === 'running') child.status = 'unknown';
+    for (const terminal of this.state.terminals) terminal.status = 'unknown';
+    if (this.state.plan.phase === 'planning' || this.state.plan.phase === 'revising') this.state.plan = planningFailed(this.state.plan);
+    if (this.state.plan.phase === 'building') this.state.plan = finishBuild(this.state.plan, 'cancelled');
+    this.publish();
+  }
+
+  retryInput(id: string): { prompt: string; extras?: SendExtras } | undefined { return this.retryInputs.get(id); }
+
   setTerminals(terminals: TerminalRecord[]): void {
     this.state.terminals = terminals;
     this.publish();
   }
 
   hasLiveTerminals(): boolean {
-    return this.state.terminals.some((item) => !item.status || !/complete|exit|done|terminat|kill|dead|fail/i.test(item.status));
+    return this.state.terminals.some((item) => !item.status || !/complete|exit|done|terminat|kill|dead|fail|cancel|abort|succeed/i.test(item.status));
   }
   hasLiveChildren(): boolean {
     return this.state.subagents.some((item) => item.status === 'running' || item.status === 'unknown');
@@ -105,7 +124,7 @@ export class ChatController {
   }
 
   replaceSessions(sessions: SessionSummary[]): void {
-    this.state.sessions = sessions.slice(0, 50);
+    this.state.sessions = sessions;
     this.publish();
   }
 
@@ -173,7 +192,7 @@ export class ChatController {
         }, operation.abort.signal);
       } catch (error) {
         const cancelled = operation.abort.signal.aborted || (error instanceof Error && error.name === 'AbortError');
-        this.state.messages.push({ id: randomUUID(), role: cancelled ? 'status' : 'error', text: cancelled ? '停止しました。' : errorMessage(error), at: Date.now() });
+        this.state.messages.push({ id: randomUUID(), role: cancelled ? 'status' : 'error', text: cancelled ? '停止しました。' : errorMessage(error) + ((error as { isRetryable?: boolean })?.isRetryable === false ? '\n設定の修正が必要です。変更しないまま再送しても同じエラーになります。Diagnoseで実行環境を確認してください。' : ''), at: Date.now() });
       } finally {
         if (this.active === operation) this.active = undefined;
         this.state.busy = Boolean(this.resetting);
@@ -291,7 +310,7 @@ export class ChatController {
     if (intent === 'plan' || intent === 'revise') this.state.plan = beginPlanning(this.state.plan);
     const turnId = randomUUID();
     const record: TurnRecord = { id: turnId, startedAt: Date.now(), status: 'running', waitMs: 0, mode, model: selection.model, intent };
-    this.state.turns = [...this.state.turns, record].slice(-40);
+    this.state.turns = [...this.state.turns, record];
     this.currentTurn = turnId;
     this.turnWait = 0;
     const operation = { abort: new AbortController(), done: Promise.resolve() };
@@ -299,14 +318,16 @@ export class ChatController {
     this.state.busy = true;
     this.state.status = 'running';
     const attachments = extras?.attachments?.map((item) => item.slice(0, 200)).slice(0, 20).filter(Boolean);
-    this.state.messages.push({
+    const retry = extras?.retryOf ? this.state.messages.find((m) => m.id === extras.retryOf && m.role === 'user' && m.text === (extras?.displayText ?? prompt).trim()) : undefined;
+    if (retry) record.userMessageId = retry.id;
+    this.retryInputs.set(turnId, { prompt, extras });
+    if (!retry) this.state.messages.push({
       id: turnId, role: 'user', text: (extras?.displayText ?? prompt).trim(), at: Date.now(),
       ...(attachments?.length ? { attachments } : {}),
     });
     this.publish();
     operation.done = (async () => {
       const signal = operation.abort.signal;
-      const resuming = (!this.session || this.session.closed === true) && Boolean(this.retainedId || this.session?.sessionId);
       try {
         await this.openAgent(signal);
         signal.throwIfAborted();
@@ -318,14 +339,19 @@ export class ChatController {
         this.finishTurn(turnId, signal.aborted ? 'cancelled' : 'completed', intent);
       } catch (error) {
         const cancelled = signal.aborted || (error instanceof Error && error.name === 'AbortError');
-        this.state.messages.push({
-          id: randomUUID(), role: cancelled ? 'status' : 'error',
-          text: cancelled ? '停止しました。' : errorMessage(error), at: Date.now(),
+        const text = cancelled ? '停止しました。' : errorMessage(error);
+        const existingError = !cancelled ? this.state.messages.find((message) => message.role === 'error' && message.turnId === (record.userMessageId ?? turnId) && (message.text === text || message.text.endsWith(text))) : undefined;
+        const failure = !cancelled ? { kind: error instanceof Error ? error.name : 'Error', retryable: (error as { isRetryable?: boolean })?.isRetryable !== false, operation: (error as { operation?: string })?.operation } : undefined;
+        if (existingError) existingError.failure = failure;
+        else this.state.messages.push({
+          id: randomUUID(), role: cancelled ? 'status' : 'error', turnId: record.userMessageId ?? turnId,
+          text: text + (failure?.retryable === false ? '\n設定の修正が必要です。変更しないまま再送しても同じエラーになります。Diagnoseで実行環境を確認してください。' : ''),
+          at: Date.now(), ...(failure ? { failure } : {}),
         });
         this.finishTurn(turnId, cancelled ? 'cancelled' : 'failed', intent);
         if (!cancelled) {
           this.state.status = 'error';
-          if (resuming && !this.session) this.retainedId = undefined;
+          this.autoDrain = false;
         }
       } finally {
         if (this.session?.closed) {
@@ -391,7 +417,7 @@ export class ChatController {
   }
 
   private addStatus(text: string): void {
-    this.state.messages.push({ id: randomUUID(), role: 'status', text, at: Date.now() });
+    this.state.messages.push({ id: randomUUID(), role: 'status', text, at: Date.now(), ...(this.currentTurn ? { turnId: this.state.turns.find((turn) => turn.id === this.currentTurn)?.userMessageId ?? this.currentTurn } : {}) });
     this.publish();
   }
 
@@ -399,7 +425,9 @@ export class ChatController {
     return {
       ...update,
       id: `${turnId}:${update.id}`,
-      text: update.text.slice(0, 32000),
+      text: update.text,
+      turnId: this.state.turns.find((turn) => turn.id === turnId)?.userMessageId ?? turnId,
+      backendId: update.backendId ?? update.id,
       meta: lightMeta(update.meta),
       ...(update.final ? { final: true } : {}),
       at: Date.now(),
@@ -409,20 +437,43 @@ export class ChatController {
   private receiveUpdate(turnId: string, update: AgentUpdate): void {
     const origin = this.updateTurns.get(update.id) ?? turnId;
     if (update.meta?.type === 'subagent' || update.meta?.type === 'terminals' || update.tool?.kind === 'shell') this.updateTurns.set(update.id, origin);
-    this.absorb(update);
+    const turn = this.state.turns.find((item) => item.id === origin);
+    if (turn && update.backendTurnId) turn.backendTurnId = update.backendTurnId;
+    this.absorb(update, origin);
     if (update.meta?.type !== 'terminals' && !(update.meta?.type === 'usage' && !update.text)) {
       const message = this.stamp(origin, update);
       let index = this.state.messages.findIndex((item) => item.id === message.id);
       if (index < 0 && update.meta?.subagent) index = this.state.messages.findIndex((item) => item.meta?.subagent?.id === update.meta?.subagent?.id);
       if (index < 0) this.state.messages.push(message);
       else this.state.messages[index] = { ...message, id: this.state.messages[index]!.id, at: this.state.messages[index]?.at ?? message.at };
-      this.state.messages = this.state.messages.slice(-300);
+
     }
     this.publish();
   }
 
-  private absorb(update: Pick<AgentUpdate, 'id' | 'meta'>): void {
-    if (update.meta?.type === 'usage' && update.meta.usage) this.state.usage = addUsage(this.state.usage, update.meta.usage);
+  private absorb(update: Pick<AgentUpdate, 'id' | 'meta'>, turnId = this.currentTurn): void {
+    if (update.meta?.type === 'usage' && update.meta.usage) {
+      const next = update.meta.usage;
+      const samples = this.state.usageSamples ??= {};
+      const turn = this.state.turns.find((item) => item.id === turnId);
+      if (next.scope === 'request' && this.state.usage?.scope === 'session') return;
+      if (next.scope === 'session') {
+        const key = `session:${next.source ?? 'backend'}`;
+        const previous = samples[key];
+        const baselineKey = `baseline:${turnId}`;
+        if (!samples[baselineKey] && (previous || !this.restored)) samples[baselineKey] = previous ?? { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, reasoningTokens: 0, totalTokens: 0 };
+        if (turn && samples[baselineKey]) turn.usage = usageDifference(next, samples[baselineKey]);
+        samples[key] = next;
+        this.state.usage = next;
+      } else {
+        const key = `run:${turnId}:${next.sampleId ?? update.id}`;
+        samples[key] = next;
+        const own = Object.entries(samples).filter(([id]) => id.startsWith(`run:${turnId}:`)).map(([, value]) => value);
+        if (turn) turn.usage = own.reduce<import('./types.js').UsageStats | null>((sum, value) => addUsage(sum, value), null) ?? undefined;
+        this.state.usage = Object.entries(samples).filter(([id]) => id.startsWith('run:')).reduce<import('./types.js').UsageStats | null>((sum, [, value]) => addUsage(sum, value), null);
+        if (this.state.usage) this.state.usage.scope = 'session';
+      }
+    }
     const workspacePath = (name: string): string => {
       const resolved = path.resolve(this.state.selection.cwd, name);
       if (!this.workspaceRealPath) return resolved;
@@ -594,15 +645,34 @@ export class ChatController {
       if (!this.session) throw new Error('セッションを再開できませんでした。');
       if (this.session.sessionId) this.retainedId = this.session.sessionId;
       if (this.session.loadTranscript && !this.replayed) {
-        this.replayed = true;
         const replay: ChatMessage[] = [];
         await this.session.loadTranscript((message) => replay.push(message));
         if (replay.length) {
-          for (const message of replay) this.absorb(message);
-          this.state.messages.push(...replay);
-        }
-        else this.addStatus('セッションは再開しましたが、このバックエンドは表示用の履歴を返しません。続きを入力できます。');
-      } else this.addStatus('セッションを再開しました。');
+          const knownTurns = new Set(this.state.turns.map((turn) => turn.backendTurnId).filter(Boolean));
+          const byId = new Map(this.state.messages.map((m) => [m.id, m]));
+          for (const message of replay) {
+            if (message.backendTurnId && knownTurns.has(message.backendTurnId)) {
+              const turn = this.state.turns.find((item) => item.backendTurnId === message.backendTurnId)!;
+              if (message.role === 'user' || !message.backendId) continue;
+              const id = `${turn.id}:${message.backendId}`;
+              const local = byId.get(id);
+              if (local) {
+                // A terminal backend snapshot can complete a saved prefix without discarding local metadata.
+                if (turn.status === 'completed' && message.text.startsWith(local.text) && message.text.length > local.text.length) byId.set(id, { ...local, text: message.text });
+              } else {
+                const recovered = { ...message, id, turnId: turn.userMessageId ?? turn.id };
+                this.absorb(recovered); byId.set(id, recovered);
+              }
+              continue;
+            }
+            if (this.restored && !message.backendTurnId) continue;
+            this.absorb(message);
+            byId.set(message.id, message);
+          }
+          this.state.messages = [...byId.values()];
+        } else if (!this.state.messages.length) this.addStatus('セッションは再開しましたが、表示履歴は未取得です。保存開始前の会話や非対応バックエンドの可能性があります。');
+        this.replayed = true;
+      } else if (!this.state.messages.length) this.addStatus('セッションを再開しました。表示履歴は未取得です。');
       await this.session.listBackgroundTerminals?.().catch(() => undefined);
       this.state.status = 'idle';
     } catch (error) {
@@ -636,6 +706,9 @@ export class ChatController {
         this.state.changes = [];
         this.state.todos = [];
         this.state.usage = null;
+        this.state.usageSamples = {};
+        this.restored = false;
+        this.retryInputs.clear();
         this.state.pendingPermission = null;
         this.state.pendingPlan = null;
         this.state.pendingQuestion = null;

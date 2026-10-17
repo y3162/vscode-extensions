@@ -70,6 +70,8 @@ export class SessionRegistry {
       const activity = this.activityFor(id);
       rows.push({
         id,
+        ...(known?.backend ? { backend: known.backend } : {}),
+        ...(known?.conversationId ? { conversationId: known.conversationId } : {}),
         title,
         updatedAt: known?.updatedAt || new Date().toISOString(),
         provider: state.selection.provider,

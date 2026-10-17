@@ -41,7 +41,6 @@ export function backendLabel(backend: Backend): string {
 export function effortText(params: { id: string; value: string }[] | undefined, hasDetails: boolean, locale: 'ja' | 'en'): string | null {
   const effort = params?.find((param) => parameterRole(param.id) === 'effort');
   if (effort) return formatToken(effort.value);
-  if (hasDetails) return locale === 'ja' ? '既定' : 'Default';
   return null;
 }
 
@@ -234,6 +233,7 @@ export function buildShell(source: ShellSource): ViewShell {
       waitMs: turn.waitMs,
       status: turn.status,
       intent: turn.intent,
+      ...(turn.usage ? { usage: turn.usage } : {}),
       ...(turn.finalMessageId ? { finalMessageId: turn.finalMessageId } : {}),
     })),
     subagents: state.subagents.map((item): ViewSubagent => ({
@@ -287,6 +287,8 @@ export function toViewMessage(message: ChatMessage): ViewMessage {
     id: message.id,
     role: message.role,
     text: message.text,
+    ...(message.turnId ? { turnId: message.turnId } : {}),
+    ...(message.failure ? { failure: message.failure } : {}),
     ...(message.at !== undefined ? { at: message.at } : {}),
     ...(message.attachments?.length ? { attachments: message.attachments } : {}),
     ...(message.final ? { final: true } : {}),

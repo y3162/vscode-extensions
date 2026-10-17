@@ -14,6 +14,7 @@ export class Header {
   private readonly title: HTMLElement;
   private readonly chatSettings: HTMLButtonElement;
   private readonly live: HTMLElement;
+  private readonly terminals: HTMLButtonElement;
   private liveText = '';
 
   constructor(
@@ -24,6 +25,7 @@ export class Header {
     private readonly onNewChat: () => void,
     private readonly onSettings: () => void,
     private readonly onBack: () => void,
+    private readonly onTerminals: (anchor: HTMLElement) => void,
   ) {
     this.homeBar = dom.el('div', 'top-bar home-bar');
     this.provider = dom.button('provider', copy.provider, 'chevron-down');
@@ -44,7 +46,11 @@ export class Header {
     this.title = dom.el('h1', 'title-pill');
     this.chatSettings = dom.button('icon-btn header-btn open-settings', copy.settings, 'settings-gear');
     this.chatSettings.addEventListener('click', () => this.onSettings());
-    this.chatBar.append(this.back, this.title, this.chatSettings);
+    const chatActions = dom.el('div', 'home-actions');
+    this.terminals = dom.button('icon-btn header-btn open-terminals', copy.backgroundTerminals, 'terminal');
+    this.terminals.addEventListener('click', () => this.onTerminals(this.terminals));
+    chatActions.append(this.terminals, this.chatSettings);
+    this.chatBar.append(this.back, this.title, chatActions);
 
     this.live = dom.el('span', 'live');
     this.live.setAttribute('aria-live', 'polite');
@@ -61,6 +67,8 @@ export class Header {
     this.caption(this.fresh, copy.newChat);
     this.caption(this.homeSettings, copy.settings);
     this.caption(this.chatSettings, copy.settings);
+    this.terminals.hidden = !shell.terminals.length;
+    this.caption(this.terminals, `${shell.terminals.length} ${copy.backgroundTerminals}`);
     this.caption(this.back, copy.back);
     this.title.textContent = shell.sessionTitle;
     this.title.title = shell.sessionTitle;

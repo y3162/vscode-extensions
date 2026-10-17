@@ -328,3 +328,173 @@ Review / 復元は確実に取得した原文だけを使う。Git 管理外、i
 - 子カード詳細の実画面確認、IME 変換、画像貼付、実承認の手操作、フル Reload / ワークスペース切替 / 通信断 / 極端に長い会話を実機確認する。コマンド・編集の二重実行がないことも確認する。
 
 公式仕様参照: [App Server](https://learn.chatgpt.com/docs/app-server)、[Cursor ACP](https://cursor.com/docs/cli/acp)、[Cursor SDK](https://cursor.com/docs/sdk/typescript)。公開一覧・thread read の範囲で実装し、モデルの説明文を状態の証拠にしない。
+
+## 0.9.0 チャット信頼性修復（2026-10-17）
+
+本節は今回の追記。バージョンは **0.9.0**。実装・自動テスト・実バックエンド確認に加え、GUI権限反映後に実サイドバーの手操作を追加した。ACPの最終回答欠落と未検証ケースが残るため、v1.0.0移行評価は **Not Ready** とする。スクリーンショットは今回の実Extension Development Hostで新規撮影した。
+
+環境: macOS arm64、開発Node 26.7.0、VS Code 1.142.0、Extension Host Node 24.21.0。Cursor SDK 1.0.37／platform package 1.0.37、Cursor CLI 2026.06.26-7079533、Codex SDK／同梱CLI 0.162.1。実推論は一時Gitワークスペースと隔離profileで実施。グローバル認証・sandbox設定は変更していない。
+
+### 原因と主要な変更
+
+| 不具合 | 変更前の事実・根本原因 | 実装 |
+| --- | --- | --- |
+| Cursor SDKのsandboxエラー | `Agent.create`／`Agent.resume`は成功、最初の`agent.send`で`ConfigurationError`、isRetryable=false。SDKのplatform helper探索はSDK自身の場所でなくargv[1]／実行ファイルの祖先を使う。Extension Hostではその場所がVS Codeになる | 拡張機能配下の`dist/cursor-worker.cjs`をNodeモードでforkし、既存AgentSessionをIPCで提供。sandboxを有効のまま渡す。SDKコード・プロセス全体のargvを書き換えない |
+| 「履歴を返さない」の表示 | 表示履歴全体の永続化がなく、Cursor `Agent.messages.list`のmessageをcontent配列として読んでいた。実物はprotobufのturn oneofで、JSONではagentConversationTurnになる | public messages APIのoneof／JSON双方を正規化。ユーザー・公開Thought・ツール・回答を復元。Run APIを補助に使う |
+| ローカル会話の消失・混入 | reset中にbackend IDを失ったsnapshotが同じ保存先を上書きし得た。復元時のcwd／backendが現在の設定に依存。300メッセージ／40ターン／32,000文字の破棄があった | SessionRegistryで過去controllerを保持し、workspace storageへ会話UUID付きsnapshotを保存。保存済みbackend／cwdで再開し、backend turn/item IDで照合。元本文・Turnの固定件数破棄を撤去 |
+| コピー不能・装飾混入 | Webview Clipboard APIへ直接書き込み、拒否を無視。回答は描画DOMのtextContentをコピー。ユーザー／ツールの操作も不足 | request ID付きでHostへ送信し、`vscode.env.clipboard.writeText`の完了／失敗を返す。Markdown原文・コード本文・元ツール文字列を保持 |
+| Usage不可視・二重計上 | 可視表示がなく、使用量はsr-only要素に含まれていた。全通知を単純加算していた | 会話概要とターン値を可視化。Run sampleの置換とセッション累積snapshotを分離。Codex累積値は保存した基準から差分を計算 |
+| Retry／追加不具合 | Retryは単なる下書き復帰で対象試行がなかった。失敗後もキューを自動送信し得た。空の会話でbackend変更が実行設定に伝わらず、休止済み会話では構造設定変更がresetされなかった | Retry対象・新試行IDを保持し、元ユーザー表示を共有。明示Sendまで実行しない。失敗で自動送信を停止。会話ごとの実行設定を更新し、backend名だけでなく実Usage.sourceも検証 |
+
+変更箇所は、provider worker／履歴normalization、ChatController／SessionRegistry／HistoryStore、sidebar／ViewState／Webview、ビルド・パッケージ・テスト。Plan／Build、子、Terminal、Reviewの既存経路を維持した。SDKの実行不能時は設定エラーとして表示し、Diagnoseで環境・ヘルパー・設定ファイルの有無を確認できる。Logsにはredact済みのエラー種別・段階・本文を記録する。
+
+ローカルにも変更前VSIXにもcursorsandboxとtree-sitterが存在し、helperは実行可能だった。ユーザーと調査workspaceにsandbox.jsonは存在しなかった。起動パスだけを拡張配下にした変更前比較では、sandbox有効のままHiと2ターン目が成功。SDK配置不足や設定ファイル削除で解決する問題ではなかった。
+
+### 保存方針と復元
+
+- ユーザー選択どおり手動削除まで保持する。保存先は`ExtensionContext.storageUri/history/v1`。新規保存を`ai-agents.history.enabled`で無効化できる。
+- `AI Agents: Delete Local Display History`で現在／全ローカル履歴を削除する。既存Plan保存分も対象。遅延したbackground更新で削除分を復活させない。backendの会話は削除しない。
+- 本文、公開Thought要約、ツール結果、Planと版、子・Terminal・変更ファイル・Turn状態・Usageを保存する。認証設定、環境変数、承認待ちトークン、セッション内許可、画像バイナリは保存しない。本文／ツール出力に含まれる機密情報は保存され得る。全文の暗号化は追加していない。
+- ディレクトリ0700／ファイル0600、会話別の直列・atomic更新。実行中は500msで間引き、アイドル・切替・終了時にflushする。旧schema／破損ファイルは削除せず診断する。
+- 表示snapshotを先に戻してからbackendへ接続する。過去プロンプトの再送はしない。保存済みIDは重複表示せず、backendの未知ターンと識別できる欠落itemを取り込む。取得失敗でもローカル本文を消さない。
+- 保存時に実行中だったTurnは中断として戻し、承認待ちは再利用しない。子・Terminalは不明を完了扱いしない。旧Planは読み取り移行用として維持し、新規Planは会話snapshotに含める。
+
+### Backend別の履歴とToken Usage
+
+| Backend | 表示履歴の取得 | Usageの取得・集計 | 未取得・制限 |
+| --- | --- | --- | --- |
+| Cursor SDK | local snapshot + 公開Agent.messages.list／listRuns／run.conversation | SDKUsageMessage、run/result.usage fallback。Runの記録を会話へ集計。inputはcacheを含まず、totalはinput + output + cache read + cache write。reasoningはoutput内数 | context window未取得。Agent.getUsageのlocal usage UUIDとクライアントRun IDは別物。請求・価格推定は表示しない |
+| Cursor ACP | local snapshot + initializeで広告されたsession/loadの再生 | このCLIのinitialize応答にはUsage広告がなく、使用量は非対応と表示 | session/resumeも未広告のため使用しない。未知の拡張通知から推測しない |
+| Codex SDK | local snapshot。resumeThreadはモデル会話継続用 | 実0.162.1のturn.completed.usageは累積。input 15,991 → 32,003 → 再開49,189を変更前に実測。累積を置換し、既知の前値との差分だけTurnへ配分 | 公開SDKに本文履歴取得APIがなく、保存開始前の旧会話本文は復元不能。基準不明のTurn値は未取得 |
+| Codex App Server | snapshot + thread/resume、thread/turns/list(full)、read fallback | 同梱Schemaのthread/tokenUsage/updatedのtotal／lastを分離。totalを置換しTurn差分を計算。lastは直近リクエストとしてcontext表示に使用 | cache write／reasoning／modelContextWindowは返却分のみ。lastをそのままTurn全体へ加算しない |
+
+全経路で未取得と実測0を区別する。reasoningの二重加算、累積値の再加算、streamとresultの二重計上をしない。部分的にしか得られない内訳を会話全体の確定値にしない。
+
+### 実行結果
+
+| 検証 | 結果 |
+| --- | --- |
+| npm run check | 成功 |
+| npm test | **108 passed / 0 failed**。表示保存・再構築・ID照合・protobuf oneof・320メッセージ／160Turn・長文・Usage差分・Retry・コピー原文／成功／失敗を含む |
+| npm run build | 成功。extension／webview／cursor-workerの3成果物 |
+| npm run test:integration | 実Extension Host + fixtureで成功。モデルpicker、Stop、Queue、背景会話、設定変更、承認、Review、webview probeを含む |
+| npm run test:protocol | 実CLI、**2 passed** |
+| npm run test:live | 実4backend + 切替、**5 passed**。新規・2ターン・Stop・再開 |
+| npm run test:tools | 実4backend、**4 passed**。実編集・拒否／許可・原文復元。ツール出力処理の修正後にも再実行 |
+| npm run test:runtime | 実子並列2経路、Terminal自然終了／terminate、Plan改訂／Build3経路、親Stop、**7 passed** |
+| 追加Cursor SDK Task | runtime suiteへ新規ケースを追加し、そのケースを単独実行、**1 passed**。実Task running → completed、実子のshell出力CHILD_SANDBOX_OK。sandbox有効の専用worker。上の7件と合わせて1回の8件suiteを回したという意味ではない |
+| 保存前Cursor会話の復元 | 実JsonlLocalAgentStoreを公開APIで再開し、2ユーザー＋2公開Thought＋2回答をworker経由で復元。型fixtureだけでなく実protobuf oneofを確認 |
+| VSIX package／install | 0.9.0 darwin-arm64 VSIX生成・隔離profileへのCLIインストール成功 |
+| インストール済みVSIX | 開発source指定をinstalled extension pathへ変更した実Hostで既存integration成功。worker／helper／tree-sitterの同梱・権限・内容一致を確認 |
+| 4backendの追加Host検証 | 開発版とinstalled VSIXの双方で、各3ターン、Home／別チャット／復帰、クリップボード読戻し成功。Hostプロセス終了→同じprofile起動の2段階で、3ユーザー・3Turn・Usageの復元と4ターン目の実回答を確認 |
+
+追加Host検証の再現方法（ライブ推論あり）:
+
+```bash
+AI_AGENTS_RELIABILITY=1 AI_AGENTS_RELIABILITY_EVIDENCE=/private/tmp/ai-agents-host-evidence.json npm run test:integration
+```
+
+VSIXでは`AI_AGENTS_TEST_EXTENSION_PATH`へ隔離インストール先を指定する。スクリプトは同じworkspace／profileでinitial→reloadの2プロセスを起動する。これはプロセス再起動の確認で、手操作によるReload Windowコマンド確認とは区別する。
+
+証拠の要約は[RELIABILITY_090_EVIDENCE.json](RELIABILITY_090_EVIDENCE.json)と[VSIX内容検証](RELIABILITY_090_VSIX.json)。各backendの実Usage、3Turn時点の件数、再起動結果を記録した。最後のログ出力追記で推論経路は変更していない。その追記を含む最終VSIXを再インストールし、通常integrationも再実行して成功した。source／VSIX／installedのJS3成果物はバイト一致を再確認した。
+
+### コピー・実画面の確認範囲（GUI再試行後）
+
+最初のGUI接続はCodeへの承認拒否だったが、ユーザーの許可反映後の再試行で接続できた。以下はブラウザプレビューではなく、隔離profileとインストール済みVSIXを指定した **実Extension Development Host** のサイドバーで実施した。通常の空ウインドウと検証ホストが別プロセスだったため、空ウインドウを終了して検証ホストを選択した。
+
+- **コピー実ボタン**: App Serverの復元済み会話で、コード、回答全文、ユーザーメッセージのCopyを押し、Composerへ通常のCmd+Vで貼り付けた。コードは`console.log("日本語 😀");`、回答全文は`**reliability**`と改行・fenceを含むMarkdown原文、ユーザー本文も完全一致。送信せず下書きを消した。
+- **ツール結果コピー**: GUIからCursor SDKにprintfを実行させ、Worked for → shell詳細 → Copy → ComposerへのCmd+Vで、終了コード・複数行stdoutを含む元JSON文字列と一致を確認した。
+- **Host単体の補助確認**: 回答Markdown、日本語・Unicode、空文字列、120,000文字はcopyハンドラーから`vscode.env.clipboard.readText`へ完全一致。コピー失敗応答はDOMテストであり、実OSの失敗注入ではない。
+- **幅・テーマ**: サイドバー300px／390px相当（Retina 2倍画像の境界差600／780px、sashを除く）でDark 2026、Light Modern、Dark High Contrastを目視。回答・コード・折りたたみUsage・Composerが利用できることを確認し、6枚を保存した。非常に長い履歴の実機表示は今回の3ターン表示と区別する。
+- **履歴・Usage**: Home → 同じ会話でApp Serverの3ターンとUsageを再表示。Cursor SDKの3ターン、入力26,535／出力117／cache read16,768／total43,420、reasoning92の内数表記を確認。App Serverは入力49,540／出力34／total49,574、cache read40,064、context17,253／258,400（6.7%）。ACPは0にせず非対応と表示した。
+- **SDK実操作**: 新規チャットのHiに日本語の実回答、継続ターンのshell実行、sleep要求に対するStopでReadyへ復帰することを確認。AccessはSandboxのまま。実行中画面も保存した。
+- **Plan → Build／Review**: GUIでPlanを選び、`gui-check.txt`作成を計画。Build前にファイル不存在、Buildクリック後に`GUI_BUILD_OK\n`を実ファイルで確認した。Build finished、File Changes +1 −0、Reviewのdiff editorが開くことを確認した。
+- **診断・ログ**: Run Connection DiagnosticsからSettingsのDiagnosticsを表示し、Host Node・CLI・SDK auth・sandbox helperの検出を確認。LogsボタンでAI Agents Outputが開いた。診断にアカウント情報が含まれるため、その画面は保存画像に含めていない。
+
+画像: [dark 300](screenshots/reliability-090/dark-300.png)、[dark 390](screenshots/reliability-090/dark-390.png)、[light 300](screenshots/reliability-090/light-300.png)、[light 390](screenshots/reliability-090/light-390.png)、[high contrast 300](screenshots/reliability-090/high-contrast-300.png)、[high contrast 390](screenshots/reliability-090/high-contrast-390.png)、[SDK履歴](screenshots/reliability-090/cursor-sdk-restored.png)、[ACP履歴](screenshots/reliability-090/cursor-acp-restored.png)、[SDK実行中](screenshots/reliability-090/cursor-sdk-running.png)、[Plan](screenshots/reliability-090/cursor-sdk-plan.png)、[Build](screenshots/reliability-090/cursor-sdk-build.png)、[Review](screenshots/reliability-090/cursor-sdk-review.png)。
+
+追加GUI／再起動検証の要約は[RELIABILITY_090_GUI.json](RELIABILITY_090_GUI.json)。今回も同じprofileのプロセス再起動後、4backendの保存3TurnとUsageの復元・追加の実回答を確認した（終了コード0）。これは手操作のReload Windowとは別の検証である。製品コードとバージョンはこのGUI再試行では変更していない。
+
+### GUI追加検証で発見した未解決事項
+
+- 今回のACPの3ターン会話では、2ターン目の「覚えた単語だけを返す」要求に対する最終Assistant回答が表示されなかった。保存snapshotにも該当ターンのユーザー本文と公開ThoughtはあるがAssistant itemがない。したがって今回の再表示だけの欠落とは判断できない。生のACP通知とprompt応答を採取して、CLIの返却不足かAdapterの取りこぼしかを確定する必要がある。Thoughtを最終回答へ転用していない。
+- reliability Host harnessは3ユーザー／3Turnと、会話中のいずれかの回答に記憶単語があることを検証していたため、この欠落を合格として通過した。下記の再起動harness成功を「ACPの全3回答が正常」と解釈しない。各ターンの最終回答を要求する受入チェックの追加が必要。
+- Copy成功ラベルは日英併記で、300pxのユーザーメッセージ横では一時的に縦へ長く折り返された。本文やコピー内容は正しいが、コンパクトなフィードバックへの調整が残る。
+
+### 残る制限とv1.0.0前の作業
+
+1. 上記ACPの最終回答欠落を再現・修正する。実ボタンからの失敗後Retry、手操作のReload Window、ネイティブIME変換、画像貼付、通常の選択コピー、長い履歴・全バックエンドでのUI操作は引き続き未検証。今回の成功を全UIシナリオ合格としない。
+2. 本修復前に表示を保存していなかったCodex SDK会話の本文は取得できない。旧索引にbackend識別がない場合は選択を求める。
+3. 同じbackendターンを他クライアントが同時変更した場合、完全な競合解決・全backendの外部変更検知は保証しない。保存された中断本文を消さず、未知／未取得を保持する。旧import履歴の全tool metadata／Plan版／時刻の完全性も、返却APIに依存する。
+4. Stop／失敗時、backendが返さなかったUsageは未取得のまま。ACPのUsage、Cursor SDKのcontext window、価格推定は追加していない。
+5. 4backendそれぞれについて、キャッシュwriteが非0のケース、複数ツールとUsageの対応、通信断・Reloadと副作用が重なるケース、失敗後Retryの全ライブ組合せは未網羅。既存自動回帰／部分ライブの成功を全組合せ成功としない。
+6. Cursor SDK Taskは今回1子の実呼び出しを確認。子別モデル指定・全コンテキスト継承・Foreground／Backgroundの全組合せまでは合格扱いしない。App Serverでは親Stop後も子がrunningの場合があり、停止済みと偽らない。
+
+主要チャット操作はコード・自動回帰・実バックエンド・installed VSIXと一部の実GUIで確認できた。ただしACPの最終回答欠落と未検証事項が残るため、総合判定は **実装済み／自動・ライブ・GUI検証済み部分あり、手動受入未完了** とする。
+
+
+### 2026-10-17 モデル選択・送信・コピー配置と子実行の再確認
+
+- WebviewとネイティブQuick Pickの合成Default項目を削除。未指定時は「モデルを選択」と表示する。実モデルの推奨属性とパラメーターの既定値は維持する。
+- 送信ボタンをborderなしの中央揃えに変更。回答・ユーザー本文のコピー操作は本文下のアイコン行へ移動し、成功／失敗表示は表示言語に合わせる。
+- terminalErrorがreplaceChildrenで消えていたため修正。ファイル変更なしでも取得エラーを表示する。
+- 実推論テストのモデル指定をCodexはgpt-6-luna、Cursorはcomposer-2.5へ統一。ACPでoptions.modelをCLIへ渡していなかったため、--modelを追加した。
+- `npm run check`、`npm test`（109件）、`npm run test:integration`成功。結合テストはDefault削除で最初の項目が変わるため、余分な下移動を削除した。GUIでの配置の目視受入は今回未完了。
+- App Serverライブ: gpt-6-lunaの2子が約10秒ずつ実行され、開始／終了区間が重複し、親のrunが両者の終了後に戻ることを確認。Background Terminalはstdout／stderr、自然終了、別会話へ移動した後の元会話への更新、明示停止が成功した。
+- Cursor SDKライブ: composer-2.5を指定し、実Taskのrunning→completedと子shell出力の最終回答への到達を確認した。
+- ACPライブ: composer-2.5を--modelで指定しても、子イベントのモデルはcomposer-2.5-fastだった。Taskの完了と親への復帰は観測したが、指定モデルで子が動いたとの合格には含めない。再開／結果取得に同じagentIdで別toolCallIdが来るため、複数カードになるケースも観測した。バックグラウンド起動直後のTask応答時間を子の実作業時間と同一視しない。
+- 子の表示は現在、名前・状態・タスク・結果プレビューまで。メインと同様の子専用トランスクリプト画面は未実装。バックグラウンドターミナル出力のDOM表示と実出力更新はそれぞれ自動／ライブで確認したが、今回実ターミナル表示の目視確認はしていない。
+- 指定参考画像はDocumentsのmacOSアクセス制限で読めず、許可付きcpもOperation not permitted。画像との一致は未確認。
+
+
+### 2026-10-17 参考画像の確認後
+
+プロジェクト直下へ置かれた「スクリーンショット 2026-10-17 9.13.12.png」を読み取り、ユーザー本文下は右揃え、回答本文下は左揃えの操作行に合わせた。行の余白、角丸、28pxのアイコン領域を統一した。ユーザー側の編集アイコンは元の本文を入力欄へ戻してフォーカスする。送信や過去のメッセージの書き換えは行わない。画像にある共有・読み上げは既存機能にないため追加していない。画像が読めなかった前節の制約は解消したが、更新後の実GUI目視確認とは区別する。
+
+
+### 2026-10-17 バックグラウンドターミナルのパネル表示
+
+参考画像「スクリーンショット 2026-10-17 9.28.04.png」を確認。入力欄直上の折りたたみ一覧とチャットヘッダーのターミナルメニューから、VS Code下部のTerminal PanelにPseudoterminalを開く。同一セッション・同一processIdの再クリックは同じタブを再表示し、コマンドの再実行や追加推論はしない。出力は元セッションから購読し、累積snapshotの差分を表示する。タブを閉じる操作は表示の切り離しのみで、停止操作とは分けた。
+
+- VS Code実Extension Hostでターミナル生成、同一タブの再表示、sendTextによるCtrl+C入力、閉じても停止APIを呼ばないことを確認した。
+- App Serverの実gpt-6-lunaがtty付きで起動したPythonバックグラウンドプロセス（processId 77763）に接続し、ATTACH_READYの表示、Ctrl+C入力からランタイム停止、元プロセスの終了通知を確認した。
+- OS PIDはプロトコル上nullableで、この実ランタイムでも公開されなかった。そのためSIGINT送信案は採用せず、Ctrl+Cは公開thread/backgroundTerminals/terminateへ接続している。これはSIGINTハンドラー実行の保証ではない。
+- 現在ターミナル一覧・出力を提供しているのはCodex App Server経路。Cursor ACP／SDKとCodex SDKへの同等接続は未実装で、この機能のライブ検証成功に含めない。
+- 任意の文字入力・PTYリサイズ・対話シェルへの完全なattachは公開APIにないため未対応。ターミナル内にも文字入力転送が未対応であることを表示する。別の無関係なシェルを開いて接続済みと見せることはしない。
+
+
+### チャット内ターミナル表示の維持
+
+パネル表示追加時に外してしまった入力欄直上の出力プレビューを復元。チャット欄でコマンド・状態・最新出力・取得エラーを確認でき、同じ行のクリックでTerminal Panelも開ける。パネルを開いた後もチャット内の出力表示を維持する。
+
+
+### 0.9.1: 実画面で一覧が出なかった原因とCursor SDK修正
+
+ユーザーの実VS Code画面をAXで確認した。インストール済み0.9.0のextension.js・main.js・CSSはソースからビルドしたものと一致していたが、会話はCursor SDKでありterminal一覧が空だった。App Serverだけに実装した一覧をCursor SDKにもあると誤認してはならない。
+
+Cursor SDK 1.0.37の実記録では、背景sleep 120は開始約1.2秒後にstatus abortedとなっていた。モデルの「実行中」という回答やShellのsuccessだけをプロセス状態に転用しない。SDKはturn完了時にruntimeをdisposeし、背景shellも中断する挙動をライブで確認した。このライフサイクル自体は本変更では差し替えていない。
+
+修正は以下の通り。
+
+- SDKの実プロジェクトterminalログを100ms間隔で読み、実プロセスがこのワーカーの子孫である間にのみ所属を確定する。会話外のログ・古い記録・PIDだけの主張からは登録しない。
+- 所属確定後はSDKのstatus、stdout/stderr、終了コードを元会話へ送る。親ターン後もworker IPCの背景通知を配送し、終了・中断の記録を一覧に残す。
+- SDKはこの記録の保存先にCURSOR_DATA_DIRを使用しないことを同梱コードで確認した。環境変数で分離したつもりにせず、実際の保存先とプロセス系譜を使う。
+- 現在は未公開のSDKファイル形式への依存がある。対応確認バージョンは1.0.37。形式不一致は表示不能として扱い、推測したプロセスを操作しない。
+- SDKのCtrl+Cは所属を再確認したプロセスのSIGINT。文字入力転送は引き続き未対応。中断済みの行は停止ボタンを無効化する。
+- Composer 2.5ライブで実Python背景実行の出力とcancelled状態が親ターン後も取得できることを確認した。自動回帰では入力欄直上とヘッダーに中断済み状態が残ることも確認した。
+
+
+0.9.1の最終確認: 型チェックと自動テスト119件が成功。通常のExtension Host結合テストに加え、検証専用VS Code 1.142.0でComposer 2.5を実行し、AXとスクリーンショットで次を確認した。入力欄の直上に「1 Background terminals」、実Pythonコマンド、cancelled、TERMINAL_UI_READYと終了記録が表示される。ヘッダーにも「1 Background terminals」ボタンがある。一覧のコマンドをクリックすると下部のAI Agentsターミナルが開き、同じ出力とProcess exitedが表示された。長いコマンドで状態が省略されないよう、最終調整で状態ラベルを分離した（この調整はDOM回帰で確認）。モデル名の後ろに残っていた不要なDefault表示も削除した。
+
+
+### 0.10.0: Cursor SDK背景プロセスの寿命修正
+
+0.9.1で観測したターン終了時の中断を修正。SDKのnative背景executorを会話workerで保持し、自然終了・明示停止・会話dispose時に解放する。SDK 1.0.37の元ソースhashと置換数を検証する互換アダプターを同梱した。
+
+- Composer 2.5の実背景Pythonで親の返答後もrunningを維持し、120秒後にDONE、exit_code 0、elapsed_ms 120226で自然終了した。
+- 追加ターンを送っても同じ背景プロセスが生存。TerminalMonitorのCtrl+Cからnative managerで停止し、cancelledへ更新した。
+- 会話disposeで実PIDが消えることと、二重disposeが成功することを実プロセスで確認。
+- VS Code 1.142.0の実Extension Host結合テスト成功。実GUIのAXで、親がReadyになった後も入力欄直上の背景一覧にrunningとTERMINAL_UI_READYが表示されることを確認。行クリックで下部のAI Agentsターミナルが開いた。GUIの物理キー入力によるCtrl+Cは今回の追加検証に含めない。
+- 任意の文字入力転送は引き続き未対応。通常のforeground shellを背景一覧へ登録しない。
+
+最終確認: `npm run check`、`npm test`（122件）、`npm run package`が成功。0.10.0 VSIXに互換SDKランタイムとLICENSEを同梱。

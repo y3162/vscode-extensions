@@ -9,6 +9,7 @@ export type Block =
   | { type: 'table'; header: string[]; rows: string[][] }
   | { type: 'hr' };
 
+export const codeSources = new WeakMap<Element, string>();
 const rendered = new WeakMap<HTMLElement, { sigs: string[]; nodes: HTMLElement[] }>();
 
 export function parseMarkdown(source: string): Block[] {
@@ -137,6 +138,7 @@ function renderBlock(block: Block, dom: Dom, copyLabel: string): HTMLElement {
     }
     case 'code': {
       const wrap = dom.el('div', 'code-block');
+      codeSources.set(wrap, block.code);
       if (block.lang) wrap.dataset.lang = block.lang;
       const bar = dom.el('div', 'code-bar');
       bar.append(dom.el('span', 'lang', block.lang));

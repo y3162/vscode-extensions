@@ -2,7 +2,7 @@
   "name": "ai-agents",
   "displayName": "AI Agents",
   "description": "Use Cursor and Codex agents from the VS Code sidebar.",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "publisher": "y3162",
   "private": true,
   "license": "UNLICENSED",
@@ -30,6 +30,7 @@
       "ai-agents-secondary": [{ "type": "webview", "id": "ai-agents.secondaryChat", "name": "Chat" }]
     },
     "commands": [
+      { "command": "ai-agents.clearLocalHistory", "title": "AI Agents: Delete Local Display History" },
       { "command": "ai-agents.open", "title": "AI Agents: Open Sidebar" },
       { "command": "ai-agents.newChat", "title": "AI Agents: New Chat", "icon": "$(add)" },
       { "command": "ai-agents.showHistory", "title": "%command.showHistory%", "icon": "$(history)" },
@@ -64,6 +65,10 @@
     "configuration": {
       "title": "AI Agents",
       "properties": {
+        "ai-agents.history.enabled": {
+          "type": "boolean", "default": true,
+          "description": "Save chat display history locally until manually deleted. May contain conversation text and tool output. Never replays prompts to the model."
+        },
         "ai-agents.defaultProvider": {
           "type": "string", "enum": ["codex", "cursor"], "default": "codex",
           "description": "Provider selected when opening a new sidebar."

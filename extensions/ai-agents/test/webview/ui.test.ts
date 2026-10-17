@@ -357,6 +357,8 @@ test('the model menu searches, checks the selection, and keeps the draft', () =>
   click(visible(window.document, '.menu-item[data-id="model"]'));
   const search = window.document.querySelector('.menu-search') as HTMLInputElement;
   assert.equal(search.placeholder, 'Search models');
+  assert.equal(window.document.querySelector('[data-id="model:default"]'), null);
+  assert.doesNotMatch(search.closest('.model-menu')?.textContent ?? '', /Default model/);
   assert.equal(visible(window.document, '.menu-item[data-id="model:gpt-6"]').getAttribute('aria-checked'), 'true');
   assert.match(visible(window.document, '.menu-item[data-id="model:gpt-6"]').title, /A very long model name|GPT-6.1 Sol/);
   search.value = 'missing-model';
@@ -500,7 +502,9 @@ test('terminals render without file changes and unknown subagents are not labele
   app.style.width = '300px';
   assert.match(window.document.querySelector('.terminal-row')?.textContent ?? '', /sleep 30/);
   assert.equal(window.document.querySelector('.change-file'), null);
-  (window.document.querySelector('.terminal-row button') as HTMLButtonElement).click();
+  (window.document.querySelector('.terminal-row .terminal-open') as HTMLButtonElement).click();
+  assert.equal(posted(sent, 'openTerminal')?.processId, 'p1');
+  (window.document.querySelector('.terminal-row .terminal-stop') as HTMLButtonElement).click();
   assert.equal(posted(sent, 'terminateTerminal')?.processId, 'p1');
   const subagent = window.document.querySelector('.subagent');
   assert.match(subagent?.textContent ?? '', /explore/);
@@ -536,4 +540,115 @@ test('the view title does not duplicate home and chat actions', () => {
   for (const command of ['ai-agents.newChat', 'ai-agents.showHistory', 'ai-agents.showSettings', 'ai-agents.stop', 'ai-agents.signIn', 'ai-agents.diagnose']) {
     assert.equal(commands.includes(command), true, command);
   }
+});
+
+test('copy uses original Markdown/code/user/tool text and reports host success or failure', () => {
+  const { window, sent, emit } = mount();
+  const answer = '**日本語 😀**\n\n```ts\nconst x = "λ";\nconsole.log(x);\n```';
+  emit(shell(), [
+    { id: 'u', role: 'user', text: '質問\n二行', at: 1 },
+    { id: 't', role: 'tool', text: 'stdout\nstderr 😀', at: 2, tool: { name: 'shell', kind: 'shell', status: 'completed' } },
+    { id: 'a', role: 'assistant', text: answer, final: true, at: 3 },
+  ]);
+  assert.ok(window.document.querySelector('.answer > .message-actions > .copy-answer'));
+  assert.ok(window.document.querySelector('.user-row > .message-actions > .copy-user'));
+  click(window.document.querySelector('.copy-answer')!);
+  let request = posted(sent, 'copy')!; assert.equal(request.text, answer);
+  window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'copyResult', requestId: request.requestId, ok: true } }));
+  assert.match(window.document.querySelector('.copy-answer')!.getAttribute('title')!, /Copied/);
+  click(window.document.querySelector('[data-action="copy-code"]')!);
+  request = posted(sent, 'copy')!; assert.equal(request.text, 'const x = "λ";\nconsole.log(x);');
+  window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'copyResult', requestId: request.requestId, ok: false } }));
+  assert.match(window.document.querySelector('[data-action="copy-code"]')!.getAttribute('title')!, /failed/);
+  click(window.document.querySelector('.user-row [data-action="copy-source"]')!);
+  assert.equal(posted(sent, 'copy')!.text, '質問\n二行');
+  click(window.document.querySelector('.log-toggle')!);
+  click(window.document.querySelector('[data-action="toggle-tool"]')!);
+  click(window.document.querySelector('.tool-row-item [data-action="copy-source"]')!);
+  assert.equal(posted(sent, 'copy')!.text, 'stdout\nstderr 😀');
+});
+
+test('token usage is visibly rendered with cache semantics, context and unsupported state', () => {
+  const { window, emit } = mount();
+  emit(shell({ usage: { inputTokens: 100, outputTokens: 20, cachedInputTokens: 50, totalTokens: 120, inputIncludesCache: true, contextWindow: 1000, contextTokens: 100 } }));
+  assert.match(window.document.querySelector('.usage-panel summary')!.textContent!, /Input 100.*Output 20.*Total 120/);
+  assert.match(window.document.querySelector('.usage-panel pre')!.textContent!, /10.0%/);
+  emit(shell({ backend: 'acp', usage: null }));
+  assert.match(window.document.querySelector('.usage-panel summary')!.textContent!, /Unsupported/);
+});
+
+
+test('a background terminal list error remains visible without files or terminals', () => {
+  const { window, emit } = mount();
+  emit(shell({ terminalError: 'connection lost', changes: [], terminals: [] }));
+  const bar = window.document.querySelector('.change-bar');
+  assert.equal(bar?.hidden, false);
+  assert.match(bar?.textContent ?? '', /connection lost/);
+});
+
+
+test('message editing restores the original prompt as a focused draft without sending', () => {
+  const { window, sent, emit, input } = mount();
+  const original = '日本語の質問\n二行目';
+  emit(shell(), [
+    { id: 'u', role: 'user', text: original, at: 1 },
+    { id: 'a', role: 'assistant', text: 'Answer', final: true, at: 2 },
+  ]);
+  click(visible(window.document, '.new-chat'));
+  input().value = 'draft';
+  click(window.document.querySelector('.user-row > .message-actions > .edit-user')!);
+  assert.equal(input().value, original);
+  assert.equal(window.document.activeElement, input());
+  assert.equal(posted(sent, 'send'), undefined);
+  assert.equal(posted(sent, 'prepareRetry'), undefined);
+  assert.equal(window.document.querySelector('.bubble')?.textContent, original);
+});
+
+
+test('background terminals open from the chat header and preserve their conversation identity', () => {
+  const { window, sent, emit } = mount();
+  emit(shell({ terminals: [{ processId: 'p1', command: 'sleep 120' }] }));
+  click(visible(window.document, '.new-chat'));
+  click(visible(window.document, '.open-terminals'));
+  const item = visible(window.document, '.menu-item[data-id="p1"]');
+  assert.match(item.textContent ?? '', /sleep 120/);
+  click(item);
+  assert.deepEqual(posted(sent, 'openTerminal'), {
+    provider: 'codex', cwd: '/workspace', conversationId: 'front', type: 'openTerminal', processId: 'p1',
+  });
+  click(visible(window.document, '.terminal-heading'));
+  assert.equal(window.document.querySelector('.terminal-items')?.hidden, true);
+  emit(shell({ terminals: [{ processId: 'p1', command: 'sleep 120', output: 'new output' }] }));
+  assert.equal(window.document.querySelector('.terminal-items')?.hidden, true);
+});
+
+
+test('chat keeps live terminal state and output alongside the panel opener', () => {
+  const { window, sent, emit } = mount();
+  const row = { processId: 'p1', command: 'build', status: 'running', output: 'stdout\nstderr' };
+  emit(shell({ terminals: [row] }));
+  click(visible(window.document, '.new-chat'));
+  assert.match(window.document.querySelector('.terminal-open')?.textContent ?? '', /running/);
+  assert.equal(window.document.querySelector('.terminal-output')?.textContent, row.output);
+  click(window.document.querySelector('.terminal-open')!);
+  assert.equal(posted(sent, 'openTerminal')?.processId, 'p1');
+  assert.equal(window.document.querySelector('.terminal-output')?.textContent, row.output);
+  emit(shell({ terminals: [{ ...row, status: 'unknown', output: 'stdout\nstderr\nlatest', error: 'connection lost' }] }));
+  assert.match(window.document.querySelector('.terminal-open')?.textContent ?? '', /unknown/);
+  assert.equal(window.document.querySelector('.terminal-output')?.textContent, 'stdout\nstderr\nlatest');
+  assert.match(window.document.querySelector('.terminal-row .error-block')?.textContent ?? '', /connection lost/);
+});
+
+
+test('finished SDK background terminals remain visible above the composer and in the header', () => {
+  const { window, emit } = mount();
+  emit(shell({ provider: 'cursor', backend: 'sdk', terminals: [{ processId: 'sdk-1', command: 'sleep 120', status: 'cancelled', output: 'READY\nexit_code: unknown' }] }));
+  click(visible(window.document, '.new-chat'));
+  assert.match(visible(window.document, '.terminal-open').textContent ?? '', /sleep 120.*cancelled/);
+  assert.match(window.document.querySelector('.terminal-output')?.textContent ?? '', /READY/);
+  assert.equal(window.document.querySelector<HTMLButtonElement>('.terminal-stop')?.disabled, true);
+  assert.ok(visible(window.document, '.open-terminals'));
+  const list = window.document.querySelector('.terminals')!;
+  const form = window.document.querySelector('.composer-card')!;
+  assert.ok(list.compareDocumentPosition(form) & window.Node.DOCUMENT_POSITION_FOLLOWING);
 });

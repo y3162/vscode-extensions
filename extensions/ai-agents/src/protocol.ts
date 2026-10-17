@@ -34,6 +34,8 @@ export interface ViewMessage {
   tool?: ToolInfo;
   meta?: ViewMeta;
   final?: boolean;
+  turnId?: string;
+  failure?: ChatMessage['failure'];
 }
 
 export interface ViewFileIcon {
@@ -86,6 +88,7 @@ export interface ViewTurnTiming {
   status: 'running' | 'completed' | 'cancelled' | 'failed';
   intent: string;
   finalMessageId?: string;
+  usage?: UsageStats;
 }
 
 export interface ViewSubagent {
@@ -232,6 +235,7 @@ export interface ModelCatalogMessage {
 export type HostToWebview =
   | StateMessage
   | ModelCatalogMessage
+  | { type: 'copyResult'; requestId: string; ok: boolean }
   | { type: 'error'; text: string }
   | { type: 'suggestions'; requestId: number; items: SuggestionItem[] }
   | { type: 'inspector'; title: string; text: string }
