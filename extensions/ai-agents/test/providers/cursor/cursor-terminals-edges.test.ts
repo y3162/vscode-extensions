@@ -355,7 +355,12 @@ test('polling starts, finishRun stops it, and dispose drops a pending timer', as
   const { root, folder } = await tree();
   let terminals = 0;
   let seen!: () => void;
-  const ready = new Promise<void>((resolve) => { seen = resolve; });
+  const ready = new Promise<void>((resolve, reject) => {
+    // The production poll timer is intentionally unref'ed. Keep the test process
+    // alive while waiting for it, and fail clearly if the poll never arrives.
+    const watchdog = setTimeout(() => reject(new Error('terminal poll did not run')), 10_000);
+    seen = () => { clearTimeout(watchdog); resolve(); };
+  });
   const monitor = new CursorTerminals(root, (update) => {
     if (update.meta?.type === 'terminals') { terminals += 1; seen(); }
   }, async () => true);
