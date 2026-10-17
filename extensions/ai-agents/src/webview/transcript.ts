@@ -1,14 +1,18 @@
 import { renderPending, renderPlanBody, type Post } from './cards.js';
 import { renderPlanView } from './plan-view.js';
 import { isButton, isElement, type Dom } from './dom.js';
+import { extensionBadge } from '../diff-stats.js';
+import { fileIcon } from './file-icon.js';
 import { usageText } from '../usage.js';
 import { codeSources, renderMarkdown, renderStreamingText } from './markdown.js';
 import type { ViewMessage, ViewShell } from '../protocol.js';
 import { countLabel, formatDuration, type Copy, type Locale } from './strings.js';
 import { buildTurns, type FileRow, type Segment, type ToolRow, type TurnModel } from './turns.js';
-import type { ToolInfo } from '../types.js';
+import type { FileDiffLine, ToolInfo } from '../types.js';
 
 const STREAMING_MARKDOWN_LIMIT = 4_000;
+const previewFoldLimit = 7;
+const previewHeadLines = 6;
 
 export class Transcript {
   private readonly pending: HTMLElement;
@@ -321,7 +325,7 @@ export class Transcript {
       }
       case 'files': {
         const group = this.dom.el('div', 'file-group');
-        for (const file of segment.files) group.append(this.fileRow(file));
+        segment.files.forEach((file, index) => group.append(this.fileRow(file, `${segment.id}:${index}`, copy)));
         return group;
       }
       case 'tools': {
@@ -333,10 +337,9 @@ export class Transcript {
     }
   }
 
-  private fileRow(file: FileRow): HTMLElement {
+  private fileRow(file: FileRow, previewId: string, copy: Copy): HTMLElement {
     const row = this.dom.el('div', 'file-row');
     const header = this.dom.el('div', 'file-header');
-    header.append(this.dom.icon('symbol-file'));
     const open = this.dom.el('button', 'file-link', file.name);
     open.type = 'button';
     open.dataset.action = 'open-file';
@@ -344,24 +347,46 @@ export class Transcript {
     const stats = this.dom.el('span', 'stats');
     if (file.additions !== undefined) stats.append(this.dom.el('span', 'stats-add', `+${file.additions}`));
     if (file.deletions !== undefined) stats.append(this.dom.el('span', 'stats-remove', `−${file.deletions}`));
-    header.append(open, stats);
+    header.append(this.fileMark(file), open, stats);
     row.append(header);
-    if (file.preview?.length) {
-      const preview = this.dom.el('div', 'file-inline-diff');
-      for (const line of file.preview) {
-        const item = this.dom.el('div', `diff-preview-line ${line.kind}`);
-        if (line.kind === 'more' || line.kind === 'eof') {
-          item.append(this.dom.el('span', 'diff-preview-more', line.text));
-        } else {
-          item.append(this.dom.el('span', 'diff-preview-number', line.line === undefined ? '' : String(line.line)));
-          item.append(this.dom.el('span', 'diff-preview-sign', line.kind === 'add' ? '+' : line.kind === 'remove' ? '−' : ''));
-          item.append(this.dom.el('code', 'diff-preview-text', line.text));
-        }
-        preview.append(item);
-      }
+    const source = file.preview ?? [];
+    if (source.length) {
+      const diffKey = `diff:${previewId}`;
+      const expanded = this.openDetails.has(diffKey);
+      const canFold = source.length > previewFoldLimit;
+      const preview = this.dom.el('div', `file-inline-diff${expanded && canFold ? ' is-expanded' : ''}`);
+      for (const line of previewLines(source, expanded)) preview.append(this.diffLine(line));
       row.append(preview);
+      if (canFold) {
+        const toggle = this.dom.button('ghost tiny diff-preview-toggle', expanded ? copy.showLess : copy.showMore);
+        toggle.dataset.action = 'toggle-diff';
+        toggle.dataset.id = diffKey;
+        toggle.setAttribute('aria-expanded', String(expanded));
+        row.append(toggle);
+      }
     }
     return row;
+  }
+
+  private fileMark(file: FileRow): HTMLElement {
+    const icon = file.icon;
+    if (icon && icon.type !== 'badge') return fileIcon(this.dom, file);
+    const badge = this.dom.el('span', 'file-badge', icon?.badge || extensionBadge(file.name));
+    badge.dataset.lang = fileLanguage(file.name);
+    return badge;
+  }
+
+  private diffLine(line: FileDiffLine): HTMLElement {
+    const item = this.dom.el('div', `diff-preview-line ${line.kind}`);
+    if (line.kind === 'more' || line.kind === 'eof') {
+      item.append(this.dom.el('span', 'diff-preview-more', line.text));
+      return item;
+    }
+    const sign = line.kind === 'add' ? '+' : line.kind === 'remove' ? '−' : '';
+    item.append(this.dom.el('span', 'diff-preview-number', line.line === undefined ? '' : String(line.line)));
+    item.append(this.dom.el('span', sign ? `diff-preview-sign ${line.kind}` : 'diff-preview-sign', sign));
+    item.append(this.dom.el('code', 'diff-preview-text', line.text));
+    return item;
   }
 
   private toolRow(tool: ToolRow, copy: Copy): HTMLElement {
@@ -480,6 +505,13 @@ export class Transcript {
       this.refreshOpenTurn();
       return;
     }
+    if (action === 'toggle-diff' && button.dataset.id) {
+      const id = button.dataset.id;
+      if (this.openDetails.has(id)) this.openDetails.delete(id);
+      else this.openDetails.add(id);
+      this.refreshOpenTurn();
+      return;
+    }
     if (action === 'copy-answer' || action === 'copy-code' || action === 'copy-source') {
       const code = button.closest('.code-block');
       const text = action === 'copy-code' && code ? codeSources.get(code) : this.copySources.get(button);
@@ -579,6 +611,7 @@ function sameSegments(previous: Segment[] | undefined, next: Segment[]): boolean
           const candidate = right.files[fileIndex];
           return Boolean(candidate && file.path === candidate.path && file.name === candidate.name && file.kind === candidate.kind
             && file.additions === candidate.additions && file.deletions === candidate.deletions
+            && sameFileIcon(file.icon, candidate.icon)
             && file.preview?.length === candidate.preview?.length && (file.preview ?? []).every((line, lineIndex) => {
               const next = candidate.preview?.[lineIndex];
               return Boolean(next && line.kind === next.kind && line.line === next.line && line.text === next.text);
@@ -598,6 +631,25 @@ function sameSegments(previous: Segment[] | undefined, next: Segment[]): boolean
         });
     }
   });
+}
+
+function sameFileIcon(left: FileRow['icon'], right: FileRow['icon']): boolean {
+  return left?.type === right?.type && left?.src === right?.src && left?.badge === right?.badge
+    && left?.fontFamily === right?.fontFamily && left?.fontCharacter === right?.fontCharacter && left?.fontColor === right?.fontColor;
+}
+
+function previewLines(lines: readonly FileDiffLine[], expanded: boolean): readonly FileDiffLine[] {
+  if (expanded || lines.length <= previewFoldLimit) return lines;
+  const head = lines.slice(0, previewHeadLines);
+  const marker = lines.slice(previewHeadLines).find((line) => line.kind === 'more');
+  return marker ? [...head, marker] : head;
+}
+
+function fileLanguage(name: string): string {
+  const base = name.split(/[\\/]/).pop() ?? name;
+  const dot = base.lastIndexOf('.');
+  if (dot <= 0 || dot === base.length - 1) return 'file';
+  return base.slice(dot + 1).toLowerCase();
 }
 
 function workSummary(turn: TurnModel, locale: Locale, copy: Copy): string {

@@ -1,4 +1,4 @@
-import type { ViewFile, ViewMessage, ViewSubagent, ViewTurnTiming } from '../protocol.js';
+import type { ViewFile, ViewFileIcon, ViewMessage, ViewSubagent, ViewTurnTiming } from '../protocol.js';
 import { classifyTool, toolStatus } from '../tool-kind.js';
 import type { FileDiffLine, ToolInfo } from '../types.js';
 
@@ -21,6 +21,7 @@ export interface FileRow {
   additions?: number;
   deletions?: number;
   preview?: FileDiffLine[];
+  icon?: ViewFileIcon;
 }
 
 export type Segment =
@@ -69,6 +70,7 @@ function fileRow(file: ViewFile): FileRow {
     ...(file.additions !== undefined ? { additions: file.additions } : {}),
     ...(file.deletions !== undefined ? { deletions: file.deletions } : {}),
     ...(file.preview ? { preview: file.preview } : {}),
+    ...(file.icon ? { icon: file.icon } : {}),
   };
 }
 

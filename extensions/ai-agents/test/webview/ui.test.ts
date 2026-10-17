@@ -656,20 +656,87 @@ test('file changes appear inline in the work log and keep the changed file visib
 
   const log = window.document.querySelector<HTMLElement>('.turn .log')!;
   assert.equal(log.hidden, false);
+  const badge = log.querySelector<HTMLElement>('.file-header .file-badge');
+  assert.equal(badge?.textContent, 'MD');
+  assert.equal(badge?.dataset.lang, 'md');
   assert.equal(log.querySelector('.file-row .file-link')?.textContent, 'README.md');
-  assert.match(log.querySelector('.file-row .stats')?.textContent ?? '', /\+2.*−1/);
+  assert.equal(log.querySelector('.file-row .stats-add')?.textContent, '+2');
+  assert.equal(log.querySelector('.file-row .stats-remove')?.textContent, '−1');
+  assert.equal(log.querySelector('.diff-preview-toggle'), null);
   assert.equal(log.querySelectorAll('.file-inline-diff .diff-preview-line').length, 2);
+  assert.equal(log.querySelector('.diff-preview-line.remove')?.classList.contains('remove'), true);
+  assert.equal(log.querySelector('.diff-preview-line.add')?.classList.contains('add'), true);
+  assert.equal(log.querySelector('.diff-preview-line.remove .diff-preview-sign')?.textContent, '−');
+  assert.equal(log.querySelector('.diff-preview-line.add .diff-preview-sign')?.textContent, '+');
   assert.equal(log.querySelector('.diff-preview-line.remove .diff-preview-text')?.textContent, 'old line');
   assert.equal(log.querySelector('.diff-preview-line.add .diff-preview-text')?.textContent, 'new line');
   const css = readFileSync(path.join(__dirname, '../../src/webview/styles.css'), 'utf8');
   assert.match(css, /\.file-row, \.shell-tool \{ display: block; width: 100%;/);
+  assert.match(css, /\.file-group \{ display: flex; flex-direction: column; gap: \.45em; \}/);
+  assert.match(css, /\.file-row \{[^}]*border: 1px solid var\(--vscode-widget-border, color-mix\(in srgb, var\(--vscode-foreground\)/);
+  assert.match(css, /\.file-header \.file-badge \{[^}]*color-mix\(in srgb, var\(--vscode-foreground\)/);
   assert.match(css, /\.diff-preview-line\.add \{ background: var\(--vscode-diffEditor-insertedLineBackground/);
   assert.match(css, /\.diff-preview-line\.remove \{ background: var\(--vscode-diffEditor-removedLineBackground/);
   assert.match(css, /\.diff-preview-line \{[^}]*background: transparent/);
+  assert.match(css, /\.diff-preview-sign\.add \{ color: var\(--vscode-gitDecoration-addedResourceForeground/);
+  assert.match(css, /\.diff-preview-sign\.remove \{ color: var\(--vscode-gitDecoration-deletedResourceForeground/);
+  assert.match(css, /@media \(forced-colors: active\) \{\s*\.composer-card[^{]*\.file-row \{ border: 1px solid CanvasText; \}/);
+  assert.match(css, /@media \(forced-colors: active\) \{[\s\S]*\.diff-preview-sign\.add \{ color: LinkText; \}/);
+  assert.match(css, /@media \(forced-colors: active\) \{[\s\S]*\.diff-preview-sign\.remove \{ color: CanvasText; \}/);
   assert.match(css, /\.shell-command-line code \{[^}]*background: transparent/);
   assert.match(css, /\.shell-command-line code \{[^}]*padding: 0/);
   click(log.querySelector('.file-row .file-link')!);
   assert.equal(posted(sent, 'openFile')?.path, 'README.md');
+});
+
+test('file diff previews use the workbench file icon supplied by the host', () => {
+  const { window, emit } = mount();
+  const messages = (icon?: { type: 'image'; src: string } | { type: 'font'; fontCharacter: string; fontFamily: string; fontColor?: string }): ViewMessage[] => [
+    { id: 'user', role: 'user', text: 'Update', at: 1 },
+    { id: 'files', role: 'tool', text: 'Changed events.test.ts', at: 2, turnId: 'user', meta: { type: 'files', files: [{ path: 'events.test.ts', kind: 'update', additions: 1, deletions: 0, ...(icon ? { icon } : {}), preview: [{ kind: 'add', line: 1, text: 'next' }] }] } },
+  ];
+  emit(shell(), messages());
+  assert.equal(window.document.querySelector('.file-header .file-badge')?.textContent, 'TS');
+  emit(shell(), messages({ type: 'image', src: 'https://example.test/ts.svg' }));
+  const image = window.document.querySelector<HTMLImageElement>('.file-header img.file-icon');
+  assert.equal(image?.getAttribute('src'), 'https://example.test/ts.svg');
+  assert.equal(image?.getAttribute('alt'), '');
+  assert.equal(window.document.querySelector('.file-header .file-badge'), null);
+  emit(shell(), messages({ type: 'font', fontCharacter: '\\E023', fontFamily: 'seti', fontColor: '#519aba' }));
+  const font = window.document.querySelector<HTMLElement>('.file-header .file-icon.font-icon');
+  assert.equal(font?.textContent, '\uE023');
+  assert.equal(font?.style.fontFamily, 'seti');
+  assert.match(font?.style.color ?? '', /519aba|rgb\(81,\s*154,\s*186\)/i);
+});
+
+test('long file diffs stay collapsed until the preview is expanded', () => {
+  const { window, emit } = mount();
+  const omitted = { kind: 'more' as const, text: '4 removed lines omitted' };
+  const preview = [
+    ...Array.from({ length: 6 }, (_, index) => ({ kind: 'remove' as const, line: index + 1, text: `old ${index}` })),
+    omitted,
+    { kind: 'add' as const, line: 1, text: 'new tail' },
+    { kind: 'context' as const, line: 12, text: 'after' },
+  ];
+  emit(shell(), [
+    { id: 'user', role: 'user', text: 'Rewrite README', at: 1 },
+    { id: 'files', role: 'tool', text: 'Changed README.md', at: 2, turnId: 'user', meta: { type: 'files', files: [{ path: 'README.md', kind: 'update', additions: 1, deletions: 10, preview }] } },
+  ]);
+
+  const card = window.document.querySelector<HTMLElement>('.file-row')!;
+  assert.equal(card.querySelectorAll('.diff-preview-line').length, 7);
+  assert.equal(card.querySelector('.diff-preview-line.more')?.textContent, '4 removed lines omitted');
+  assert.equal(card.querySelector('.diff-preview-text')?.textContent?.includes('new tail'), false);
+  const toggle = card.querySelector<HTMLButtonElement>('.diff-preview-toggle')!;
+  assert.equal(toggle.textContent, 'Show more');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  click(toggle);
+  const expanded = window.document.querySelector<HTMLElement>('.file-row')!;
+  assert.equal(expanded.querySelector('.file-inline-diff')?.classList.contains('is-expanded'), true);
+  assert.equal(expanded.querySelectorAll('.diff-preview-line').length, preview.length);
+  assert.equal(expanded.querySelector('.diff-preview-line.add .diff-preview-text')?.textContent, 'new tail');
+  assert.equal(expanded.querySelector('.diff-preview-toggle')?.textContent, 'Show less');
+  assert.equal(expanded.querySelector('.diff-preview-toggle')?.getAttribute('aria-expanded'), 'true');
 });
 
 test('shell executions use a command card with expandable output', () => {

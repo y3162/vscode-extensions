@@ -15,6 +15,7 @@ export interface ViewFile {
   additions?: number;
   deletions?: number;
   preview?: FileDiffLine[];
+  icon?: ViewFileIcon;
 }
 
 export interface ViewMeta {

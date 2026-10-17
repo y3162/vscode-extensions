@@ -20,7 +20,7 @@ import { ModelDetails } from './model-details.js';
 import { catalogIsCurrent, ModelSettingsDraft, sameModelParams, toCatalogModel } from './model-settings.js';
 import { createSession, listCursorSdkSessions, writeBaselineFile } from './providers/index.js';
 import { listModels } from './providers/models.js';
-import type { HostToWebview, ProbeResult } from './protocol.js';
+import type { HostToWebview, ProbeResult, ViewMessage } from './protocol.js';
 import { mergeRegistrySessions, upsertSession } from './session-index.js';
 import { extensionBadge } from './diff-stats.js';
 import { resolveThemeIcon, type IconThemeDocument } from './icon-theme.js';
@@ -273,7 +273,8 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     for (const view of this.readyViews) {
       const current = this.sync.get(view) ?? { sigs: new Map<string, string>(), revision: 0 };
       const full = current.revision === 0;
-      const diff = diffMessages(current.sigs, messages);
+      const visible = this.decorateMessages(messages, view.webview);
+      const diff = diffMessages(current.sigs, visible);
       current.sigs = diff.next;
       current.revision += 1;
       this.sync.set(view, current);
@@ -1063,6 +1064,15 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
 
   private decorateShell<T extends { changes: { name: string; icon?: { type: 'image' | 'font' | 'badge'; src?: string; badge?: string; fontFamily?: string; fontCharacter?: string; fontColor?: string } }[] }>(shell: T, webview: vscode.Webview): T {
     return { ...shell, changes: shell.changes.map((change) => ({ ...change, icon: this.iconFor(webview, change.name) })) };
+  }
+
+  private decorateMessages(messages: ViewMessage[], webview: vscode.Webview): ViewMessage[] {
+    return messages.map((message) => {
+      const meta = message.meta;
+      const files = meta?.files;
+      if (!meta || !files?.length) return message;
+      return { ...message, meta: { ...meta, files: files.map((file) => ({ ...file, icon: this.iconFor(webview, file.path) })) } };
+    });
   }
 
   private iconFor(webview: vscode.Webview, fileName: string): { type: 'image' | 'font' | 'badge'; src?: string; badge?: string; fontFamily?: string; fontCharacter?: string; fontColor?: string } {
