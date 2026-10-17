@@ -10,13 +10,15 @@ type HookGlobal = typeof globalThis & { [hookKey]?: CursorBackgroundRuntime };
 /** Owns the SDK's native background executors for the lifetime of one worker session. */
 export class CursorBackgroundRuntime {
   private readonly retained = new Set<BackgroundExecutor>();
+  private readonly released = new WeakSet<BackgroundExecutor>();
   private timer?: ReturnType<typeof setTimeout>;
   private disposed = false;
 
   release(executor: BackgroundExecutor): void {
+    if (this.released.has(executor)) return;
     if (this.disposed || !executor.getManager().runningShells.size) {
       this.retained.delete(executor);
-      executor.dispose();
+      this.disposeExecutor(executor);
       return;
     }
     this.retained.add(executor);
@@ -30,11 +32,18 @@ export class CursorBackgroundRuntime {
       for (const executor of this.retained) {
         if (executor.getManager().runningShells.size) continue;
         this.retained.delete(executor);
-        executor.dispose();
+        this.disposeExecutor(executor);
       }
       this.schedule();
     }, 100);
     this.timer.unref();
+  }
+
+  private disposeExecutor(executor: BackgroundExecutor): void {
+    if (this.released.has(executor)) return;
+    // SDK turn cleanup may arrive again after the worker lease has ended.
+    this.released.add(executor);
+    executor.dispose();
   }
 
   interrupt(shellId: number, pid: number): boolean {
@@ -48,7 +57,7 @@ export class CursorBackgroundRuntime {
   dispose(): void {
     this.disposed = true;
     if (this.timer) clearTimeout(this.timer);
-    for (const executor of this.retained) executor.dispose();
+    for (const executor of this.retained) this.disposeExecutor(executor);
     this.retained.clear();
   }
 }

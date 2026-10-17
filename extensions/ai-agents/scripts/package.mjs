@@ -23,7 +23,7 @@ try {
   await mkdir(outputDir, { recursive: true });
   await createVSIX({
     cwd: staging,
-    packagePath: join(outputDir, `ai-agents-${manifest.version}-${target}.vsix`),
+    packagePath: join(outputDir, `ai-agents-${target}.vsix`),
     target,
     useYarn: false,
     skipLicense: true,

@@ -28,7 +28,7 @@ export class Transcript {
     private readonly dom: Dom,
     private readonly root: HTMLElement,
     private readonly post: Post,
-    private readonly onRetry: (text: string) => void,
+    private readonly onRetry: (text: string, retryId?: string) => void,
     private readonly onPickModel: (anchor: HTMLElement) => void,
   ) {
     this.planHost = dom.el('div', 'plan-slot');
@@ -337,7 +337,7 @@ export class Transcript {
     }
     if (action === 'retry' && button.dataset.turn) {
       const text = this.turns.find((turn) => turn.id === button.dataset.turn)?.user?.text;
-      if (text) { this.post({ type: 'prepareRetry', id: button.dataset.turn }); this.onRetry(text); }
+      if (text !== undefined && !this.shell?.busy) { this.onRetry(text, button.dataset.turn); this.post({ type: 'prepareRetry', id: button.dataset.turn }); }
       return;
     }
     if (action === 'post' && button.dataset.type) { this.post({ type: button.dataset.type }); return; }

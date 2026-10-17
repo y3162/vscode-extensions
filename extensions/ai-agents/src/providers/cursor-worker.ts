@@ -23,7 +23,10 @@ process.on('message', async (raw) => {
       case 'terminals': value = await session!.listBackgroundTerminals?.(); break;
       case 'interruptTerminal': await session!.interruptBackgroundTerminal?.(args as string); break;
       case 'cancel': abort?.abort(); break;
-      case 'setModel': session!.setModel?.(args as Selection); break;
+      case 'setModel':
+        if (!session?.setModel) throw new Error('Cursor runtime does not support model changes.');
+        await session.setModel(args as Selection);
+        break;
       case 'setMode': await session!.setMode?.(args); break;
       case 'transcript': {
         const messages: ChatMessage[] = [];

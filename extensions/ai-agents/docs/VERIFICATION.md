@@ -1,3 +1,19 @@
+# 0.10.0 再監査（2026-10-17）
+
+今回の監査開始HEADは `b699abd`。過去版の成功と混同しない。改修内容・今回の証拠・未検証・v1.0.0判断は [AUDIT.md](AUDIT.md) を参照。
+
+- 実推論: `npm run test:live` **5/5**、実ファイル/承認/復元: `npm run test:tools` **4/4**、実プロトコル: `npm run test:protocol` **2/2**。
+- 実ランタイム: `npm run test:runtime` **12/12**。3経路のPlan改訂→同一会話Build、実2子並列、親Stop後更新、背景自然終了・停止・disposeを確認。[詳細](AUDIT_RUNTIME.md)
+- ACP専用: Composer 2.5 Askの3ターンすべてfinal回答あり、dispose後のsession/loadで3回答を保持。反復delta欠落は決定的fixtureで再現し修正。[詳細](AUDIT_PROVIDERS.md)
+- 実Extension Development Hostの結合テスト成功。コンテキスト展開中の会話切替で送信先を保持する回帰も追加。GUI目視とは別の証拠。
+- GUI holdでは実ClipboardのUnicode往復に成功し元の内容を復元。一方、対象HostのGUIウィンドウを選択できず、300/390px・Dark/Light・nativeクリックは未検証。[詳細](UI_AUDIT.md)
+- 最終型チェック・単体 **144/144** 成功。App Server Planのread-only / 承認never指定と、Agent / Buildで実sandbox・承認設定を戻す回帰3件を追加。追加の実Plan→改訂→Buildでもファイル非変更とBuild編集を確認。
+- **v1.0.0: No-Go**。最終梱包と追加Planライブテストの詳細は総合監査に記録する。
+
+以下は以前の検証記録を保持したもの。
+
+---
+
 # Verification
 
 実施日: 2026-10-16。作業ディレクトリは `vscode-extensions`。対象は AI Agents 0.6.0。
@@ -498,3 +514,58 @@ Cursor SDK 1.0.37の実記録では、背景sleep 120は開始約1.2秒後にsta
 - 任意の文字入力転送は引き続き未対応。通常のforeground shellを背景一覧へ登録しない。
 
 最終確認: `npm run check`、`npm test`（122件）、`npm run package`が成功。0.10.0 VSIXに互換SDKランタイムとLICENSEを同梱。
+
+
+<a id="final-audit"></a>
+## 2026-10-17 最終再監査（現行未コミットツリー）
+
+開始HEAD/変更/追加修正は[AUDIT.md](AUDIT.md)先頭を参照。過去ログを今回の合格として再利用していない。実行ログと受入要約を`evidence/final-audit/`へ保存する。
+
+- 型チェック成功、単体156/156成功（開始時144/144）。追加回帰は修正前の失敗を確認してから修正。DOMは30件を含む。
+- build成功。通常Extension Development Host結合成功。Retry準備返信と自動実行なしのHost検査も追加した。
+- protocol 2/2成功。コマンド名に反し実際にpong推論を含むため「推論なし」とは記録しない。
+- live 6/6成功。4経路3ターン・Stop・再開、provider切替、ACP専用3ターンのBackend final/Controller本文一致。
+- tools 5/5成功。4経路の隔離Git編集、対話Backendで承認拒否/許可、原文復元。追加App ServerのPlan→改訂→Buildで禁止ファイルなし、原文不変→実編集、同一session。
+- reliability Host: 4経路すべて3ターン各final確認→別会話→履歴復帰→Hostプロセス終了→同profile再起動で全3finalとUsage復元→4ターン目成功。通常の手操作Reload Windowとは分ける。
+- package成功。0.10.0 darwin-arm64、1658ファイル、137.6 MB。最新成果物の整合性を別途記録。
+
+### 実GUI（Cuaによる実Extension Development Host）
+
+インストール済みCodeと検証用Codeが同じbundle IDで曖昧だった。最初の通常アプリは空windowしか見えず、検証専用 `.vscode-test/.../Visual Studio Code.app` の絶対パスで対象を分離するとAX/画面/クリックを取得できた。GUI不可の前回制約は部分解消。
+
+1. fixture SDKの実サイドバー: Assistant Copy→ComposerへCmd+V、Copiedと日本語原文一致を確認。Unicode複数行をsetValueで確認してからSendしUser/Assistant双方に表示。native typeTextではUnicodeが欠けたため、それをIME合格とは扱わない。
+2. 300px/390px相当: Retina画像でActivity Bar後のサイドバー幅600px/780px（sash除く）を確認。Dark（Abyss）とLight Modern各幅でヘッダー、折返し、Copy、Usage、下部Composerを目視。モデル一覧・検索・現在選択を操作。
+3. fixtureのCodex SDKモデル変更は新会話確認ダイアログをVS Codeのextension test modeが拒否した。UI値は旧モデルを保持しエラー表示。実モデル変更成功扱いには含めない。
+4. test mode外の隔離profile/一時Git workspaceで実Codex App Server GPT-6-Lunaを使用。初回GUI_LIVE_ONE、継続GUI_LIVE_TWO、Running→Ready、モデル/モードの実行中無効化、Usage表示を確認。
+5. 実Planメニュー→計画のみで停止、Ready to build、対象gui-check.txt不存在をfilesystemで確認。Buildモデル一覧はBackend実在モデルを表示、GPT-6-Lunaを選択しBuildクリック。Build finished、Agent(Default)復帰、Files +1 −0、実bytes `GUI_BUILD_OK\n`を確認。
+6. 実背景PythonをGUI起動。親Ready後もrunning、同じprocess ID90028の行からTerminal Panelを開き、接続ヘッダー・未対応文字入力の案内を確認。初期stdoutがPanelへ出なかったため追加調査（成功扱いせず）。90秒後に保存toolはexit0・GUI_BG_READY/GUI_BG_DONE両方を保持。
+7. 通常開発Hostを同profileで再起動、Back→履歴の同会話を選択し5turn・2回答・Plan/Build・Usageを実画面で再表示。
+
+実GUIは全4経路の全項目完了ではない。Copy failureはDOM、auth failureは隔離fixture、モデル変更失敗はfixture/IPC、実ネットワーク断・実認証失効の4経路網羅は未実施。OS IME変換、実画像paste/画像Retry、全Plan経路の失敗/Stop、子専用詳細、背景中Reloadと副作用は未検証。代替自動試験と混同せず、現時点はv1.0.0 **No-Go**。
+
+### Background Terminal追加検証
+
+App Serverの「processIdなしstarted→outputDelta→listがitemId/processId広告」で既受信出力を捨てる順序バグを修正。修正前fixture失敗、修正後protocol/TerminalMonitor回帰成功。
+
+ただしno-tty実CLIでは、初期printが公開outputDeltaにも一覧にも来ず、自然終了時のaggregatedOutputでREADY/DONE全文が初めて揃う挙動を確認した。修正後も初期stdout=false、最終全文=true、exit0=true。Backendが配信していない初期出力を推測生成・別process attach・自動write_stdinで補っていない。TTYありのライブattach成功と区別し、リアルタイム出力の制限として残す。証拠`evidence/final-audit/no-tty.json`。
+
+### 実GUI追加範囲
+
+- Cursor SDKへprovider切替、実カタログからComposer 2.5を選択。CURSOR_GUI_ONE/TWOの2回答、sleep要求中のStop→Ready→同会話へAFTER_STOP_GUIの実回答を確認。
+- 実App Serverでalpha/betaの2子をGUI起動。running表示を確認後、完了した実ID・14s/13s・実結果（alpha/alpha、beta/beta）を保持。コマンドパレットのDeveloper: Reload Windowを実際に実行し、履歴から同会話を選択して2子のcompleted・Plan/Build・Usageを再表示。プロセス再起動harnessとは別の手操作検証。
+- CodexのBackend設定をSDKへ変更し新会話、GPT-6-LunaでCODEX_SDK_GUI_ONEの実回答を確認。
+- 全4経路の全GUI機能・OS IME・実画像Retryの合格を意味しない。
+
+### ランタイム試験の失敗を合格に含めない
+
+初回App ServerのPlanとparentStopは公開backend実行記録に`usage_limit_exceeded`、Assistant本文なし。途中中断した初回suiteを合格には含めない（安全な要約`runtime-quota.json`）。再試験でApp Server Plan/Build・parentStop成功を確認したが、ACPの並列2子は200秒run timeoutで失敗。通常チャット・ACP Plan/Buildの成功と、子並列試験の失敗を分ける。期待値の緩和/skip化はしていない。最終suite件数と原因はruntime-final.logへ残す。
+
+最終 `npm run test:runtime`: **11 passed / 1 failed / 0 skipped**、538秒。失敗はACP実並列子のrun TimeoutError（200秒deadline、case全体208,542ms）。対応3経路Plan改訂/Build、App Server親Stop、Cursor SDK子/背景120秒自然終了/追加turn/Ctrl+C/disposeは成功。過去の12/12と区別し、今回を全成功にしない。実装側原因はこの時点で未確定で、未解決のライブ信頼性リスクとしてNo-Go理由に含める。
+
+### ACP GUIのBackend原文照合
+
+ACP Agentモードの実GUIでACP_GUI_ONEを確認。2ターン目のuser本文は`Reply exactly ACP_GUI_TWO. Do not use tools.`、画面のfinalは`ACP_GUI_THREE`だった。新しいStdioJsonRpcから当該session `84565aea-92d1-40f4-a65d-754ba119b806` の公開session/loadを直接実行し、raw user_message_chunk=要求TWO、agent_message_chunk=THREEと確認した（`acp-gui-replay.json`）。画面取り違え/Thought転用ではなくBackendが返した本文を表示している。要求語への意味的正解とは扱わず、出力を補正生成していない。
+
+Codex SDKは実GUIでCODEX_SDK_GUI_ONE/TWOの両回答を確認。4経路とも実GUIで送信・非空finalに到達したが、モデル意味的誤答・ACP子timeoutと未実施の全機能操作を含めて無条件Goにはしない。
+
+ACP GUIの3ターン目は実Askへ変更し、ACP_GUI_ASK_FINALの要求どおりのfinal、Ready、Ask表示を確認。2ターン目のBackend誤答の記録は残す。最終VSIXはextension/worker/webview JS・CSS・patched runtime・LICENSE・CHANGELOGのbuild/source一致、manifest0.10.0と固定SDKをzipから検査（vsceはchangelog.mdへ正規化）。SHA256は`evidence/final-audit/vsix.json`。最終git diff --check成功、HEAD不変、変更は未コミット。

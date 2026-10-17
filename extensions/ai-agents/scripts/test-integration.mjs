@@ -39,6 +39,7 @@ try {
       AI_AGENTS_REAL_PROTOCOL: process.env.AI_AGENTS_REAL_PROTOCOL,
       AI_AGENTS_LIVE_RUNTIME: process.env.AI_AGENTS_LIVE_RUNTIME,
       AI_AGENTS_UI_HOLD: process.env.AI_AGENTS_UI_HOLD,
+      AI_AGENTS_GUI_MOCK_HOLD: process.env.AI_AGENTS_GUI_MOCK_HOLD,
       AI_AGENTS_TERMINAL_UI_HOLD: process.env.AI_AGENTS_TERMINAL_UI_HOLD,
     },
     launchArgs: [fixture, '--disable-extensions', '--disable-workspace-trust', '--skip-welcome', '--skip-release-notes',

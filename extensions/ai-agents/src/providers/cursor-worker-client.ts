@@ -67,7 +67,7 @@ export async function createCursorWorker(options: SessionOptions): Promise<Agent
     async interruptBackgroundTerminal(processId) { await request('interruptTerminal', processId); },
     async terminateBackgroundTerminal(processId) { await request('interruptTerminal', processId); },
     get closed() { return closed; },
-    setModel(selection) { void request('setModel', selection).catch(() => undefined); },
+    async setModel(selection) { await request('setModel', selection); },
     async setMode(mode) { await request('setMode', mode); },
     async loadTranscript(emit) {
       for (const message of await request('transcript') as ChatMessage[]) emit(message);

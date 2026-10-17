@@ -8,6 +8,8 @@ export class AssistantSegments {
   private id = '';
   private open = false;
 
+  constructor(private readonly strictDeltas = false) {}
+
   interrupt(): void {
     this.open = false;
     this.base = this.accumulated;
@@ -25,7 +27,8 @@ export class AssistantSegments {
       this.base = this.accumulated;
       this.open = true;
     }
-    this.accumulated = kind === 'snapshot' ? incoming : mergeStreamText(this.accumulated, incoming);
+    this.accumulated = kind === 'snapshot' ? incoming
+      : this.strictDeltas ? this.accumulated + incoming : mergeStreamText(this.accumulated, incoming);
     const segment = this.accumulated.startsWith(this.base)
       ? this.accumulated.slice(this.base.length).replace(/^\n+/, '')
       : this.accumulated;

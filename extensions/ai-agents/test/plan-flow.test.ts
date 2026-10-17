@@ -230,3 +230,59 @@ test('failed or stopped revision of an implemented plan never re-enables its old
   assert.equal(successful.current?.revision, 2);
   assert.equal('error' in requestBuild(successful, successful.current!.id, 2, selection), false);
 });
+
+test('Build awaits model acknowledgement, preserves the plan on rejection, and can retry', async () => {
+  let rejectModel = true;
+  let builds = 0;
+  const controller = new ChatController(selection, async () => ({
+    sessionId: 'same-session',
+    async setModel() { await Promise.resolve(); if (rejectModel) throw new Error('model IPC rejected'); },
+    async run(_prompt, _signal, emit, _extras, turn) {
+      if (turn?.intent === 'plan') emit({ id: 'plan', role: 'status', text: 'Plan', meta: { type: 'plan', plan: { markdown: 'Plan', source: 'assistant-text' } } });
+      else { builds++; assert.equal(turn?.mode, 'agent'); emit({ id: 'answer', role: 'assistant', text: 'Built' }); }
+    },
+    async dispose() {},
+  }), () => {});
+  controller.setModePreference('plan');
+  await controller.send('plan');
+  const plan = controller.snapshot().plan.current!;
+  await controller.build(plan.id, plan.revision, { ...selection, model: 'other-model' });
+  assert.equal(controller.snapshot().plan.phase, 'ready');
+  assert.equal(controller.snapshot().selection.model, selection.model);
+  assert.equal(builds, 0);
+  assert.ok(controller.snapshot().messages.some((message) => message.role === 'error' && /model IPC rejected/.test(message.text)));
+  rejectModel = false;
+  await controller.build(plan.id, plan.revision, { ...selection, model: 'other-model' });
+  assert.equal(controller.snapshot().plan.phase, 'implemented');
+  assert.equal(controller.snapshot().selection.model, 'other-model');
+  assert.equal(controller.sessionId(), 'same-session');
+  assert.equal(builds, 1);
+});
+
+test('Stop during Build model acknowledgement never launches implementation', async () => {
+  let acknowledge!: () => void;
+  let entered!: () => void;
+  const waiting = new Promise<void>((resolve) => { entered = resolve; });
+  const gate = new Promise<void>((resolve) => { acknowledge = resolve; });
+  let builds = 0;
+  const controller = new ChatController(selection, async () => ({
+    async setModel() { entered(); await gate; },
+    async run(_prompt, _signal, emit, _extras, turn) {
+      if (turn?.intent === 'plan') emit({ id: 'plan', role: 'status', text: 'Plan', meta: { type: 'plan', plan: { markdown: 'Plan', source: 'assistant-text' } } });
+      else builds++;
+    },
+    async dispose() {},
+  }), () => {});
+  controller.setModePreference('plan');
+  await controller.send('plan');
+  const plan = controller.snapshot().plan.current!;
+  const build = controller.build(plan.id, plan.revision, { ...selection, model: 'other-model' });
+  await waiting;
+  controller.stop();
+  acknowledge();
+  await build;
+  assert.equal(builds, 0);
+  assert.equal(controller.snapshot().plan.phase, 'ready');
+  assert.equal(controller.snapshot().selection.model, 'other-model');
+  assert.equal(controller.snapshot().turns.at(-1)?.status, 'cancelled');
+});

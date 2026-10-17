@@ -71,6 +71,21 @@ export async function run(): Promise<void> {
   assert.ok(invocations[1]?.args.includes('resume'), 'The second turn resumes the SDK thread');
   console.log('PASS: sidebar → Codex SDK → subprocess → responses, tool output, and follow-up');
 
+  const contextOwner = sidebar.controller;
+  const preparingContext = send('/diff CONTEXT_OWNER_RACE');
+  // historyReady and select() resolve first; /diff then yields to the real git subprocess.
+  await Promise.resolve();
+  await Promise.resolve();
+  await sidebar.newChat();
+  const newFront = sidebar.controller;
+  assert.notEqual(newFront, contextOwner);
+  await preparingContext;
+  assert.ok(contextOwner.snapshot().messages.some((message) => message.role === 'user' && message.text === '/diff CONTEXT_OWNER_RACE'));
+  assert.deepEqual(newFront.snapshot().messages, []);
+  await sidebar.handleMessage({ type: 'restoreSession', id: contextOwner.sessionId() });
+  assert.equal(sidebar.controller, contextOwner);
+  console.log('PASS: switching chats during asynchronous context expansion keeps the prompt in its originating conversation');
+
   const linkedFile = join(cwd, 'My Project', 'README.md');
   await mkdir(join(cwd, 'My Project'));
   await writeFile(linkedFile, 'First line\nSecond line\n');
@@ -89,6 +104,14 @@ export async function run(): Promise<void> {
 
   await send('SIMULATE_ERROR');
   assert.equal(sidebar.controller.snapshot().messages.at(-1)?.text, 'fixture backend error');
+  const failedUser = sidebar.controller.snapshot().messages.filter((message) => message.role === 'user').at(-1)!;
+  const retryReplies: unknown[] = [];
+  await sidebar.handleMessage({ type: 'prepareRetry', id: failedUser.id }, {
+    webview: { postMessage: async (message: unknown) => { retryReplies.push(message); return true; } },
+  } as unknown as vscode.WebviewView);
+  assert.ok(retryReplies.some((message: any) => message.type === 'retryPrepared' && message.id === failedUser.id
+    && message.text === 'SIMULATE_ERROR' && Array.isArray(message.images)));
+  assert.equal(sidebar.controller.snapshot().busy, false, 'preparing Retry must not run inference');
   await send('retry');
   assert.equal(sidebar.controller.snapshot().messages.at(-1)?.role, 'assistant');
   console.log('PASS: backend errors are shown and a new prompt can run afterward');
@@ -349,6 +372,21 @@ export async function run(): Promise<void> {
     await sidebar.controller.send('Create a concise plan to change note.txt to hello followed by a newline. Do not edit or implement. Stop after the plan.');
     await vscode.commands.executeCommand('ai-agents.open');
     console.log('UI_HOST_READY', cwd);
+    await until(async () => { try { await readFile(join(cwd, 'ui-done')); return true; } catch { return false; } }, 1200000);
+  }
+  if (process.env.AI_AGENTS_GUI_MOCK_HOLD === '1') {
+    await sidebar.newChat();
+    await sidebar.handleMessage({ type: 'select', provider: 'codex', cwd });
+    await sidebar.handleMessage({ type: 'configure', backend: 'sdk' });
+    await send('GUI fixture: 日本語 copy and session restore');
+    await sidebar.openPanel('chat');
+    const clipboardBefore = await vscode.env.clipboard.readText();
+    try {
+      await sidebar.handleMessage({ type: 'copy', requestId: 'gui-clipboard', text: 'GUI clipboard 日本語 😀' });
+      assert.equal(await vscode.env.clipboard.readText(), 'GUI clipboard 日本語 😀');
+      console.log('PASS: Extension Host copy writes Unicode text to the real OS clipboard');
+    } finally { await vscode.env.clipboard.writeText(clipboardBefore); }
+    console.log('GUI_MOCK_READY', cwd);
     await until(async () => { try { await readFile(join(cwd, 'ui-done')); return true; } catch { return false; } }, 1200000);
   }
   await sidebar.dispose();

@@ -1,11 +1,10 @@
 import { lineChangeCounts } from '../diff-stats.js';
 import type {
-  AgentMode, AgentSession, AgentUpdate, ChatMessage, FileChange, PermissionDecision, PlanRequest, QuestionRequest, SessionSummary, SubagentRecord, TodoEntry,
+  AgentMode, AgentSession, AgentUpdate, ChatMessage, FileChange, PermissionDecision, PlanRequest, QuestionRequest, Selection, SessionSummary, SubagentRecord, TodoEntry,
 } from '../types.js';
 import type { SessionOptions } from './session-options.js';
 import { acpCreatePlanPolicy, acpCreatePlanReleaseOutcome } from './plan-policy.js';
 import { AssistantSegments } from './segments.js';
-import { mergeStreamText } from './stream-text.js';
 import { StdioJsonRpc } from './stdio-rpc.js';
 import { classifyTool, toolStatus } from '../tool-kind.js';
 import { extensionVersion } from '../version.js';
@@ -68,12 +67,65 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
   const replay: ChatMessage[] = [];
   let sessionId = options.resumeId ?? '';
   let mode = options.mode ?? 'agent';
+  let advertisedModels: { id: string; name: string }[] = [];
+  let currentModelId = '';
+  const selectionKey = (selection: Selection) => JSON.stringify([selection.model || 'auto', [...(selection.modelParams ?? [])].sort((a, b) => a.id.localeCompare(b.id))]);
+  let activeSelectionKey = selectionKey(options);
+  function readModelState(value: unknown): void {
+    const body = record(value);
+    const models = record(body.models);
+    if (Array.isArray(models.availableModels)) advertisedModels = models.availableModels.flatMap((value) => {
+      const model = record(value);
+      return typeof model.modelId === 'string' ? [{ id: model.modelId, name: typeof model.name === 'string' ? model.name : '' }] : [];
+    });
+    if (typeof models.currentModelId === 'string') currentModelId = models.currentModelId;
+    if (Array.isArray(body.configOptions)) {
+      const model = body.configOptions.map(record).find((option) => option.id === 'model');
+      if (model && typeof model.currentValue === 'string') currentModelId = model.currentValue;
+      if (model && Array.isArray(model.options)) advertisedModels = model.options.flatMap((value) => {
+        const option = record(value);
+        return typeof option.value === 'string' ? [{ id: option.value, name: typeof option.name === 'string' ? option.name : '' }] : [];
+      });
+    }
+  }
+  async function applyRuntimeModel(selection: Selection): Promise<void> {
+    const wanted = selection.model || 'auto';
+    const candidates = advertisedModels.filter((model) => model.id === wanted || model.name === wanted
+      || model.id.split('[')[0] === wanted || (wanted === 'auto' && /^(default|auto)\[/.test(model.id)));
+    const selected = candidates.find((model) => {
+      const params = new Map((model.id.match(/\[(.*)\]$/)?.[1] ?? '').split(',').filter(Boolean).map((pair) => {
+        const split = pair.indexOf('=');
+        return [pair.slice(0, split), pair.slice(split + 1)];
+      }));
+      return (selection.modelParams ?? []).every((parameter) => params.get(parameter.id) === parameter.value);
+    });
+    if (!selected) throw new Error(`Cursor ACP has not advertised this model and parameter combination: ${wanted}. Select an available CLI model variant.`);
+    if (selected.id === currentModelId) { activeSelectionKey = selectionKey(selection); return; }
+    try {
+      const result = await rpc.request('session/set_config_option', { sessionId, configId: 'model', value: selected.id });
+      const acknowledged = Array.isArray(record(result).configOptions)
+        ? (record(result).configOptions as unknown[]).map(record).find((option) => option.id === 'model')?.currentValue : undefined;
+      if (acknowledged !== selected.id) throw new Error('Cursor ACP did not acknowledge the requested model variant.');
+      readModelState(result);
+      activeSelectionKey = selectionKey(selection);
+    } catch (error) {
+      // A request may have reached the backend even when its acknowledgment failed.
+      // Resume the same session through a fresh connection before any further turn.
+      await rpc.dispose();
+      throw error;
+    }
+  }
   let turnOrdinal = 0;
   let thought = '';
-  const segments = { current: new AssistantSegments() };
+  const lastAssistant = { current: undefined as AgentUpdate | undefined };
+  const segments = { current: new AssistantSegments(true) };
   const sawPlan = { current: false };
   const emitLive = { current: undefined as ((update: AgentUpdate) => void) | undefined };
   const backgroundListeners = new Set<(update: AgentUpdate) => void>();
+  const markReplayFinal = () => {
+    const last = [...replay].reverse().find((message) => message.role === 'assistant');
+    if (last) last.final = true;
+  };
   const toolOutputs = new Map<string, string>();
   const tasks = new Map<string, SubagentRecord>();
   const fail = (error: unknown) => {
@@ -94,6 +146,10 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     }
     emitLive.current?.(update);
   };
+
+  function markLiveFinal(): void {
+    if (lastAssistant.current) emitUpdate({ ...lastAssistant.current, final: true }, false);
+  }
 
   rpc.setHandlers({
     notification: (method, params) => {
@@ -202,7 +258,10 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     if (kind === 'agent_message_chunk' || kind === 'agent_message') {
       const chunk = textOf(update.content ?? update);
       const segment = chunk ? segments.current.push(chunk, kind === 'agent_message' ? 'snapshot' : 'delta') : undefined;
-      if (segment) emitUpdate({ id: transcript ? `history-${replay.filter((m) => m.role === 'user').length}:${segment.id}` : segment.id, role: 'assistant', text: segment.text }, transcript);
+      if (segment) {
+        lastAssistant.current = { id: transcript ? `history-${replay.filter((m) => m.role === 'user').length}:${segment.id}` : segment.id, role: 'assistant', text: segment.text };
+        emitUpdate(lastAssistant.current, transcript);
+      }
       return;
     }
     if (kind === 'plan') {
@@ -216,7 +275,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     if (kind === 'agent_thought_chunk') {
       const chunk = textOf(update.content ?? update);
       if (!chunk) return;
-      thought = mergeStreamText(thought, chunk);
+      thought += chunk;
       emitUpdate({ id: 'thought', role: 'status', text: thought, meta: { type: 'thinking' } }, transcript);
       return;
     }
@@ -225,7 +284,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       if (text && transcript) {
         const previous = replay.at(-1);
         if (kind === 'user_message_chunk' && previous?.role === 'user') previous.text += text;
-        else { turnOrdinal++; replay.push({ id: `acp-turn-${turnOrdinal}:user`, backendTurnId: `acp-turn-${turnOrdinal}`, role: 'user', text }); segments.current = new AssistantSegments(); thought = ''; }
+        else { markReplayFinal(); turnOrdinal++; replay.push({ id: `acp-turn-${turnOrdinal}:user`, backendTurnId: `acp-turn-${turnOrdinal}`, role: 'user', text }); segments.current = new AssistantSegments(true); thought = ''; }
       }
       return;
     }
@@ -350,18 +409,23 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       throw error;
     }
     if (options.resumeId) {
-      await rpc.request('session/load', { sessionId: options.resumeId, cwd: options.cwd, mcpServers: [] }, options.signal);
+      readModelState(await rpc.request('session/load', { sessionId: options.resumeId, cwd: options.cwd, mcpServers: [] }, options.signal));
       sessionId = options.resumeId;
+      markReplayFinal();
     } else {
       const created = record(await rpc.request('session/new', {
         cwd: options.cwd,
         mcpServers: [],
         ...(mode ? { mode } : {}),
       }, options.signal));
+      readModelState(created);
       sessionId = typeof created.sessionId === 'string' ? created.sessionId : '';
     }
     if (!sessionId) throw new Error('Cursor ACP did not return a session id.');
-    if (mode !== 'agent') await applyRuntimeMode(mode);
+    if (options.modelParams?.length || (options.model && advertisedModels.length)) await applyRuntimeModel(options);
+    // Loading a session can restore its previous Plan/Ask mode. Reconcile Agent
+    // too, before trusting the local mode used to skip later mode changes.
+    if (options.resumeId || mode !== 'agent') await applyRuntimeMode(mode);
     options.onIdentity?.({
       id: sessionId,
       title: 'Cursor ACP',
@@ -382,6 +446,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     sessionId,
     subscribeBackgroundUpdates(emit) { backgroundListeners.add(emit); return () => backgroundListeners.delete(emit); },
     get closed() { return rpc.isClosed; },
+    async setModel(selection) { await applyRuntimeModel(selection); },
     async setMode(next) { await applyRuntimeMode(next); },
     async loadTranscript(emit) {
       for (const message of replay) emit(message);
@@ -406,16 +471,20 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       turnOrdinal++;
       emitLive.current = emit;
       thought = '';
-      segments.current = new AssistantSegments();
+      segments.current = new AssistantSegments(true);
       sawPlan.current = false;
-      if (turn?.mode && turn.mode !== mode) await applyRuntimeMode(turn.mode);
+      lastAssistant.current = undefined;
       const blocks: Record<string, unknown>[] = [{ type: 'text', text: prompt }];
       for (const image of extras?.images ?? []) blocks.push({ type: 'image', mimeType: image.mimeType, data: image.data });
       const aborted = () => { void rpc.notify('session/cancel', { sessionId }); };
       signal.addEventListener('abort', aborted, { once: true });
       try {
+        if (turn?.selection && selectionKey(turn.selection) !== activeSelectionKey) await applyRuntimeModel(turn.selection);
+        if (turn?.mode && turn.mode !== mode) await applyRuntimeMode(turn.mode);
         if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
         await rpc.request('session/prompt', { sessionId, prompt: blocks }, signal);
+        // ACP chunks are deltas; end_turn is the authoritative completion boundary.
+        if (!signal.aborted) markLiveFinal();
         const planText = segments.current.fullText().trim();
         if ((turn?.mode ?? mode) === 'plan' && !sawPlan.current && planText && !signal.aborted) {
           emit({ id: 'plan-text', role: 'status', text: planText, meta: { type: 'plan', plan: { markdown: planText, source: 'assistant-text' } } });

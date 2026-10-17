@@ -10,6 +10,26 @@ const deferred = () => {
   return { promise, resolve };
 };
 
+test('image-only requests run directly, through the queue, and on an explicit retry', async () => {
+  const extras = { images: [{ mimeType: 'image/png' as const, data: 'aW1hZ2U=', name: 'image.png' }], attachments: ['image.png'] };
+  const requests: Array<{ prompt: string; images: unknown }> = [];
+  const queuedDone = deferred();
+  const controller = new ChatController(selection, async () => ({
+    async run(prompt, _signal, _emit, sent) { requests.push({ prompt, images: sent?.images }); },
+    async dispose() {},
+  }), (state) => { if (state.turns.length === 3 && !state.busy) queuedDone.resolve(); });
+  await controller.send('', extras);
+  const userId = controller.snapshot().messages[0]!.id;
+  assert.deepEqual(controller.retryInput(userId), { prompt: '', extras });
+  await controller.send('', { ...extras, retryOf: userId });
+  assert.equal(controller.snapshot().messages.filter((message) => message.role === 'user').length, 1);
+  controller.enqueue('', extras);
+  await queuedDone.promise;
+  assert.deepEqual(requests, Array.from({ length: 3 }, () => ({ prompt: '', images: extras.images })));
+  assert.equal(controller.snapshot().messages.filter((message) => message.role === 'user').length, 2);
+  await controller.dispose();
+});
+
 test('continues the same session and replaces item snapshots without mixing turn IDs', async () => {
   let created = 0;
   const session: AgentSession = {
@@ -109,6 +129,92 @@ test('reset waits for cleanup and blocks new work until disposal completes', asy
   assert.deepEqual(controller.snapshot().messages, []);
 });
 
+test('reset during an active turn forgets the old backend session before the next send', async () => {
+  const entered = deferred();
+  const resumes: Array<string | undefined> = [];
+  const controller = new ChatController(selection, async (_selection, context) => {
+    resumes.push(context?.resumeId);
+    const first = resumes.length === 1;
+    return {
+      sessionId: first ? 'old-thread' : 'new-thread',
+      async run(_prompt, signal) {
+        if (!first) return;
+        entered.resolve();
+        await new Promise<void>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+      },
+      async dispose() {},
+    };
+  }, () => {});
+  const running = controller.send('old conversation');
+  await entered.promise;
+  await controller.reset();
+  await running;
+  assert.equal(controller.sessionId(), undefined);
+  await controller.send('new conversation');
+  assert.deepEqual(resumes, [undefined, undefined]);
+  assert.deepEqual(controller.snapshot().messages.map((message) => message.text), ['new conversation']);
+  await controller.dispose();
+});
+
+test('session restoration blocks competing work and reset waits for it before cleanup', async () => {
+  const entered = deferred();
+  const loaded = deferred();
+  let disposed = 0;
+  let runs = 0;
+  const controller = new ChatController(selection, async () => ({
+    sessionId: 'restoring-thread',
+    async loadTranscript(emit) {
+      entered.resolve();
+      await loaded.promise;
+      emit({ id: 'restored-answer', role: 'assistant', text: 'old history' });
+    },
+    async run() { runs++; },
+    async dispose() { disposed++; },
+  }), () => {});
+  controller.prepareResume('restoring-thread');
+  const opening = controller.openSession();
+  await entered.promise;
+  assert.equal(controller.snapshot().busy, true);
+  await assert.rejects(controller.send('overlap'), /実行中/);
+  await assert.rejects(controller.applyMode('plan'), /実行中/);
+  const resetting = controller.reset();
+  assert.equal(disposed, 0, 'restore must settle before its session is disposed');
+  loaded.resolve();
+  await Promise.all([opening, resetting]);
+  assert.equal(disposed, 1);
+  assert.equal(runs, 0);
+  assert.equal(controller.sessionId(), undefined);
+  assert.equal(controller.snapshot().busy, false);
+  assert.deepEqual(controller.snapshot().messages, []);
+});
+
+test('failed session restoration leaves queued input pending instead of resending it', async () => {
+  const entered = deferred();
+  const loaded = deferred();
+  let runs = 0;
+  const controller = new ChatController(selection, async () => ({
+    sessionId: 'restore-failure',
+    async loadTranscript() {
+      entered.resolve();
+      await loaded.promise;
+      throw new Error('session load failed');
+    },
+    async run() { runs++; },
+    async dispose() {},
+  }), () => {});
+  controller.prepareResume('restore-failure');
+  const opening = controller.openSession();
+  await entered.promise;
+  controller.enqueue('queued request');
+  loaded.resolve();
+  await opening;
+  assert.equal(runs, 0);
+  assert.equal(controller.snapshot().queue[0]?.text, 'queued request');
+  assert.equal(controller.snapshot().status, 'error');
+  assert.equal(controller.snapshot().busy, false);
+  await controller.dispose();
+});
+
 test('a prompt immediately following a selection change waits for old-session cleanup', async () => {
   const cleanup = deferred();
   const providers: string[] = [];
@@ -200,4 +306,38 @@ test('selecting a different variant of the same model starts a fresh session', a
   await controller.send('second');
   assert.equal(disposed, 1);
   assert.deepEqual(options[1]?.modelParams, next.modelParams);
+});
+
+test('asynchronous model rejection keeps the UI selection and blocks sends until acknowledgement', async () => {
+  const entered = deferred();
+  const gate = deferred();
+  const controller = new ChatController(selection, async () => ({
+    async run() {},
+    async setModel() { entered.resolve(); await gate.promise; throw new Error('IPC model failure'); },
+    async dispose() {},
+  }), () => {});
+  await controller.send('initial');
+  const changing = controller.updateSelection({ ...selection, model: 'other' });
+  await entered.promise;
+  assert.equal(controller.snapshot().selection.model, selection.model);
+  await assert.rejects(controller.send('during change'), /実行中/);
+  await assert.rejects(controller.updateSelection({ ...selection, model: 'third' }), /実行が終わって/);
+  gate.resolve();
+  await assert.rejects(changing, /IPC model failure/);
+  assert.equal(controller.snapshot().selection.model, selection.model);
+  await controller.send('after failure');
+  assert.equal(controller.snapshot().turns.at(-1)?.status, 'completed');
+});
+
+test('a rejected mode change preserves the mode used by the next turn', async () => {
+  const modes: string[] = [];
+  const controller = new ChatController(selection, async () => ({
+    async run(_prompt, _signal, _emit, _extras, turn) { modes.push(turn!.mode!); },
+    async setMode() { throw new Error('mode rejected'); },
+    async dispose() {},
+  }), () => {});
+  await controller.send('initial');
+  await assert.rejects(controller.applyMode('plan'), /mode rejected/);
+  await controller.send('follow-up');
+  assert.deepEqual(modes, ['agent', 'agent']);
 });

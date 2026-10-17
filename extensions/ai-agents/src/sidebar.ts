@@ -18,7 +18,7 @@ import { ModelDetails } from './model-details.js';
 import { catalogIsCurrent, ModelSettingsDraft, sameModelParams, toCatalogModel } from './model-settings.js';
 import { createSession, listCursorSdkSessions, writeBaselineFile } from './providers/index.js';
 import { listModels } from './providers/models.js';
-import type { ProbeResult } from './protocol.js';
+import type { HostToWebview, ProbeResult } from './protocol.js';
 import { mergeRegistrySessions, upsertSession } from './session-index.js';
 import { extensionBadge } from './diff-stats.js';
 import { resolveThemeIcon, type IconThemeDocument } from './icon-theme.js';
@@ -322,7 +322,16 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
         const user = state.messages.find((m) => m.id === id && m.role === 'user');
         if (!user || state.busy) return;
         this.retryDraft = { controller, id, text: user.text };
-        if (!controller.retryInput(id) && user.attachments?.length) { this.post({ type: 'error', text: '添付を再指定して入力を確認してください。自動再実行はしません。' }); }
+        const original = controller.retryInput(id);
+        const prepared: HostToWebview = {
+          type: 'retryPrepared', id, text: user.text, images: original?.extras?.images ?? [],
+          ...(user.attachments?.length ? { attachments: user.attachments } : {}),
+          provider: state.selection.provider, cwd: state.selection.cwd,
+          conversationId: this.conversationIds.get(controller),
+        };
+        if (source) void source.webview.postMessage(prepared);
+        else this.post(prepared);
+        if (!original && user.attachments?.length) { this.post({ type: 'error', text: '添付を再指定して入力を確認してください。自動再実行はしません。' }); }
         return;
       }
       case 'usage': await this.showUsage(); return;
@@ -359,8 +368,10 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       case 'send':
       case 'enqueue': {
         if (!this.isFront(message)) return;
+        const target = this.controller;
         const selection = this.parseSelection(message);
-        await this.controller.select(selection);
+        await target.select(selection);
+        if (this.controller !== target) return;
         if (message.type === 'send' || message.type === 'enqueue') {
           const prompt = 'prompt' in message && typeof message.prompt === 'string' ? message.prompt : '';
           if (prompt.length > 100000) throw new Error('依頼は100,000文字以内で入力してください。');
@@ -487,13 +498,15 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   }
 
   private async applyMenuSelection(resolve: (selection: Selection) => Promise<{ next: Selection; label: string; hasDetails: boolean } | undefined>): Promise<void> {
-    const started = this.controller.snapshot();
+    const target = this.controller;
+    const started = target.snapshot();
     if (started.busy) throw new Error('実行が終わってからモデルを選択してください。');
     const selection = started.selection;
     if (modelApplyMode(selection.provider, this.controls[selection.provider].backend) === 'unsupported') return;
     const resolved = await resolve(selection);
     if (!resolved) return;
-    const current = this.controller.snapshot().selection;
+    if (this.controller !== target) return;
+    const current = target.snapshot().selection;
     if (current.provider !== selection.provider || current.cwd !== selection.cwd || current.model !== selection.model
       || !sameModelParams(current.modelParams, selection.modelParams)) return;
     await this.commitModelSelection(resolved.next, {
@@ -514,7 +527,8 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   }
 
   private async commitModelSelection(next: Selection, saved: SavedModel, source: 'menu' | 'picker'): Promise<void> {
-    const state = this.controller.snapshot();
+    const target = this.controller;
+    const state = target.snapshot();
     if (state.busy) throw new Error('実行が終わってからモデルを選択してください。');
     if (state.selection.provider !== next.provider || state.selection.cwd !== next.cwd) return;
     const mode = modelApplyMode(next.provider, this.controls[next.provider].backend);
@@ -524,13 +538,15 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       const conversation = state.messages.some((message) => message.role === 'user' || message.role === 'assistant');
       if (mode === 'new-session' && source === 'menu' && conversation) {
         if (!await this.confirmNewSession()) return;
-        const latest = this.controller.snapshot();
+        if (this.controller !== target) return;
+        const latest = target.snapshot();
         if (latest.busy || latest.selection.provider !== next.provider || latest.selection.cwd !== next.cwd
           || latest.selection.model !== state.selection.model || !sameModelParams(latest.selection.modelParams, state.selection.modelParams)) return;
       }
-      if (mode === 'next-send') await this.controller.updateSelection(next);
-      else await this.controller.select(next);
+      if (mode === 'next-send') await target.updateSelection(next);
+      else await target.select(next);
     }
+    if (this.controller !== target) return;
     const stored: SavedModel = {
       model: next.model, label: saved.label, hasDetails: saved.hasDetails,
       ...(next.modelParams ? { modelParams: next.modelParams } : {}),
@@ -708,21 +724,25 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   }
 
   private async deliver(prompt: string, images: ImageAttachment[], forceQueue: boolean, attachments: string[] = []): Promise<void> {
-    const cwd = this.controller.snapshot().selection.cwd;
+    const target = this.controller;
+    const initial = target.snapshot().selection;
+    const initialSession = target.sessionId();
+    const mode = this.registry.mode();
+    const cwd = initial.cwd;
     const builtin = builtinCommand(prompt);
     if (builtin?.name === 'clear' && !builtin.rest) { await this.newChat(); return; }
     if (builtin?.name === 'compact') {
-      const session = this.controller.currentSession();
+      const session = target.currentSession();
       if (!session?.compact) throw new Error('このバックエンドはコンテキスト圧縮に対応していません。');
       await session.compact();
-      this.controller.notify('コンテキストを圧縮しました。');
+      target.notify('コンテキストを圧縮しました。');
       return;
     }
     let text = prompt;
     if (builtin?.name === 'review') {
-      const session = this.controller.currentSession();
-      if (!builtin.rest && session?.review && capabilitiesFor(this.controller.snapshot().selection.provider, this.controls[this.controller.snapshot().selection.provider].backend).review) {
-        await this.controller.review('uncommitted');
+      const session = target.currentSession();
+      if (!builtin.rest && session?.review && capabilitiesFor(target.snapshot().selection.provider, this.controls[target.snapshot().selection.provider].backend).review) {
+        await target.review('uncommitted');
         return;
       }
       text = `${builtin.rest || 'Review the current changes.'}\n\n${await gitSummary(cwd)}`;
@@ -730,11 +750,13 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     else if (builtin?.name === 'diff') text = `${builtin.rest}\n\n${await gitSummary(cwd)}`.trim();
     else if (builtin?.name === 'terminal') text = `${builtin.rest}\n\n${recentTerminalText()}`.trim();
     const expanded = await expandPrompt(text, cwd, await workspaceCommands(cwd));
-    const retry = this.retryDraft?.controller === this.controller && this.retryDraft.text === prompt ? this.retryDraft : undefined;
+    const current = target.snapshot().selection;
+    if (current.provider !== initial.provider || current.cwd !== initial.cwd || (initialSession && target.sessionId() !== initialSession)) throw new Error('送信準備中に会話の設定が変更されました。内容を確認して再送してください。');
+    const retry = this.retryDraft?.controller === target && this.retryDraft.text === prompt ? this.retryDraft : undefined;
     const extras = { ...(retry ? { retryOf: retry.id } : {}), displayText: prompt, ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}) };
     const running = this.registry.entries().filter((entry) => entry.controller.snapshot().busy);
     const limit = vscode.workspace.getConfiguration('ai-agents').get<number>('maxBackgroundSessions', 3);
-    if (!this.controller.snapshot().busy && running.length >= limit) {
+    if (!target.snapshot().busy && running.length >= limit) {
       const titles = running.map((entry) => {
         const id = entry.controller.sessionId();
         const known = id ? entry.controller.snapshot().sessions.find((item) => item.id === id) : undefined;
@@ -742,28 +764,30 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       });
       throw new Error(`同時に実行できる会話の上限です。どれかを停止してください。（${titles.join(', ')}）`);
     }
-    if (forceQueue || this.controller.snapshot().busy) {
-      this.controller.enqueue(expanded, extras);
+    if (forceQueue || target.snapshot().busy) {
+      target.enqueue(expanded, extras);
       return;
     }
-    const provider = this.controller.snapshot().selection.provider;
-    const backend = this.controls[provider].backend;
+    const provider = target.snapshot().selection.provider;
+    const backend = (this.controllerControls.get(target) ?? this.controls[provider]).backend;
     const config = vscode.workspace.getConfiguration('ai-agents');
     const launch = provider === 'codex'
       ? codexLaunch(config.get<string>('codex.executablePath') || undefined, [])
       : agentLaunch(config.get<string>('cursor.agentPath'), []);
     const command = [launch.command, ...launch.args].join(' ');
     this.output.appendLine(`[${provider}/${backend}] ${launch.kind}${launch.version ? ` ${launch.version}` : ''} ${command} start`);
-    const state = this.controller.snapshot();
-    const original = retry ? this.controller.retryInput(retry.id) : undefined;
-    if (retry && !original && this.controller.snapshot().messages.find((message) => message.id === retry.id)?.attachments?.length && !images.length && !attachments.length) throw new Error('添付を再指定してから再送してください。元の添付は保存されていません。');
-    this.retryDraft = undefined;
-    await this.controller.send(original?.prompt ?? expanded, original ? { ...original.extras, ...extras, images: images.length ? images : original.extras?.images } : extras, { mode: this.registry.mode(), selection: state.selection, intent: inferIntent(this.registry.mode(), state.plan) });
-    this.output.appendLine(`[${provider}/${backend}] ${this.controller.snapshot().status}`);
+    const state = target.snapshot();
+    const original = retry ? target.retryInput(retry.id) : undefined;
+    if (retry && !original && target.snapshot().messages.find((message) => message.id === retry.id)?.attachments?.length && !images.length && !attachments.length) throw new Error('添付を再指定してから再送してください。元の添付は保存されていません。');
+    if (this.retryDraft?.controller === target) this.retryDraft = undefined;
+    await target.send(original?.prompt ?? expanded, original ? { ...original.extras, ...extras, images: images.length ? images : original.extras?.images } : extras, { mode, selection: state.selection, intent: inferIntent(mode, state.plan) });
+    this.output.appendLine(`[${provider}/${backend}] ${target.snapshot().status}`);
   }
 
   private async configure(message: object): Promise<void> {
-    const provider = this.controller.snapshot().selection.provider;
+    const target = this.controller;
+    const conversation = this.registry.entries().find((entry) => entry.controller === target);
+    const provider = target.snapshot().selection.provider;
     const current = this.controls[provider];
     const read = (key: string) => key in message ? (message as Record<string, unknown>)[key] : undefined;
     const mode = read('mode');
@@ -789,17 +813,23 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       || current.network !== next.network || current.webSearch !== next.webSearch
       || current.additionalDirectories.join('\0') !== next.additionalDirectories.join('\0');
     const modeChanged = current.mode !== next.mode;
-    this.controls[provider] = next;
-    await this.context.workspaceState.update('ai-agents.controls', this.controls);
-    if (structural && (this.controller.hasSession() || this.controller.sessionId() || this.controller.snapshot().messages.some((message) => message.role === 'user'))) {
-      await this.controller.reset();
-      this.controller.notify('設定を変更したため、新しい会話になりました。');
+    if (this.controller !== target || this.controls[provider] !== current) return;
+    if (structural && (target.hasSession() || target.sessionId() || target.snapshot().messages.some((message) => message.role === 'user'))) {
+      await target.reset();
+      target.notify('設定を変更したため、新しい会話になりました。');
     } else if (modeChanged) {
-      this.registry.setMode(next.mode);
-      const applied = await this.controller.applyMode(next.mode);
-      if (!applied && this.controller.hasSession()) await this.controller.reset();
+      const applied = await target.applyMode(next.mode);
+      if (!applied && target.hasSession()) {
+        await target.reset();
+        target.setModePreference(next.mode);
+      }
     }
-    this.controllerControls.set(this.controller, { ...next });
+    if (conversation) conversation.mode = next.mode;
+    this.controllerControls.set(target, { ...next });
+    if (this.controller === target) {
+      this.controls[provider] = next;
+      await this.context.workspaceState.update('ai-agents.controls', this.controls);
+    }
     this.postState();
   }
 
@@ -864,34 +894,55 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       model: modelId,
       ...(modelParams?.length ? { modelParams } : { modelParams: undefined }),
     };
-    this.registry.setMode('agent');
+    const target = this.controller;
+    const conversation = this.registry.entries().find((entry) => entry.controller === target);
+    const previousMode = conversation?.mode ?? this.controls[provider].mode;
+    if (conversation) conversation.mode = 'agent';
     this.controls[provider] = { ...this.controls[provider], mode: 'agent' };
-    await this.context.workspaceState.update('ai-agents.controls', this.controls);
-    this.selectedModels[provider] = { model: modelId, label: label || modelId || (this.locale === 'ja' ? 'モデルを選択' : 'Select model'), hasDetails: Boolean(modelParams?.length), ...(modelParams?.length ? { modelParams } : {}) };
-    await this.context.workspaceState.update('ai-agents.selectedModels', this.selectedModels);
-    await this.controller.build(planId, revision, selection);
+    try {
+      await target.build(planId, revision, selection);
+    } finally {
+      const state = target.snapshot();
+      if (state.plan.phase !== 'implemented' && state.plan.phase !== 'building') {
+        if (conversation) conversation.mode = previousMode;
+        target.setModePreference(previousMode);
+        if (this.controller === target) this.controls[provider] = { ...this.controls[provider], mode: previousMode };
+      }
+      // Publish a model label only after the backend has acknowledged the selection.
+      if (this.controller === target && state.selection.model === modelId && sameModelParams(state.selection.modelParams, modelParams)) {
+        this.selectedModels[provider] = { model: modelId, label: label || modelId || (this.locale === 'ja' ? 'モデルを選択' : 'Select model'), hasDetails: Boolean(modelParams?.length), ...(modelParams?.length ? { modelParams } : {}) };
+      }
+      this.controllerControls.set(target, { ...(this.controllerControls.get(target) ?? this.controls[provider]), mode: conversation?.mode ?? previousMode });
+      await this.context.workspaceState.update('ai-agents.controls', this.controls);
+      await this.context.workspaceState.update('ai-agents.selectedModels', this.selectedModels);
+      this.postState();
+    }
   }
 
   private async setBuildModel(message: object): Promise<void> {
-    const plan = this.controller.snapshot().plan;
+    const target = this.controller;
+    const plan = target.snapshot().plan;
     if (plan.phase !== 'ready' || !plan.current) return;
-    const provider = this.controller.snapshot().selection.provider;
+    const provider = target.snapshot().selection.provider;
     if (capabilitiesFor(provider, this.controls[provider].backend).buildModel === 'unsupported') return;
-    const current = plan.build?.selection ?? this.controller.snapshot().selection;
+    const current = plan.build?.selection ?? target.snapshot().selection;
     if ('type' in message && message.type === 'setBuildModel') {
       const modelId = 'modelId' in message && typeof message.modelId === 'string' ? message.modelId : '';
       const models = await this.cachedModels(current);
+      const latest = target.snapshot().plan;
+      if (this.controller !== target || latest.phase !== 'ready' || latest.current?.id !== plan.current.id
+        || latest.current.revision !== plan.current.revision) return;
       const chosen = modelId ? models.find((model) => model.id === modelId || model.aliases?.includes(modelId)) : undefined;
       if (!chosen) throw new Error('モデル一覧に、そのモデルはありません。');
       const selection = selectBaseModel(chosen, current);
-      this.controller.setBuildModel(selection, chosen?.label || modelId || (this.locale === 'ja' ? 'モデルを選択' : 'Select model'));
+      target.setBuildModel(selection, chosen?.label || modelId || (this.locale === 'ja' ? 'モデルを選択' : 'Select model'));
       return;
     }
     const id = 'id' in message && typeof message.id === 'string' ? message.id : '';
     const value = 'value' in message && typeof message.value === 'string' ? message.value : '';
     if (!id) return;
     const params = [...(current.modelParams ?? []).filter((param) => param.id !== id), { id, value }];
-    this.controller.setBuildModel({ ...current, modelParams: params }, plan.build?.label);
+    target.setBuildModel({ ...current, modelParams: params }, plan.build?.label);
   }
 
   private async reviewAll(): Promise<void> {

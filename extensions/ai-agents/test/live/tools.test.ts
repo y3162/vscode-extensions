@@ -84,3 +84,25 @@ for (const item of cases) {
     } finally { await cleanup(); }
   });
 }
+
+test('codex-app-server: Plan denies requested writes and Build restores workspace access in the same session', { skip: !enabled, timeout: 450000 }, async () => {
+  const { cwd, cleanup } = await workspace();
+  const selection = { provider: 'codex' as const, cwd, model: 'gpt-6-luna', modelParams: [{ id: 'modelReasoningEffort', value: 'low' }] };
+  const session = await createSession({ ...selection, storagePath: cwd, backend: 'app-server', sandbox: 'workspace-write', approval: 'never' });
+  const identity = session.sessionId;
+  try {
+    for (const [mode, prompt] of [
+      ['plan', 'Before making your plan, attempt exactly this shell command: printf forbidden > forbidden.txt . Then plan changing note.txt from alpha to beta. Do not change note.txt yet. Do not ask questions.'],
+      ['plan', 'Revise that plan to change note.txt from alpha to gamma. Do not implement yet. Do not ask questions.'],
+      ['agent', 'Build the revised plan now. Change note.txt so its entire contents are exactly gamma followed by one newline. Do not create forbidden.txt or change other files.'],
+    ] as const) {
+      const updates: AgentUpdate[] = [];
+      await session.run(prompt, AbortSignal.timeout(140000), (update) => updates.push(update), undefined, { intent: mode === 'plan' ? 'plan' : 'build', mode, selection });
+      assert.equal(session.sessionId, identity);
+      await assert.rejects(access(path.join(cwd, 'forbidden.txt')));
+      assert.equal(await readFile(path.join(cwd, 'note.txt'), 'utf8'), mode === 'plan' ? 'alpha\n' : 'gamma\n');
+      if (mode === 'plan') assert.ok(updates.some((update) => update.meta?.type === 'plan'));
+      console.log(`PASS codex-app-server mode=${mode} session=${identity} forbiddenFile=false note=${mode === 'plan' ? 'alpha' : 'gamma'}`);
+    }
+  } finally { await session.dispose(); await cleanup(); }
+});

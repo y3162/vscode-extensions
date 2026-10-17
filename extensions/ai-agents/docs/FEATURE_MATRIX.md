@@ -1,3 +1,21 @@
+# 0.10.0 再監査による更新（2026-10-17）
+
+以下の表の旧版記述より、今回の [総合監査](AUDIT.md) と次の更新を優先する。
+
+| Feature | 現行の対応と制限 |
+| --- | --- |
+| Cursor ACP最終回答 | 純粋deltaとして連結。正常prompt終了でfinalを明示し、復元時にも各ターンfinalを保持 |
+| Cursor ACPモデル変更 | 起動`--model`とは別に、sessionが広告したcanonical variantへ`session/set_config_option`。応答currentValueを検証してからUI確定。未広告モデル/parametersは拒否。旧CLIは利用可否を実応答で検証 |
+| Workerモデル変更 | client / worker / controllerがackを待つ。IPC失敗を握りつぶさず、UIだけ変更しない |
+| Plan / Build | Cursor SDK / ACPとCodex App Serverで初回→改訂→同じ会話のBuildを今回ライブ再確認。Codex SDKには公開Plan modeなし |
+| Debug / Multitask | 当該ACPで拒否。interactive CLI `/debug`の存在とACP/SDK API対応を混同しない。疑似ラベルなし |
+| 子・Terminal | 実2子並列・親Stop後更新・実測model・自然終了/明示停止/別会話更新/SDK cleanupを今回ライブ確認。未公開値は補完しない |
+| UI品質保証 | 今回実GUI 300/390px Dark/Light・Copy・複数経路送信・App Server Plan/Buildを確認。全GUI受入は未完了。中央Composer/editorは対象外 |
+
+v1.0.0判定は **No-Go**。以下は過去の分類・検証記録。
+
+---
+
 # Feature Matrix
 
 調査日: 2026-10-16。対象バージョンは `@cursor/sdk@1.0.37`、`@openai/codex-sdk@0.162.1`、`@openai/codex@0.162.1`、参考実装 `yutat23/cursor-agent-sidebar` v0.3.7 です。
@@ -68,3 +86,17 @@
 | Codex App Server 0.162.1 | 実CLIで確認 | snapshot + 公開turnページング | total / last / cache / reasoning / context | lastは直近リクエスト。Turnは累積差分 |
 
 Copy・表示履歴・可視Usageは実装済み。自動テスト・実Extension Hostのプログラム操作と、目視／手操作の完了は区別する。今回のGUIアクセス拒否により、テーマ別・幅別の実画面撮影は未検証。詳細はVERIFICATION.md。
+
+
+## 最終再監査の対応表（2026-10-17）
+
+| 経路 | 会話・履歴 | モード/Build | モデル設定 | Usage / 子 / 背景Terminal |
+| --- | --- | --- | --- | --- |
+| Cursor SDK 1.0.37 | 3turn/Stop/resume/Host再起動成功。ローカル表示＋公開API | Agent/Plan。同会話改訂/Build | ACK後に確定、次sendへ実設定 | Usage対応、Task実データ、hash固定executor。context未取得 |
+| Cursor ACP | 3turn明示finalと表示本文一致、load/Host再起動成功 | Agent/Plan/Ask。再開Agentも明示set_mode | 広告されたvariantのみ変更、ACK検査 | Usage非対応、実子、Terminal一覧非対応 |
+| Codex SDK 0.162.1 | 3turn/Stop/resume/Host再起動成功。本文はローカル表示保存 | Agentのみ、Plan非対応 | 変更時は確認後に新会話 | Usage対応、対話承認/子追跡/背景Terminal非対応 |
+| Codex App Server 0.162.1 | 3turn/Stop/resume/公開履歴final/Host再起動成功 | Agent(Default)/Plan。read-onlyとBuild元権限復帰 | 次turnへmodel/effort | Usage/実子/背景Terminal対応。任意stdin/resize非対応 |
+
+Debug/Multitaskは広告・実行対応がなく追加しない。未取得数値を0で埋めない。画像only送信・Queue・Retryは追加修正/Controller・DOM検証済み、実GUI画像試験は未完了。300/390px Dark/Light実画面と実App Server Plan/Buildは今回確認。全4経路のGUI受入が残るためNo-Go。中央Composer・新規Agent editorは依頼の対象外。
+
+App Server no-tty背景コマンドでは公開通知/一覧が初期stdoutを配信せず、終了時aggregatedOutputで全文を取得する場合がある。リアルタイムの完全な初期出力を保証しない。既配信bufferのitemId結合は修正・回帰検証済み。
