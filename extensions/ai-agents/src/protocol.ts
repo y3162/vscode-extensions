@@ -1,6 +1,6 @@
 import type {
   Backend, ChatMessage, ConnectionStatus, ImageAttachment, PermissionRequest, PlanPhase, PlanRequest, PlanSource, Provider, QuestionRequest,
-  SessionSummary, SubagentBackground, ToolInfo, UsageStats,
+  FileDiffLine, SessionSummary, SubagentBackground, ToolInfo, UsageStats,
 } from './types.js';
 
 export interface ViewChoice {
@@ -14,6 +14,7 @@ export interface ViewFile {
   kind: string;
   additions?: number;
   deletions?: number;
+  preview?: FileDiffLine[];
 }
 
 export interface ViewMeta {
@@ -36,6 +37,8 @@ export interface ViewMessage {
   final?: boolean;
   turnId?: string;
   failure?: ChatMessage['failure'];
+  canRewind?: boolean;
+  rewindReason?: string;
 }
 
 export interface ViewFileIcon {
@@ -172,6 +175,7 @@ export interface ViewShell {
   question: { token: string; request: QuestionRequest } | null;
   activeFile: { label: string; token: string } | null;
   locale: 'ja' | 'en';
+  operationLabel?: 'rewind-check' | 'rewind-branch' | 'rewind-files' | 'rewind-prepare' | 'rewind-send';
   providers: { id: Provider; label: string; detail: string }[];
 }
 

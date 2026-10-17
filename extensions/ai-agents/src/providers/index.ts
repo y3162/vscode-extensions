@@ -277,7 +277,7 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
             if (meta) emit({ id: `usage-${index}`, role: 'status', text: '', meta });
           }
           const update = cursorUpdate(event, index++);
-          const meta = withBaseline(cursorMeta(event), baselines, options.cwd);
+          const meta = await withBaseline(cursorMeta(event), baselines, options.cwd);
           if (meta?.type === 'plan') sawPlan = true;
           const tool = cursorTool(event);
           if (update?.text && !signal.aborted) {
@@ -311,16 +311,19 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
   };
 }
 
-function withBaseline(meta: ReturnType<typeof cursorMeta>, baselines: Map<string, FileChange>, cwd: string) {
+async function withBaseline(meta: ReturnType<typeof cursorMeta>, baselines: Map<string, FileChange>, cwd: string) {
   if (meta?.type !== 'files' || !meta.files) return meta;
+  const files: FileChange[] = [];
+  for (const file of meta.files) {
+    const saved = baselines.get(path.resolve(cwd, file.path));
+    if (saved?.previousText === undefined) { files.push(file); continue; }
+    const kind: FileChange['kind'] = saved.previousText === null ? 'add' : file.kind === 'delete' ? 'delete' : 'update';
+    const current = await readWorkspaceText(cwd, file.path);
+    files.push(applyTextStats({ ...file, previousText: saved.previousText, previousMode: saved.previousMode, kind }, current));
+  }
   return {
     ...meta,
-    files: meta.files.map((file) => {
-      const saved = baselines.get(path.resolve(cwd, file.path));
-      if (saved?.previousText === undefined) return file;
-      const kind: FileChange['kind'] = saved.previousText === null ? 'add' : file.kind === 'delete' ? 'delete' : 'update';
-      return { ...file, previousText: saved.previousText, kind };
-    }),
+    files,
   };
 }
 
@@ -328,9 +331,15 @@ async function enrichCodexFiles(meta: UpdateMeta | undefined, baselines: GitBase
   if (meta?.type !== 'files' || !meta.files?.length) return meta;
   const files: FileChange[] = [];
   for (const file of meta.files) {
-    const previous = file.previousText !== undefined ? file.previousText : await baselines?.lookup(file.oldPath ?? file.path);
+    const baseline = await baselines?.lookup(file.oldPath ?? file.path);
+    const previous = baseline !== undefined ? baseline : file.previousText;
+    const previousMode = await baselines?.lookupMode(file.oldPath ?? file.path);
     const current = await readWorkspaceText(cwd, file.path);
-    files.push(applyTextStats({ ...file, ...(previous !== undefined ? { previousText: previous } : {}) }, current));
+    files.push(applyTextStats({
+      ...file,
+      ...(previous !== undefined ? { previousText: previous } : {}),
+      ...(previousMode !== undefined ? { previousMode } : {}),
+    }, current));
   }
   return { ...meta, files };
 }

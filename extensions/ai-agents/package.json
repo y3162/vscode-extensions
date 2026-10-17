@@ -67,7 +67,7 @@
       "properties": {
         "ai-agents.history.enabled": {
           "type": "boolean", "default": true,
-          "description": "Save chat display history locally until manually deleted. May contain conversation text and tool output. Never replays prompts to the model."
+          "description": "Save chat history and safe text-file turn checkpoints locally until manually deleted (up to 8 MB per conversation). May contain conversation text and tool output. Never replays prompts to the model."
         },
         "ai-agents.defaultProvider": {
           "type": "string", "enum": ["codex", "cursor"], "default": "codex",

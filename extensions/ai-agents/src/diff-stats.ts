@@ -1,10 +1,10 @@
-import type { FileChange } from './types.js';
+import type { FileChange, FileDiffLine } from './types.js';
 
 const maxLines = 4000;
 
 export function lineChangeCounts(before: string, after: string): { additions: number; deletions: number } | undefined {
-  const left = before.split('\n');
-  const right = after.split('\n');
+  const left = displayLines(before);
+  const right = displayLines(after);
   if (left.length > maxLines || right.length > maxLines) return undefined;
   const shared = lcsLength(left, right);
   return { additions: right.length - shared, deletions: left.length - shared };
@@ -41,6 +41,91 @@ export function countUnifiedDiff(diff: string): { additions: number; deletions: 
   return { additions, deletions };
 }
 
+function displayLines(text: string | null): string[] {
+  if (text === null || text === '') return [];
+  const lines = text.split('\n');
+  if (text.endsWith('\n')) lines.pop();
+  return lines.map((line) => line.endsWith('\r') ? line.slice(0, -1) : line);
+}
+
+/** A bounded, single-region preview for a file update. Stored contents remain untouched. */
+export function previewTextDiff(before: string | null, after: string | null, maxChanged = 10): FileDiffLine[] {
+  const oldLines = displayLines(before);
+  const newLines = displayLines(after);
+  let prefix = 0;
+  while (prefix < oldLines.length && prefix < newLines.length && oldLines[prefix] === newLines[prefix]) prefix += 1;
+  let suffix = 0;
+  while (suffix < oldLines.length - prefix && suffix < newLines.length - prefix
+    && oldLines[oldLines.length - suffix - 1] === newLines[newLines.length - suffix - 1]) suffix += 1;
+
+  const removed = oldLines.slice(prefix, oldLines.length - suffix);
+  const added = newLines.slice(prefix, newLines.length - suffix);
+  if (!removed.length && !added.length) {
+    const oldHasFinalNewline = before?.endsWith('\n') ?? false;
+    const newHasFinalNewline = after?.endsWith('\n') ?? false;
+    if (oldHasFinalNewline === newHasFinalNewline) return [];
+    const tail = newLines.at(-1);
+    return [
+      ...(tail !== undefined ? [{ kind: 'context' as const, line: newLines.length, text: tail }] : []),
+      { kind: 'eof', text: newHasFinalNewline ? 'Newline at end of file' : 'No newline at end of file' },
+    ];
+  }
+  const rows: FileDiffLine[] = [];
+  if (prefix > 0) rows.push({ kind: 'context', line: prefix, text: oldLines[prefix - 1]! });
+  const eachSide = Math.max(1, Math.floor(maxChanged / 2));
+  rows.push(...removed.slice(0, eachSide).map((text, index) => ({ kind: 'remove' as const, line: prefix + index + 1, text })));
+  if (removed.length > eachSide) rows.push({ kind: 'more', text: `${removed.length - eachSide} removed lines omitted` });
+  rows.push(...added.slice(0, eachSide).map((text, index) => ({ kind: 'add' as const, line: prefix + index + 1, text })));
+  if (added.length > eachSide) rows.push({ kind: 'more', text: `${added.length - eachSide} added lines omitted` });
+  if (suffix > 0) rows.push({ kind: 'context', line: newLines.length - suffix + 1, text: newLines[newLines.length - suffix]! });
+  return rows;
+}
+
+/** Extracts a small displayable hunk from a unified diff without exposing the full patch. */
+export function previewUnifiedDiff(diff: string, maxLines = 14): FileDiffLine[] {
+  const rows: FileDiffLine[] = [];
+  let oldLine = 0;
+  let newLine = 0;
+  let inHunk = false;
+  for (const raw of diff.split('\n')) {
+    if (raw.startsWith('diff --git ')) { inHunk = false; continue; }
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+    if (hunk) { oldLine = Number(hunk[1]); newLine = Number(hunk[2]); inHunk = true; continue; }
+    if (!inHunk) continue;
+    if (raw.startsWith('\\')) {
+      if (raw.includes('No newline at end of file')) rows.push({ kind: 'eof', text: 'No newline at end of file' });
+      continue;
+    }
+    const prefix = raw[0];
+    const content = raw.slice(1).replace(/\r$/, '');
+    if (prefix === '-') { rows.push({ kind: 'remove', line: oldLine++, text: content }); continue; }
+    if (prefix === '+') { rows.push({ kind: 'add', line: newLine++, text: content }); continue; }
+    if (prefix === ' ') {
+      rows.push({ kind: 'context', line: newLine++, text: content });
+      oldLine += 1;
+    }
+  }
+  const changed = rows.flatMap((row, index) => row.kind === 'context' ? [] : [index]);
+  if (!changed.length) return [];
+  const start = Math.max(0, changed[0]! - 1);
+  const end = Math.min(rows.length, changed.at(-1)! + 2);
+  const visible = rows.slice(start, end);
+  if (visible.length <= maxLines) return visible;
+  const changedVisible = visible.filter((row) => row.kind !== 'context');
+  const before = visible.find((row) => row.kind === 'context');
+  const after = [...visible].reverse().find((row) => row.kind === 'context');
+  const budget = Math.max(2, maxLines - Number(Boolean(before)) - Number(Boolean(after)) - 1);
+  const half = Math.ceil(budget / 2);
+  const kept = [
+    ...(before ? [before] : []),
+    ...changedVisible.slice(0, half),
+    { kind: 'more' as const, text: `${Math.max(0, changedVisible.length - budget)} changed lines omitted` },
+    ...changedVisible.slice(-Math.floor(budget / 2)),
+    ...(after ? [after] : []),
+  ];
+  return kept.slice(0, maxLines);
+}
+
 export interface ParsedDiffFile {
   path: string;
   oldPath?: string;
@@ -51,15 +136,15 @@ export interface ParsedDiffFile {
 }
 
 export function parseUnifiedDiff(diff: string): ParsedDiffFile[] {
-  const text = diff.replace(/\r\n/g, '\n');
+  const text = diff;
   if (!text.trim()) return [];
   const chunks = text.includes('diff --git ')
     ? text.split(/(?=^diff --git )/m).filter((chunk) => chunk.trim())
     : [text];
   return chunks.flatMap((chunk) => {
-    const header = /^diff --git a\/(.+?) b\/(.+)$/m.exec(chunk);
-    const minus = /^--- (?:a\/)?(.+)$/m.exec(chunk);
-    const plus = /^\+\+\+ (?:b\/)?(.+)$/m.exec(chunk);
+    const header = /^diff --git a\/(.+?) b\/([^\r\n]+)\r?$/m.exec(chunk);
+    const minus = /^--- (?:a\/)?([^\r\n]+)\r?$/m.exec(chunk);
+    const plus = /^\+\+\+ (?:b\/)?([^\r\n]+)\r?$/m.exec(chunk);
     const oldName = header?.[1] ?? (minus?.[1] && minus[1] !== '/dev/null' ? minus[1] : undefined);
     const newName = header?.[2] ?? (plus?.[1] && plus[1] !== '/dev/null' ? plus[1] : undefined);
     const filePath = newName && newName !== '/dev/null' ? newName : oldName;
@@ -74,7 +159,7 @@ export function parseUnifiedDiff(diff: string): ParsedDiffFile[] {
       kind: removed ? 'delete' : added ? 'add' : renamed ? 'rename' : 'update',
       additions: counts.additions,
       deletions: counts.deletions,
-      diff: chunk.trimEnd(),
+      diff: chunk,
     }];
   });
 }
@@ -102,15 +187,20 @@ export function previousTextFromDiff(diff: string, kind: FileChange['kind']): st
   if (kind === 'add') return null;
   if (kind !== 'delete') return undefined;
   const lines: string[] = [];
+  let finalLineHasNewline = true;
+  let inHunk = false;
+  const emptyFileDeletion = /^deleted file mode /m.test(diff);
   for (const line of diff.split('\n')) {
-    if (!line || line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('---') || line.startsWith('+++')
-      || line.startsWith('@@') || line.startsWith('new file') || line.startsWith('deleted file')
-      || line.startsWith('similarity') || line.startsWith('rename ') || line.startsWith('old mode') || line.startsWith('new mode')) continue;
-    if (line.startsWith('-')) lines.push(line.slice(1));
-    else if (line.startsWith('\\')) continue;
+    if (line.startsWith('@@')) { inHunk = true; continue; }
+    if (!inHunk || !line) continue;
+    if (line.startsWith('-')) { lines.push(line.slice(1)); finalLineHasNewline = true; }
+    else if (line.startsWith('\\')) {
+      if (line.includes('No newline at end of file') && lines.length) finalLineHasNewline = false;
+    }
     else return undefined;
   }
-  return lines.join('\n');
+  if (!lines.length && !emptyFileDeletion) return undefined;
+  return `${lines.join('\n')}${lines.length && finalLineHasNewline ? '\n' : ''}`;
 }
 
 export function extensionBadge(fileName: string): string {

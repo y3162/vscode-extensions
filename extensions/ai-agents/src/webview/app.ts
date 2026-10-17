@@ -95,7 +95,8 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   const history = new HistoryPanel(dom, stage, (id) => openSession(id));
   const settings = new SettingsPanel(dom, stage, post, () => { settings.close(); paint(); });
   const composer = new Composer(dom, dock, post, menu, (panel) => show(panel));
-  const transcript = new Transcript(dom, thread, post, (text, retryId) => { composer.editDraft(text, retryId); save(); }, (anchor) => composer.openBuildModel(anchor));
+  const transcript = new Transcript(dom, thread, post, (text, retryId) => { composer.editDraft(text, retryId); save(); }, (anchor) => composer.openBuildModel(anchor),
+    (turnId, editedText) => post({ type: 'rewind', turnId, editedText }));
 
   function openSession(id: string): void {
     if (!shell) return;

@@ -8,7 +8,11 @@ export function renderPending(host: HTMLElement, shell: ViewShell, dom: Dom, cop
   const current = shell.permission ? `permission:${shell.permission.token}`
     : shell.plan ? `plan:${shell.plan.token}`
       : shell.question ? `question:${shell.question.token}` : '';
-  if (!current) { host.replaceChildren(); host.hidden = true; return; }
+  if (!current) {
+    if (host.childElementCount) host.replaceChildren();
+    host.hidden = true;
+    return;
+  }
   if (host.dataset.token === current && host.childElementCount) return;
   host.dataset.token = current;
   host.hidden = false;

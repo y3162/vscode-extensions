@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { capabilitiesFor, defaultControls, modelApplyMode, normalizeControls, type AgentControls } from './capabilities.js';
 import { inferIntent } from './plan-state.js';
@@ -8,6 +9,7 @@ import { HistoryStore } from './history-store.js';
 import { usageText } from './usage.js';
 import { BackgroundTerminalViews } from './background-terminal.js';
 import { ChatController } from './chat-controller.js';
+import { discardTurnRewindJournal, readTurnRewindJournal, rollbackTurnRewindJournal } from './turn-rewind.js';
 import { builtinCommand, expandPrompt } from './context-text.js';
 import { cursorRuntimeDiagnostics, runProcess } from './diagnostics.js';
 import { agentLaunch, codexLaunch } from './providers/codex-binary.js';
@@ -34,6 +36,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   private readonly terminalViews = new BackgroundTerminalViews();
   private readonly history: HistoryStore;
   private readonly historyReady: Promise<void>;
+  private readonly rewindJournalDirectory: string;
   private readonly conversationIds = new WeakMap<ChatController, string>();
   private readonly controllerControls = new WeakMap<ChatController, AgentControls>();
   private retryDraft?: { controller: ChatController; id: string; text: string };
@@ -66,8 +69,10 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   get controller(): ChatController { return this.registry.front; }
 
   constructor(private readonly context: vscode.ExtensionContext, private readonly output: vscode.OutputChannel) {
-    this.history = new HistoryStore(path.join((context.storageUri ?? context.globalStorageUri).fsPath, 'history', 'v1'), (error) => { this.output.appendLine(`History save failed: ${errorMessage(error)}`); this.post({ type: 'error', text: '表示履歴を保存できませんでした。Logsを確認してください。' }); });
-    this.historyReady = this.history.load().catch((error) => { this.history.errors.push(errorMessage(error)); });
+    const historyRoot = path.join((context.storageUri ?? context.globalStorageUri).fsPath, 'history', 'v1');
+    this.rewindJournalDirectory = path.join(historyRoot, 'rewind-journals');
+    this.history = new HistoryStore(historyRoot, (error) => { this.output.appendLine(`History save failed: ${errorMessage(error)}`); this.post({ type: 'error', text: '表示履歴を保存できませんでした。Logsを確認してください。' }); });
+    this.historyReady = this.history.load().then(() => this.recoverTurnRewinds()).catch((error) => { this.history.errors.push(errorMessage(error)); });
     const config = vscode.workspace.getConfiguration('ai-agents');
     const provider = config.get<Provider>('defaultProvider', 'codex');
     const storedControls = context.workspaceState.get<Partial<Record<Provider, AgentControls>>>('ai-agents.controls', {});
@@ -145,11 +150,38 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     }, (state) => {
       if (owner.controller) this.saveConversation(owner.controller, state);
       this.postState();
+    }, {
+      journalDirectory: this.rewindJournalDirectory,
+      conversationId: () => owner.controller ? this.conversationIds.get(owner.controller) : undefined,
+      enabled: () => Boolean(owner.controller && !this.historyPaused && !this.suppressedHistories.has(this.conversationIds.get(owner.controller) ?? '')
+        && vscode.workspace.getConfiguration('ai-agents').get<boolean>('history.enabled', true)),
+      flush: () => this.flushHistory(),
     });
     owner.controller = controller;
     this.conversationIds.set(controller, randomUUID());
     this.controllerControls.set(controller, { ...this.controls[selection.provider] });
     return controller;
+  }
+
+  private async recoverTurnRewinds(): Promise<void> {
+    let names: string[];
+    try { names = await readdir(this.rewindJournalDirectory); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+    for (const name of names.filter((item) => /^[a-f0-9-]+\.json$/.test(item))) {
+      const file = path.join(this.rewindJournalDirectory, name);
+      try {
+        const journal = await readTurnRewindJournal(file);
+        const saved = this.history.get(journal.conversationId);
+        if (saved?.sessionId === journal.branchId) {
+          await discardTurnRewindJournal(file);
+        } else {
+          await rollbackTurnRewindJournal(journal);
+          await discardTurnRewindJournal(file);
+        }
+      } catch (error) {
+        this.history.errors.push(`巻き戻し中断から自動復旧できませんでした。ファイルは保持しました: ${name} (${errorMessage(error)})`);
+      }
+    }
   }
 
   private saveConversation(controller: ChatController, state: ChatState): void {
@@ -236,7 +268,8 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       tokens: this.controller.interactionTokens(),
       backends: { codex: this.controls.codex.backend, cursor: this.controls.cursor.backend },
     });
-    const messages = state.messages.map(toViewMessage);
+    const rewindable = state.selection.provider === 'codex' && controls.backend === 'app-server' ? this.controller.rewindableTurnIds() : new Set<string>();
+    const messages = state.messages.map((message) => toViewMessage(message, message.role === 'user' && rewindable.has(message.id)));
     for (const view of this.readyViews) {
       const current = this.sync.get(view) ?? { sigs: new Map<string, string>(), revision: 0 };
       const full = current.revision === 0;
@@ -334,6 +367,11 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
         if (!original && user.attachments?.length) { this.post({ type: 'error', text: '添付を再指定して入力を確認してください。自動再実行はしません。' }); }
         return;
       }
+      case 'rewind': {
+        if (!('turnId' in message) || typeof message.turnId !== 'string' || !('editedText' in message) || typeof message.editedText !== 'string') return;
+        await this.rewindPrompt(message, message.turnId, message.editedText);
+        return;
+      }
       case 'usage': await this.showUsage(); return;
       case 'instructions': await this.showInstructions(); return;
       case 'toggleAutoApprove': await this.toggleAutoApprove(); return;
@@ -359,7 +397,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       case 'resolveQuestion': this.resolveQuestion(message); return;
       case 'openDiff':
       case 'openFile':
-      case 'revertFile': await this.reviewFile(String(message.type), 'path' in message ? message.path : undefined, 'line' in message ? message.line : undefined, 'column' in message ? message.column : undefined); return;
+      case 'revertFile': await this.reviewFile(String(message.type), 'path' in message ? message.path : undefined, 'line' in message ? message.line : undefined, 'column' in message ? message.column : undefined, 'endLine' in message ? message.endLine : undefined); return;
       case 'restoreSession': await this.restoreSession('id' in message ? message.id : undefined); return;
       case 'addDirectory': await this.addDirectory(); return;
       case 'login': await this.signIn(); return;
@@ -784,6 +822,43 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     this.output.appendLine(`[${provider}/${backend}] ${target.snapshot().status}`);
   }
 
+  private async rewindPrompt(message: object, turnId: string, editedText: string): Promise<void> {
+    const target = this.targetController(message);
+    const state = target.snapshot();
+    const turn = state.turns.find((item) => item.id === turnId || item.userMessageId === turnId);
+    if (!turn) throw new Error('対象のUserターンが見つかりません。');
+    const userId = turn.userMessageId ?? turn.id;
+    const user = state.messages.find((item) => item.id === userId && item.role === 'user');
+    if (!user) throw new Error('対象のUserメッセージがローカル履歴にありません。');
+    const original = target.retryInput(turn.id);
+    if (user.attachments?.length && !original) throw new Error('添付の元データが保存されていません。添付を含むターンは巻き戻しできません。');
+    if (turn.imageCount && !original?.extras?.images?.length) throw new Error('元画像はローカル履歴に保存されていないため、この保存済みターンは巻き戻せません。');
+    const preview = await target.previewRewind(turnId);
+    if (this.targetController(message) !== target) throw new Error('巻き戻し確認中に対象の会話が切り替わりました。');
+    const japanese = this.locale === 'ja';
+    const files = preview.files.length
+      ? (japanese ? `\n復元するファイル (${preview.files.length}): ${preview.files.slice(0, 8).join(', ')}${preview.files.length > 8 ? '、ほか' : ''}`
+        : `\nFiles to restore (${preview.files.length}): ${preview.files.slice(0, 8).join(', ')}${preview.files.length > 8 ? ', and more' : ''}`)
+      : (japanese ? '\n復元するファイル変更はありません。' : '\nNo file changes need restoring.');
+    const sourcePrompt = preview.prompt.length > 180 ? `${preview.prompt.slice(0, 180)}…` : preview.prompt;
+    const replacementPrompt = editedText.trim().length > 180 ? `${editedText.trim().slice(0, 180)}…` : editedText.trim();
+    const body = japanese
+      ? `このプロンプトを対象位置で編集し、そこから会話を再実行します。\n元の本文: ${sourcePrompt}\n編集後: ${replacementPrompt}\n対象の古い応答と後続ターン ${Math.max(0, preview.removedTurns - 1)} 件を会話から削除し、対象ターン以降のファイル変更を実行前の状態へ Revert します。${files}\nファイルは現在の状態が保存済みチェックポイントと一致する場合だけ復元します。`
+      : `Edit this prompt in place and run the conversation again from here.\nOriginal: ${sourcePrompt}\nReplacement: ${replacementPrompt}\nThe old response and ${Math.max(0, preview.removedTurns - 1)} later turn(s) will be removed; file changes from this turn onward will be reverted to the pre-turn state.${files}\nFiles are restored only when they still match their saved checkpoints.`;
+    const confirm = japanese ? '巻き戻して再実行' : 'Rewind and resend';
+    const choice = await vscode.window.showWarningMessage(body, { modal: true }, confirm);
+    if (choice !== confirm) return;
+    if (this.targetController(message) !== target) throw new Error('巻き戻し確認中に対象の会話が切り替わりました。');
+    this.requireWorkspace(state.selection.cwd);
+    const expanded = await expandPrompt(editedText.trim(), state.selection.cwd, await workspaceCommands(state.selection.cwd));
+    const extras = {
+      displayText: editedText.trim(),
+      ...(original?.extras?.images?.length ? { images: original.extras.images } : {}),
+      ...(original?.extras?.attachments?.length ? { attachments: original.extras.attachments } : {}),
+    };
+    await target.rewindAndSend(turn.id, expanded, extras);
+  }
+
   private async configure(message: object): Promise<void> {
     const target = this.controller;
     const conversation = this.registry.entries().find((entry) => entry.controller === target);
@@ -1037,7 +1112,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     }
   }
 
-  private async reviewFile(type: string, filePath: unknown, line?: unknown, column?: unknown): Promise<void> {
+  private async reviewFile(type: string, filePath: unknown, line?: unknown, column?: unknown, endLine?: unknown): Promise<void> {
     if (typeof filePath !== 'string' || !filePath) return;
     const roots = this.folders().map((folder) => folder.path);
     const change = this.controller.snapshot().changes.find((item) => item.path === filePath);
@@ -1050,9 +1125,16 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       const lineNumber = typeof line === 'number' ? line : Number(line);
       const columnNumber = typeof column === 'number' ? column : Number(column);
       if (Number.isSafeInteger(lineNumber) && lineNumber > 0) {
-        const position = new vscode.Position(lineNumber - 1, Number.isSafeInteger(columnNumber) && columnNumber > 0 ? columnNumber - 1 : 0);
-        editor.selection = new vscode.Selection(position, position);
-        editor.revealRange(new vscode.Range(position, position));
+        const firstLine = Math.min(lineNumber, editor.document.lineCount);
+        const startLine = firstLine - 1;
+        const endNumber = typeof endLine === 'number' ? endLine : Number(endLine);
+        const lastLine = Number.isSafeInteger(endNumber) && endNumber >= lineNumber ? Math.min(endNumber, editor.document.lineCount) : firstLine;
+        const start = new vscode.Position(startLine, Number.isSafeInteger(columnNumber) && columnNumber > 0 ? columnNumber - 1 : 0);
+        const end = Number.isSafeInteger(columnNumber) && columnNumber > 0
+          ? start
+          : new vscode.Position(lastLine - 1, editor.document.lineAt(lastLine - 1).text.length);
+        editor.selection = new vscode.Selection(start, end);
+        editor.revealRange(new vscode.Range(start, end));
       }
       return;
     }

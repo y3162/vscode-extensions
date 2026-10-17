@@ -11,6 +11,7 @@ export type Block =
 
 export const codeSources = new WeakMap<Element, string>();
 const rendered = new WeakMap<HTMLElement, { sigs: string[]; nodes: HTMLElement[] }>();
+const streaming = new WeakMap<HTMLElement, { source: string; node: Text }>();
 
 export function parseMarkdown(source: string): Block[] {
   const lines = source.replace(/\r\n/g, '\n').split('\n');
@@ -88,6 +89,12 @@ function splitRow(line: string): string[] {
 }
 
 export function renderMarkdown(host: HTMLElement, source: string, dom: Dom, copyLabel = 'Copy'): void {
+  if (streaming.has(host)) {
+    host.replaceChildren();
+    rendered.delete(host);
+  }
+  streaming.delete(host);
+  host.classList.remove('is-streaming');
   const blocks = parseMarkdown(source);
   const sigs = blocks.map((block) => JSON.stringify(block));
   const state = rendered.get(host) ?? { sigs: [], nodes: [] };
@@ -106,6 +113,23 @@ export function renderMarkdown(host: HTMLElement, source: string, dom: Dom, copy
     else host.insertBefore(node, cursor);
   }
   rendered.set(host, { sigs, nodes });
+}
+
+/** Paint cumulative assistant snapshots without reparsing and replacing the full answer on each delta. */
+export function renderStreamingText(host: HTMLElement, source: string): void {
+  let state = streaming.get(host);
+  if (!state) {
+    const node = host.ownerDocument.createTextNode(source);
+    host.replaceChildren(node);
+    host.classList.add('is-streaming');
+    rendered.delete(host);
+    streaming.set(host, { source, node });
+    return;
+  }
+  if (state.source === source) return;
+  if (source.startsWith(state.source)) state.node.appendData(source.slice(state.source.length));
+  else state.node.data = source;
+  state.source = source;
 }
 
 function renderBlock(block: Block, dom: Dom, copyLabel: string): HTMLElement {
@@ -167,7 +191,7 @@ function inlineBlock(tag: 'p' | 'li' | 'blockquote' | 'td', text: string, dom: D
   return element;
 }
 
-const inlinePattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\((?:<[^>\n]+>|[^)\n]+)\)|[a-z][a-z\d+.-]*:\/\/[^\s<>()]+|(?:[a-z]:[\\/]|\.{1,2}[\\/]|\/)?(?:[\w.+-]+[\\/])+[\w.+-]+\.\w+(?::\d+(?::\d+)?)?(?:#L\d+(?:C\d+)?)?)/gi;
+const inlinePattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\((?:<[^>\n]+>|[^)\n]+)\)|(?<![\w.+-])[a-z][a-z\d+.-]*:\/\/[^\s<>()]+|(?<![\w.+/\\-])(?:[a-z]:[\\/]|\.{1,2}[\\/]|\/)?(?:[\w.+-]+[\\/])+[\w.+-]+\.\w+(?::\d+(?::\d+)?)?(?:#L\d+(?:C\d+)?)?)/gi;
 
 export function renderInline(parent: HTMLElement, text: string, dom: Dom): void {
   const pattern = new RegExp(inlinePattern.source, inlinePattern.flags);

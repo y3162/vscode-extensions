@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
-import { realpath, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, lstat, realpath, readFile, rm, writeFile, rename } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import type { FileChange } from './types.js';
 
@@ -28,7 +29,10 @@ export function mergeFileChanges(current: FileChange[], incoming: FileChange[]):
       kind: existing.kind === 'rename' && change.kind === 'update' ? 'rename' : change.kind || existing.kind,
       ...(change.oldPath ? { oldPath: existing.oldPath ?? change.oldPath } : {}),
       previousText: existing.previousText !== undefined ? existing.previousText : change.previousText,
+      previousMode: existing.previousMode !== undefined ? existing.previousMode : change.previousMode,
+      mode: change.mode !== undefined ? change.mode : existing.mode,
       diff: change.diff || existing.diff,
+      preview: change.preview?.length ? change.preview : existing.preview,
       additions: change.additions ?? existing.additions,
       deletions: change.deletions ?? existing.deletions,
     };
@@ -40,8 +44,12 @@ export async function captureBaseline(cwd: string, filePath: string, store: Map<
   const resolved = path.resolve(cwd, filePath);
   if (!isInsideWorkspace(resolved, [cwd]) || store.has(resolved)) return;
   try {
-    const info = await stat(resolved);
-    if (!info.isFile() || info.size > maxSnapshot) {
+    if (!await realInside(resolved, [cwd])) {
+      store.set(resolved, { path: resolved, kind: 'update' });
+      return;
+    }
+    const info = await lstat(resolved);
+    if (!info.isFile() || info.isSymbolicLink() || info.size > maxSnapshot) {
       store.set(resolved, { path: resolved, kind: 'update' });
       return;
     }
@@ -50,7 +58,12 @@ export async function captureBaseline(cwd: string, filePath: string, store: Map<
       store.set(resolved, { path: resolved, kind: 'update' });
       return;
     }
-    store.set(resolved, { path: resolved, kind: 'update', previousText: bytes.toString('utf8') });
+    const text = bytes.toString('utf8');
+    if (!Buffer.from(text, 'utf8').equals(bytes)) {
+      store.set(resolved, { path: resolved, kind: 'update' });
+      return;
+    }
+    store.set(resolved, { path: resolved, kind: 'update', previousText: text, previousMode: info.mode & 0o777 });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       store.set(resolved, { path: resolved, kind: 'add', previousText: null });
@@ -76,6 +89,13 @@ async function realInside(candidate: string, roots: string[]): Promise<boolean> 
   }
 }
 
+function resolveWorkspacePath(rawPath: string, roots: string[]): string {
+  const candidates = path.isAbsolute(rawPath) ? [path.resolve(rawPath)] : roots.map((root) => path.resolve(root, rawPath));
+  const resolved = candidates.find((candidate) => roots.some((root) => isInsideWorkspace(candidate, [root])));
+  if (!resolved) throw new Error('ワークスペース外のファイルは変更できません。');
+  return resolved;
+}
+
 function diffPaths(diff: string): string[] {
   const paths: string[] = [];
   for (const line of diff.split('\n')) {
@@ -87,15 +107,16 @@ function diffPaths(diff: string): string[] {
 }
 
 export async function revertChange(change: FileChange, roots: string[]): Promise<void> {
-  const resolved = path.resolve(change.path);
+  const resolved = resolveWorkspacePath(change.path, roots);
   if (!await realInside(resolved, roots)) throw new Error('ワークスペース外のファイルは変更できません。');
   if (change.kind === 'rename') {
     if (!change.oldPath || typeof change.previousText !== 'string') throw new Error('変更前のパスと内容が無いため、この移動は復元できません。');
     const root = roots.find((item) => isInsideWorkspace(resolved, [item]));
-    const original = path.resolve(root ?? '', change.oldPath);
+    const original = resolveWorkspacePath(change.oldPath, root ? [root] : roots);
     if (!await realInside(original, roots)) throw new Error('ワークスペース外のファイルは変更できません。');
     // Never replace a user-created file at the original name.
-    await writeFile(original, change.previousText, { encoding: 'utf8', flag: 'wx' });
+    await writeFile(original, change.previousText, { encoding: 'utf8', flag: 'wx', mode: change.previousMode ?? 0o666 });
+    if (change.previousMode !== undefined && change.previousMode !== null) await chmod(original, change.previousMode);
     await rm(resolved);
     return;
   }
@@ -104,7 +125,20 @@ export async function revertChange(change: FileChange, roots: string[]): Promise
     return;
   }
   if (typeof change.previousText === 'string') {
-    await writeFile(resolved, change.previousText, 'utf8');
+    const temporary = path.join(path.dirname(resolved), `.${path.basename(resolved)}.ai-agents-revert-${randomUUID()}.tmp`);
+    let mode = change.previousMode ?? 0o666;
+    try {
+      try {
+        const current = await lstat(resolved);
+        if (!current.isFile() || current.isSymbolicLink()) throw new Error('Revert は通常ファイルにのみ適用できます。');
+        if (change.previousMode === undefined || change.previousMode === null) mode = current.mode & 0o777;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+      await writeFile(temporary, change.previousText, { encoding: 'utf8', flag: 'wx', mode: change.previousMode ?? 0o666 });
+      await chmod(temporary, mode);
+      await rename(temporary, resolved);
+    } finally { await rm(temporary, { force: true }).catch(() => undefined); }
     return;
   }
   if (!change.diff) throw new Error('変更前の内容が無いため、このファイルは復元できません。');

@@ -1,6 +1,6 @@
 import type { SDKMessage } from '@cursor/sdk';
 import type { ThreadItem } from '@openai/codex-sdk';
-import { normalizeChangeKind } from '../diff-stats.js';
+import { normalizeChangeKind, previewUnifiedDiff } from '../diff-stats.js';
 import type { FileChange, TodoEntry, UpdateMeta, UsageStats } from '../types.js';
 
 export function addUsage(current: UsageStats | null, next: UsageStats): UsageStats {
@@ -154,6 +154,9 @@ export function lightMeta(meta: UpdateMeta | undefined): UpdateMeta | undefined 
   if (meta.type !== 'files' || !meta.files) return meta;
   return {
     ...meta,
-    files: meta.files.map(({ previousText: _previous, diff: _diff, ...file }) => file),
+    files: meta.files.map(({ previousText: _previous, diff, ...file }) => ({
+      ...file,
+      ...(file.preview?.length ? {} : diff ? { preview: previewUnifiedDiff(diff) } : {}),
+    })),
   };
 }

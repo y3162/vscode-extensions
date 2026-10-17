@@ -50,7 +50,7 @@ v1.0.0判定は **No-Go**。以下は過去の分類・検証記録。
 | TODO / 計画 | Common | 3 | plan card。update_todos は未接続 | `updateTodos` / ACP `cursor/create_plan` | `todo_list` / plan notifications | 計画生成 | イベント | カード | 承認は ACP / App Server | Partial | Implement | `cursor-acp.ts`, `codex-app-server.ts` |
 | トークン使用量 | Common | 3 | 非公式ダッシュボードAPI | SDK `usage` イベント | SDK `turn.completed`、App Server token usage | 計測 | 公式イベント | 表示 | Keychain や私設APIは使わない | Partial | Implement | `providers/details.ts` |
 | レート制限 | Codex | 5 | なし | SDKに課金APIはあるがクラウド中心 | App Server `account/rateLimits/read` | アカウント | RPC | 表示 | App Server 選択時 | Partial | Implement | `rateLimits()` |
-| チェックポイント | Common | 3 | ファイル単位の復元 | baseline | baseline。`thread/revert` はファイルを戻さない | なし | 会話の巻き戻しのみ | ファイル復元 | ターン全体のGit分岐は作らない | Partial | Implement | `change-review.ts` |
+| ターンチェックポイント | Common | 3 | ターン直前・直後のファイルsnapshot | baselineのみ | App Serverの完全なターン変更イベント | 保存済みテキスト / mode | App Serverのprefix fork + ローカル履歴snapshot | conflict検査とjournal rollback | 対応外ファイルや競合ではfail-closed | Partial | Implement | `turn-rewind.ts`, `chat-controller.ts` |
 | Git worktree | Common | 3 | なし | `cwd` として利用 | 同左 | なし | `cwd` | フォルダ選択 | ワークスペースフォルダを選ぶ。worktree作成はしない | VSCode-native | Defer | ワークスペースAPIで足りる |
 | 並列セッション | Common | 3 | SessionRegistry。実行中に別チャットを開ける | 同左。上限は busy な会話数 | 同左 | 複数エージェント | セッションAPI | Home の activity | 既定 3、親ターンのみを数える。子・ターミナル稼働中の会話を表示切替で破棄しない | Partial | Implement | `session-registry.ts` |
 | コードレビュー | Codex | 5 | なし | 差分を添付して依頼 | App Server `review/start` | レビュー | RPC | なし | SDKでは差分添付にフォールバック | Partial | Implement | `ChatController.review` |
@@ -59,7 +59,8 @@ v1.0.0判定は **No-Go**。以下は過去の分類・検証記録。
 | Cloud / Background | Cursor | 4 | なし | SDKは対応 | 別製品 | リモートVM | SDK cloud | なし | 課金が発生するためUIは未接続 | SDK-native | Defer | ユーザー確認が必要な課金操作 |
 | Codex sandbox / network / search | Codex | 5 | なし | なし | SDKフラグと App Server config | 強制 | `sandboxMode`, `networkAccessEnabled`, `web_search` | 設定UI | オフはランタイム既定のまま | Implemented | Implement | `SessionOptions` |
 | コンテキスト圧縮 / fork | Codex | 5 | なし | なし | App Server `thread/compact/start`, `thread/fork` | 圧縮 | RPC | コマンド `/compact` | SDKでは不可と表示 | Partial | Implement | `codex-app-server.ts` |
-| Inline Edit / 補完 | IDE | 6 | なし | 別API | 別API | 補完モデル | なし | Inline API | エージェント統合とは別 | Missing | Defer | 追加の推論基盤が必要 |
+| 送信済みプロンプト編集 | Common | 3 | メッセージ上のinline editor | 非対応 | SDK非対応、App Server paginated historyのみ | 新規branch | `thread/fork`のbeforeTurnId | inline editorと再送確認 | Codex App Serverの完全なcheckpointのみ有効 | Partial | Implement | `transcript.ts`, `providers/codex-app-server.ts` |
+| IDE補完 / 意味検索 | IDE | 6 | なし | 別API | 別API | 補完モデル | なし | Inline API | エージェント統合とは別 | Missing | Defer | 追加の推論基盤が必要 |
 
 検証欄は `docs/VERIFICATION.md` にまとめます。
 

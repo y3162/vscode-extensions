@@ -569,3 +569,30 @@ ACP Agentモードの実GUIでACP_GUI_ONEを確認。2ターン目のuser本文�
 Codex SDKは実GUIでCODEX_SDK_GUI_ONE/TWOの両回答を確認。4経路とも実GUIで送信・非空finalに到達したが、モデル意味的誤答・ACP子timeoutと未実施の全機能操作を含めて無条件Goにはしない。
 
 ACP GUIの3ターン目は実Askへ変更し、ACP_GUI_ASK_FINALの要求どおりのfinal、Ready、Ask表示を確認。2ターン目のBackend誤答の記録は残す。最終VSIXはextension/worker/webview JS・CSS・patched runtime・LICENSE・CHANGELOGのbuild/source一致、manifest0.10.0と固定SDKをzipから検査（vsceはchangelog.mdへ正規化）。SHA256は`evidence/final-audit/vsix.json`。最終git diff --check成功、HEAD不変、変更は未コミット。
+
+
+### 過去プロンプトの編集・巻き戻し・再実行
+
+2026-10-17の未コミット作業ツリーで実装と検証。既存のRetryとは独立したターン巻き戻し操作として追加した。
+
+- 送信済みUserメッセージをその位置で編集し、添付を保持したままキャンセル／再送できる。再送時は確認UIに元プロンプト・編集後プロンプト・削除される古い応答と後続ターン数・対象ターン以降のファイル変更を実行前の状態へRevertすること・復元対象ファイルを明示する。
+- Codex App Serverで取得できた実Backend turn IDを使い、公開`thread/fork`の`beforeTurnId`と`excludeTurns`で対象Userターンより前の会話から分岐する。古いsession writerを別App Server processで開かないよう、同じconnection上で分岐IDへ切り替える。分岐後に旧sessionのイベント／子／terminal snapshotを引き継がない。
+- 対象ターン前後の完全な小サイズテキストファイルcheckpointとモードを保存し、同じワークスペース実体・現在内容・既知のターン後状態を照合してから復元する。失敗時は一時journalとバックアップで戻す。1ファイル500,000 byte、1ターン2,000,000 byte、会話合計8,000,000 byteを上限とする。
+- Cursor SDK、Cursor ACP、Codex SDKは公開APIで任意ターンの安全な履歴分岐を確認できず、ローカル表示履歴からモデルコンテキストを再構築しないため、この操作を無効にする。Codex App Serverでも履歴・Backend turn ID・完全checkpointが揃わなければ無効にする。
+
+#### 検証結果
+
+- `npm run check`: 成功。
+- `npm test`: 161/161成功。既存テストに加え、中間ターンで同一ファイルの複数回変更と新規ファイルを巻き戻すケース、checkpoint不足と競合のfail-closed、複数ファイル復元途中の失敗後に既復元ファイルを戻すケース、inline editor／添付保持／キャンセル／Resendの分離を確認。
+- `npm run test:protocol`: Cursor CLIとCodex App Serverのprotocol検査2/2成功。`npm run test:live`: 4経路の推論・ACP final表示検査6/6成功。これらは任意ターン巻き戻しのライブ対応を意味しない。
+- 実Codex App Server GPT-6-Lunaを使った隔離Git workspaceの実GUI Test A: `touch a.txt`→`abcd`を書き込み→2番目のUserメッセージを`1234`へ編集。確認後にbranchへ切替、復元完了後の`a.txt`が空であることを実行中に確認し、新しい応答で`1234`になった。旧`abcd`のUser／Assistantは表示とbranchのローカル履歴から消えた。実Backend session IDも変わった。
+- 実Extension Development Hostのmock App Server UI統合試験も成功。編集アイコン→inline editor→`write 1234 into a.txt`→再送確認→履歴分岐→Readyまで操作し、一時workspaceの`a.txt`が`1234`、旧turn IDが履歴にないことをassertした。VS Code test modeではnative warning dialog APIが使えないため、このハーネスに限り同じ警告本文を表示するQuickPickへ差し替えて確認操作を行った。productionの確認UIのOS描画はこのハーネス検査に含めない。
+- Extension Development Hostで300px／390px相当、Light Modern／Darkテーマの組み合わせを画面で確認。inline編集とキャンセルで元本文が保たれることも実GUIで確認した。
+
+#### 非対応・未検証範囲
+
+- 実Backendのライブ検証はTest Aのみ。Test Bの後続複数ターンは単体試験、Test Cのユーザー未コミット変更保護とTest DのBackend文脈検査はライブでは未実施。4経路すべてでの編集動作を確認したとは扱わない。
+- rename、binary、500,000 byte超、symlink経由、workspace外、ワークスペース移動、ファイルcheckpoint不足、手動編集／外部変更の競合、履歴保存無効、画像を再取得できない旧promptは巻き戻しを拒否する。空ディレクトリやファイル外への副作用は復元しない。
+- 実行中turn、queue、保留中の承認／質問／plan、稼働中の子エージェントやBackground Terminalがある会話は巻き戻しを拒否する。既存の子・terminalを停止して巻き戻す処理は実装していない。
+- Retryの意味は変更していない。Plan/Todo/Usage/turn/file-change/terminal/subagent状態はローカル履歴で対象境界へ切り詰める。外部side effect、旧Backend threadの物理削除、過去分岐の完全なGCは保証しない。
+- `docs/AUDIT_0100.md`はローカルに存在しない。既存のNo-Go項目と区別してこの限定対応をFeature Matrixに記録する。Commit、Push、Releaseは実施していない。

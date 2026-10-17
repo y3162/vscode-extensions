@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
-import { readFile, stat } from 'node:fs/promises';
+import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { lineChangeCounts } from './diff-stats.js';
+import { lineChangeCounts, previewTextDiff } from './diff-stats.js';
 import { isInsideWorkspace } from './change-review.js';
 import type { FileChange } from './types.js';
 
@@ -11,11 +11,12 @@ export async function readWorkspaceText(cwd: string, filePath: string): Promise<
   const resolved = path.resolve(cwd, filePath);
   if (!isInsideWorkspace(resolved, [cwd])) return undefined;
   try {
-    const info = await stat(resolved);
+    const info = await lstat(resolved);
     if (!info.isFile() || info.size > maxSnapshot) return undefined;
     const bytes = await readFile(resolved);
-    if (bytes.includes(0)) return undefined;
-    return bytes.toString('utf8');
+    if (bytes.length > maxSnapshot || bytes.includes(0)) return undefined;
+    const text = bytes.toString('utf8');
+    return Buffer.from(text, 'utf8').equals(bytes) ? text : undefined;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     return undefined;
@@ -24,7 +25,21 @@ export async function readWorkspaceText(cwd: string, filePath: string): Promise<
 
 export interface GitBaselines {
   lookup(filePath: string): Promise<string | null | undefined>;
+  lookupMode(filePath: string): Promise<number | null | undefined>;
   changes(): Promise<FileChange[]>;
+}
+
+async function readWorkspaceMode(cwd: string, filePath: string): Promise<number | null | undefined> {
+  const resolved = path.resolve(cwd, filePath);
+  if (!isInsideWorkspace(resolved, [cwd])) return undefined;
+  try {
+    const info = await lstat(resolved);
+    if (!info.isFile()) return undefined;
+    return info.mode & 0o777;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    return undefined;
+  }
 }
 
 function statusEntries(status: string): Array<{ name: string; oldPath?: string; untracked: boolean }> {
@@ -44,8 +59,10 @@ export async function captureGitBaselines(cwd: string): Promise<GitBaselines | u
   if (status === undefined) return undefined;
   const revision = (await git(cwd, ['rev-parse', '--verify', 'HEAD']))?.trim();
   const dirty = new Map<string, string | null | undefined>();
+  const dirtyModes = new Map<string, number | null | undefined>();
   for (const { name } of statusEntries(status)) {
     dirty.set(name, await readWorkspaceText(cwd, name));
+    dirtyModes.set(name, await readWorkspaceMode(cwd, name));
   }
   const baselines: GitBaselines = {
     async lookup(filePath: string) {
@@ -59,6 +76,20 @@ export async function captureGitBaselines(cwd: string): Promise<GitBaselines | u
       const text = revision ? await git(cwd, ['show', `${revision}:${relative.split(path.sep).join('/')}`]) : undefined;
       return text !== undefined && Buffer.byteLength(text, 'utf8') <= maxSnapshot && !text.includes('\0') ? text : undefined;
     },
+    async lookupMode(filePath: string) {
+      const resolved = path.resolve(cwd, filePath);
+      if (!isInsideWorkspace(resolved, [cwd])) return undefined;
+      const relative = path.relative(cwd, resolved);
+      if (dirtyModes.has(relative)) return dirtyModes.get(relative);
+      if (dirtyModes.has(filePath)) return dirtyModes.get(filePath);
+      if (!revision) return undefined;
+      const row = await git(cwd, ['ls-tree', '-z', revision, '--', relative.split(path.sep).join('/')]);
+      const first = row?.replace(/\0.*$/s, '');
+      const [metadata, listedPath] = first?.split('\t') ?? [];
+      const mode = metadata?.split(' ')[0];
+      if (listedPath !== relative.split(path.sep).join('/') || (mode !== '100644' && mode !== '100755')) return undefined;
+      return Number.parseInt(mode, 8) & 0o777;
+    },
     async changes() {
       const status = await git(cwd, ['status', '--porcelain', '-z', '--untracked-files=all']);
       if (status === undefined) return [];
@@ -66,13 +97,25 @@ export async function captureGitBaselines(cwd: string): Promise<GitBaselines | u
       const changes: FileChange[] = [];
       for (const name of new Set([...dirty.keys(), ...current.keys()])) {
         const entry = current.get(name);
-        const before = await baselines.lookup(dirty.has(name) ? name : entry?.oldPath ?? name);
+        const baselinePath = dirty.has(name) ? name : entry?.oldPath ?? name;
+        const before = entry?.untracked && !dirty.has(name) ? null : await baselines.lookup(baselinePath);
         const after = await readWorkspaceText(cwd, name);
+        const beforeMode = entry?.untracked && !dirtyModes.has(name) ? null : await baselines.lookupMode(dirtyModes.has(name) ? name : entry?.oldPath ?? name);
+        const afterMode = await readWorkspaceMode(cwd, name);
         const renamed = Boolean(entry?.oldPath && !dirty.has(name));
-        if (after === undefined || before === after && !renamed) continue;
-        if (before === undefined && !entry?.untracked) continue;
+        if (after !== undefined && before === after && beforeMode === afterMode && !renamed) continue;
+        if (before === undefined && !entry?.untracked && after !== undefined) continue;
         const kind = renamed ? 'rename' : after === null ? 'delete' : before === null || entry?.untracked && before === undefined ? 'add' : 'update';
-        changes.push({ path: name, kind, ...(kind === 'rename' ? { oldPath: entry!.oldPath } : {}), ...(before !== undefined ? { previousText: before } : {}), ...lineChangeCounts(before ?? '', after ?? '') });
+        const preview = before !== undefined && after !== undefined ? previewTextDiff(before, after) : [];
+        changes.push({
+          path: name, kind,
+          ...(kind === 'rename' ? { oldPath: entry!.oldPath } : {}),
+          ...(before !== undefined ? { previousText: before } : {}),
+          ...(beforeMode !== undefined ? { previousMode: beforeMode } : {}),
+          ...(afterMode !== undefined ? { mode: afterMode } : {}),
+          ...(preview.length ? { preview } : {}),
+          ...(after !== undefined ? lineChangeCounts(before ?? '', after ?? '') : {}),
+        });
       }
       return changes;
     },
@@ -90,7 +133,8 @@ export function applyTextStats(change: FileChange, current: string | null | unde
   const kind = change.previousText === null && current !== null ? 'add'
     : change.previousText !== null && current === null ? 'delete'
       : change.kind;
-  return { ...change, kind, ...(counts ? { additions: counts.additions, deletions: counts.deletions } : {}) };
+  const preview = previewTextDiff(change.previousText, current);
+  return { ...change, kind, ...(preview.length ? { preview } : {}), ...(counts ? { additions: counts.additions, deletions: counts.deletions } : {}) };
 }
 
 export async function refreshChangeStats(cwd: string, changes: FileChange[]): Promise<FileChange[]> {

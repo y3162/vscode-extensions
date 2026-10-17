@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 const emit = (message) => process.stdout.write(`${JSON.stringify(message)}\n`);
+const fs = require('node:fs');
+const path = require('node:path');
 let pendingTurn;
 let activeTerminals = [];
 let failLists = false;
@@ -7,21 +9,52 @@ let failTerminate = false;
 let listCount = 0;
 let policyTurn = 0;
 let replayFinal = false;
+let nextBranchNumber = 2;
+let runCount = 0;
+let historyFile = '';
+let threadTurnIds = new Map([['thread-1', ['turn-a', 'turn-b']]]);
+const loadHistory = (cwd) => {
+  const gitDirectory = path.join(cwd, '.git');
+  historyFile = fs.existsSync(gitDirectory) ? path.join(gitDirectory, 'ai-agents-mock-app-server.json') : '';
+  try {
+    const saved = JSON.parse(fs.readFileSync(historyFile, 'utf8'));
+    nextBranchNumber = Number.isInteger(saved.nextBranchNumber) ? saved.nextBranchNumber : 2;
+    threadTurnIds = new Map(Object.entries(saved.threads || {}));
+  } catch {
+    nextBranchNumber = 2;
+    threadTurnIds = new Map([['thread-1', ['turn-a', 'turn-b']]]);
+  }
+};
+const saveHistory = () => {
+  if (!historyFile) return;
+  fs.writeFileSync(historyFile, JSON.stringify({ nextBranchNumber, threads: Object.fromEntries(threadTurnIds) }));
+};
 require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
   const request = JSON.parse(line);
   if (request.method === 'initialize') emit({ id: request.id, result: { userAgent: 'fixture', codexHome: '/tmp', platformFamily: 'unix', platformOs: 'macos' } });
   else if (request.method === 'initialized') return;
   else if (request.method === 'thread/start' || request.method === 'thread/resume') {
+    const cwd = typeof request.params.cwd === 'string' ? request.params.cwd : process.cwd();
+    if (historyFile !== path.join(cwd, '.git', 'ai-agents-mock-app-server.json')) loadHistory(cwd);
     replayFinal = request.params.threadId === 'history-final';
+    const requestedThreadId = typeof request.params.threadId === 'string' ? request.params.threadId : '';
+    const responseThreadId = request.method === 'thread/resume' && /^thread-\d+$/.test(requestedThreadId) ? requestedThreadId : 'thread-1';
+    if (!threadTurnIds.has(responseThreadId)) threadTurnIds.set(responseThreadId, []);
+    saveHistory();
     const sandbox = request.params.sandbox === 'read-only' ? {type:'readOnly',networkAccess:false}
       : request.params.sandbox === 'danger-full-access' ? {type:'dangerFullAccess'}
         : {type:'workspaceWrite', writableRoots:[request.params.cwd,...(request.params.runtimeWorkspaceRoots || [])],networkAccess:request.params.config?.sandbox_workspace_write?.network_access === true,excludeSlashTmp:true,excludeTmpdirEnvVar:true};
-    emit({ id: request.id, result: { thread: { id: 'thread-1', title: 'Fixture' }, sandbox, approvalPolicy:request.params.approvalPolicy, instructionSources: ['AGENTS.md'], threadId: 'thread-1' } });
+    emit({ id: request.id, result: { thread: { id: responseThreadId, title: 'Fixture', historyMode: 'paginated' }, sandbox, approvalPolicy:request.params.approvalPolicy, instructionSources: ['AGENTS.md'], threadId: responseThreadId } });
   } else if (request.method === 'thread/list') {
     emit({ id: request.id, result: { data: [{ id: 'thread-1', title: 'Fixture', updatedAt: '2026-10-16T00:00:00.000Z' }] } });
   } else if (request.method === 'turn/start') {
     pendingTurn = request.id;
     const text = String(request.params.input?.[0]?.text || '');
+    const activeThreadId = String(request.params.threadId || 'thread-1');
+    const fs = require('node:fs');
+    const writeMatch = /^write (.+) into a\.txt$/.exec(text);
+    if (text === 'touch a.txt') fs.writeFileSync('a.txt', '');
+    else if (writeMatch) fs.writeFileSync('a.txt', writeMatch[1]);
     if (text === 'EARLY_TERMINAL_OUTPUT') {
       emit({ method: 'item/started', params: { threadId: 'thread-1', item: { type: 'commandExecution', id: 'early-command', command: 'python3 -u script.py', status: 'inProgress' } } });
       emit({ method: 'item/commandExecution/outputDelta', params: { threadId: 'thread-1', itemId: 'early-command', delta: 'EARLY_READY\n' } });
@@ -116,17 +149,25 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       return;
     }
     const streamId = text === 'SECURITY_POLICY' ? `policy-${++policyTurn}` : 'agent-1';
-    emit({ method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'inProgress', items: [] } } });
+    const backendTurnId = `run-${++runCount}`;
+    const threadTurns = threadTurnIds.get(activeThreadId) ?? [];
+    threadTurns.push(backendTurnId);
+    threadTurnIds.set(activeThreadId, threadTurns);
+    saveHistory();
+    emit({ method: 'turn/started', params: { threadId: activeThreadId, turn: { id: backendTurnId, status: 'inProgress', items: [] } } });
     emit({ method: 'item/agentMessage/delta', params: { itemId: streamId, delta: text === 'SECURITY_POLICY' ? JSON.stringify({sandbox:request.params.sandboxPolicy,approval:request.params.approvalPolicy}) : 'app ' } });
     emit({ method: 'item/agentMessage/delta', params: { itemId: streamId, delta: text === 'SECURITY_POLICY' ? '' : 'server' } });
-    emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', items: [] } } });
-    emit({ id: request.id, result: { turn: { id: 'turn-1', status: 'completed' } } });
+    emit({ method: 'turn/completed', params: { threadId: activeThreadId, turn: { id: backendTurnId, status: 'completed', items: [] } } });
+    emit({ id: request.id, result: { turn: { id: backendTurnId, status: 'completed' } } });
     pendingTurn = undefined;
-  } else if (request.method === 'thread/turns/list' && replayFinal) {
-    emit({ id: request.id, result: { data: [{ id: 'saved-turn', status: 'completed', items: [
-      { id: 'commentary', type: 'agentMessage', text: 'Checking files', phase: 'commentary' },
-      { id: 'answer', type: 'agentMessage', text: 'Backend final answer', phase: 'final_answer' },
-    ] }], nextCursor: null } });
+  } else if (request.method === 'thread/turns/list') {
+    const data = replayFinal
+      ? [{ id: 'saved-turn', status: 'completed', items: [
+        { id: 'commentary', type: 'agentMessage', text: 'Checking files', phase: 'commentary' },
+        { id: 'answer', type: 'agentMessage', text: 'Backend final answer', phase: 'final_answer' },
+      ] }]
+      : (threadTurnIds.get(String(request.params.threadId)) ?? []).map((id) => ({ id, status: 'completed', items: [] }));
+    emit({ id: request.id, result: { data, nextCursor: null } });
   } else if (request.method === 'thread/read' && request.params.threadId === 'silent-child') {
     emit({ id: request.id, result: { thread: { status: { type: 'notLoaded' }, turns: [{ id: 'silent-child-turn', status: 'interrupted', items: [] }] } } });
   } else if (request.method === 'thread/backgroundTerminals/list') {
@@ -142,7 +183,14 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', items: [] } } });
     emit({ id: pendingTurn, result: { turn: { id: 'turn-1', status: 'completed' } } });
     pendingTurn = undefined;
-  } else if (request.method === 'thread/fork') emit({ id: request.id, result: { thread: { id: 'thread-2' } } });
+  } else if (request.method === 'thread/fork') {
+    const sourceTurns = threadTurnIds.get(String(request.params.threadId)) ?? [];
+    const boundary = sourceTurns.indexOf(request.params.beforeTurnId);
+    const branchId = `thread-${nextBranchNumber++}`;
+    threadTurnIds.set(branchId, boundary >= 0 ? sourceTurns.slice(0, boundary) : [...sourceTurns]);
+    saveHistory();
+    emit({ id: request.id, result: { thread: { id: branchId, historyMode: 'paginated' } } });
+  }
   else if (request.method === 'thread/compact/start') emit({ id: request.id, result: {} });
   else if (request.method === 'account/rateLimits/read') emit({ id: request.id, result: { rateLimits: { primary: { usedPercent: 12 } } } });
   else if (request.method === 'skills/list') emit({ id: request.id, result: { data: [{ cwd: '/tmp', skills: [{ name: 'fixture-skill' }], errors: [] }] } });

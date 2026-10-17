@@ -6,6 +6,9 @@ import { Window } from 'happy-dom';
 import { createApp } from '../../src/webview/app.js';
 import { createDom } from '../../src/webview/dom.js';
 import { renderMarkdown } from '../../src/webview/markdown.js';
+import { Transcript } from '../../src/webview/transcript.js';
+import { buildTurns } from '../../src/webview/turns.js';
+import { strings } from '../../src/webview/strings.js';
 import type { ViewMessage, ViewShell, VsCodeApi } from '../../src/protocol.js';
 
 function shell(extra: Partial<ViewShell> = {}): ViewShell {
@@ -100,35 +103,43 @@ test('web URLs stay external and unsupported link schemes never become file acti
   assert.equal(host.querySelector('.file-link'), null);
 });
 
-test('Enter allows newlines and IME confirmation, and only the send button sends', () => {
+test('Enter sends, Shift+Enter keeps the prompt open for a newline, and IME confirmation does not send', () => {
   const { window, sent, input, emit } = mount();
   emit(shell());
   click(visible(window.document, '.new-chat'));
   const prompt = input();
   prompt.value = 'hello';
-  for (const modifiers of [{}, { shiftKey: true }, { ctrlKey: true }, { metaKey: true }, { isComposing: true }, { keyCode: 229 }]) {
-    const enter = new window.KeyboardEvent('keydown', { key: 'Enter', ...modifiers, bubbles: true, cancelable: true });
-    prompt.dispatchEvent(enter);
-    assert.equal(enter.defaultPrevented, false);
-    assert.equal(posted(sent, 'send'), undefined);
-    assert.equal(posted(sent, 'enqueue'), undefined);
-    assert.equal(prompt.value, 'hello');
-  }
-  prompt.dispatchEvent(new window.Event('compositionstart'));
-  prompt.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-  prompt.dispatchEvent(new window.Event('compositionend'));
-  prompt.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+  const newline = new window.KeyboardEvent('keydown', { key: 'Enter', shiftKey: true, bubbles: true, cancelable: true });
+  prompt.dispatchEvent(newline);
+  assert.equal(newline.defaultPrevented, false);
   assert.equal(posted(sent, 'send'), undefined);
+  assert.equal(prompt.value, 'hello');
+  const enter = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+  prompt.dispatchEvent(enter);
+  assert.equal(enter.defaultPrevented, true);
+  assert.equal(posted(sent, 'send')?.prompt, 'hello');
+  assert.equal(prompt.value, '');
+  prompt.value = '日本語の入力';
+  prompt.dispatchEvent(new window.Event('compositionstart'));
+  const composing = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+  prompt.dispatchEvent(composing);
+  prompt.dispatchEvent(new window.Event('compositionend'));
+  assert.equal(composing.defaultPrevented, false);
+  assert.equal(posted(sent, 'send')?.prompt, 'hello');
+  assert.equal(prompt.value, '日本語の入力');
+  const imeKey = new window.KeyboardEvent('keydown', { key: 'Enter', keyCode: 229, bubbles: true, cancelable: true });
+  prompt.dispatchEvent(imeKey);
+  assert.equal(imeKey.defaultPrevented, false);
   const submit = new window.Event('submit', { bubbles: true, cancelable: true });
   window.document.querySelector('form')!.dispatchEvent(submit);
   assert.equal(submit.defaultPrevented, true);
-  assert.equal(posted(sent, 'send'), undefined);
+  assert.equal(sent.filter((message) => (message as { type: string }).type === 'send').length, 1);
   prompt.value = 'こんにちは\n続きのメッセージ';
   click(visible(window.document, '.send'));
   assert.deepEqual(posted(sent, 'send'), {
     provider: 'codex', cwd: '/workspace', conversationId: 'front', type: 'send', prompt: 'こんにちは\n続きのメッセージ', images: [],
   });
-  assert.equal(sent.filter((message) => (message as { type: string }).type === 'send').length, 1);
+  assert.equal(sent.filter((message) => (message as { type: string }).type === 'send').length, 2);
   assert.equal(prompt.value, '');
 });
 
@@ -143,10 +154,12 @@ test('a running turn queues, ArrowUp recalls, and approval answers keep their to
   prompt.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
   assert.equal(prompt.value, 'previous prompt');
   prompt.value = 'follow up';
-  prompt.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
-  assert.equal(posted(sent, 'enqueue'), undefined);
+  const enter = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+  prompt.dispatchEvent(enter);
+  assert.equal(enter.defaultPrevented, true);
+  assert.equal(posted(sent, 'enqueue')?.prompt, 'follow up');
   window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'navigate', panel: 'chat' } }));
-  click(visible(window.document, '.send'));
+  assert.equal(prompt.value, '');
   assert.equal(posted(sent, 'enqueue')?.prompt, 'follow up');
   emit(shell({
     permission: { token: 'token-1', request: { id: 'perm', title: 'Run npm test', detail: 'npm test', kind: 'shell' } },
@@ -160,7 +173,7 @@ test('a running turn queues, ArrowUp recalls, and approval answers keep their to
   assert.equal(answer?.decision, 'allow-once');
 });
 
-test('suggestion arrows and Tab insert the highlighted file while Enter allows a newline', async () => {
+test('suggestion arrows and Tab insert the highlighted file', async () => {
   const { window, sent, input, emit } = mount();
   emit(shell());
   const prompt = input();
@@ -192,11 +205,6 @@ test('suggestion arrows and Tab insert the highlighted file while Enter allows a
     ] },
   }));
   prompt.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
-  const enter = new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
-  prompt.dispatchEvent(enter);
-  assert.equal(enter.defaultPrevented, false);
-  assert.equal(prompt.value, '@re');
-  assert.equal(posted(sent, 'send'), undefined);
   prompt.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
   assert.equal(prompt.value, '@review.ts ');
 });
@@ -563,10 +571,130 @@ test('copy uses original Markdown/code/user/tool text and reports host success o
   assert.match(window.document.querySelector('[data-action="copy-code"]')!.getAttribute('title')!, /failed/);
   click(window.document.querySelector('.user-row [data-action="copy-source"]')!);
   assert.equal(posted(sent, 'copy')!.text, '質問\n二行');
-  click(window.document.querySelector('.log-toggle')!);
   click(window.document.querySelector('[data-action="toggle-tool"]')!);
   click(window.document.querySelector('.tool-row-item [data-action="copy-source"]')!);
   assert.equal(posted(sent, 'copy')!.text, 'stdout\nstderr 😀');
+});
+
+test('long assistant output appends while streaming and renders Markdown when complete', () => {
+  const window = new Window();
+  const root = window.document.createElement('main');
+  window.document.body.append(root);
+  const transcript = new Transcript(createDom(window.document), root, () => {}, () => {}, () => {}, () => {});
+  const busy = shell({ busy: true, presence: 'running', statusText: 'Running' });
+  const messages = (text: string): ViewMessage[] => [
+    { id: 'user', role: 'user', text: 'Write a long answer', at: 1 },
+    { id: 'answer', role: 'assistant', text, turnId: 'user', at: 2 },
+  ];
+
+  let output = '';
+  const chunk = '0123456789abcdefghij'.repeat(40);
+  for (let index = 0; index < 100; index += 1) {
+    output += chunk;
+    transcript.render(messages(output), busy, strings('en'));
+  }
+  const markdown = root.querySelector<HTMLElement>('.answer .md')!;
+  const streamedNode = markdown.firstChild;
+  assert.equal(output.length, 80_000);
+  assert.equal(markdown.textContent?.length, output.length);
+  assert.equal(markdown.textContent?.slice(0, 40), output.slice(0, 40));
+  assert.equal(markdown.classList.contains('is-streaming'), true);
+  assert.equal(streamedNode?.nodeType, window.Node.TEXT_NODE);
+
+  output += '\n\n**Complete**';
+  transcript.render(messages(output), shell(), strings('en'));
+  assert.equal(markdown.classList.contains('is-streaming'), false);
+  assert.equal(root.querySelector('.answer .md strong')?.textContent, 'Complete');
+  assert.equal(markdown.textContent?.length, 80_008);
+  assert.equal(markdown.textContent?.endsWith('Complete'), true);
+});
+
+test('thought logs nest under Worked for and summarize brief or timed thoughts', () => {
+  const cases = [
+    { endedAt: 800, label: 'Thought briefly' },
+    { endedAt: 1_700, label: 'Thought 2s' },
+  ];
+  for (const item of cases) {
+    const { window, emit } = mount();
+    const messages: ViewMessage[] = [
+      { id: 'user', role: 'user', text: 'Think', at: 100 },
+      { id: 'thought', role: 'status', text: 'Reasoning details', at: 200, turnId: 'user', meta: { type: 'thinking' } },
+      { id: 'answer', role: 'assistant', text: 'Done', at: item.endedAt, turnId: 'user', final: true },
+    ];
+    const turns = buildTurns(messages, false, false, [{ id: 'user', startedAt: 100, endedAt: item.endedAt, waitMs: 0, status: 'completed', intent: 'chat' }]);
+    assert.equal(turns[0]?.log[0]?.type, 'thinking');
+    if (turns[0]?.log[0]?.type === 'thinking') assert.equal(turns[0].log[0].durationMs, item.endedAt - 200);
+
+    emit(shell({ timings: [{ id: 'user', startedAt: 100, endedAt: item.endedAt, waitMs: 0, status: 'completed', intent: 'chat' }] }), messages);
+    click(window.document.querySelector('.log-toggle')!);
+    const details = window.document.querySelector<HTMLDetailsElement>('.log .thinking')!;
+    const summary = details.querySelector('summary')!;
+    assert.equal(summary.classList.contains('log-toggle'), true);
+    assert.equal(summary.textContent, item.label);
+    assert.equal(summary.getAttribute('aria-expanded'), 'false');
+    assert.equal(details.querySelector('pre')?.textContent, 'Reasoning details');
+
+    details.open = true;
+    details.dispatchEvent(new window.Event('toggle'));
+    assert.equal(summary.getAttribute('aria-expanded'), 'true');
+    const workToggle = window.document.querySelector<HTMLButtonElement>('[data-action="toggle-log"]')!;
+    click(workToggle);
+    assert.equal(details.open, false);
+    assert.equal(summary.getAttribute('aria-expanded'), 'false');
+    click(workToggle);
+    assert.equal(details.open, false);
+  }
+});
+
+test('file changes appear inline in the work log and keep the changed file visible after completion', () => {
+  const { window, sent, emit } = mount();
+  emit(shell(), [
+    { id: 'user', role: 'user', text: 'Update README', at: 1 },
+    { id: 'files', role: 'tool', text: 'Changed README.md', at: 2, turnId: 'user', meta: { type: 'files', files: [{ path: 'README.md', kind: 'update', additions: 2, deletions: 1, preview: [{ kind: 'remove', line: 3, text: 'old line' }, { kind: 'add', line: 3, text: 'new line' }] }] } },
+    { id: 'answer', role: 'assistant', text: 'Done', at: 3, turnId: 'user', final: true },
+  ]);
+
+  const log = window.document.querySelector<HTMLElement>('.turn .log')!;
+  assert.equal(log.hidden, false);
+  assert.equal(log.querySelector('.file-row .file-link')?.textContent, 'README.md');
+  assert.match(log.querySelector('.file-row .stats')?.textContent ?? '', /\+2.*−1/);
+  assert.equal(log.querySelectorAll('.file-inline-diff .diff-preview-line').length, 2);
+  assert.equal(log.querySelector('.diff-preview-line.remove .diff-preview-text')?.textContent, 'old line');
+  assert.equal(log.querySelector('.diff-preview-line.add .diff-preview-text')?.textContent, 'new line');
+  const css = readFileSync(path.join(__dirname, '../../src/webview/styles.css'), 'utf8');
+  assert.match(css, /\.file-row, \.shell-tool \{ display: block; width: 100%;/);
+  assert.match(css, /\.diff-preview-line\.add \{ background: var\(--vscode-diffEditor-insertedLineBackground/);
+  assert.match(css, /\.diff-preview-line\.remove \{ background: var\(--vscode-diffEditor-removedLineBackground/);
+  assert.match(css, /\.diff-preview-line \{[^}]*background: transparent/);
+  assert.match(css, /\.shell-command-line code \{[^}]*background: transparent/);
+  assert.match(css, /\.shell-command-line code \{[^}]*padding: 0/);
+  click(log.querySelector('.file-row .file-link')!);
+  assert.equal(posted(sent, 'openFile')?.path, 'README.md');
+});
+
+test('shell executions use a command card with expandable output', () => {
+  const { window, sent, emit } = mount();
+  emit(shell(), [
+    { id: 'user', role: 'user', text: 'Run sleep', at: 1 },
+    { id: 'progress', role: 'assistant', text: 'Executing `sleep 1s`.', at: 2, turnId: 'user' },
+    { id: 'command', role: 'tool', text: 'completed: sleep 1s\nslept for one second\n', at: 3, turnId: 'user', tool: { name: 'command', kind: 'shell', status: 'completed', target: 'sleep 1s' } },
+    { id: 'answer', role: 'assistant', text: 'Finished.', at: 4, turnId: 'user', final: true },
+  ]);
+
+  const log = window.document.querySelector<HTMLElement>('.turn .log')!;
+  assert.equal(log.hidden, false);
+  assert.match(log.querySelector('.progress-note')?.textContent ?? '', /Executing sleep 1s\./);
+  let card = log.querySelector<HTMLElement>('.shell-tool')!;
+  assert.match(card.querySelector('.shell-tool-heading')?.textContent ?? '', /Run sleep/);
+  assert.equal(card.querySelector('.shell-command-line .shell-prompt')?.textContent, '$');
+  assert.equal(card.querySelector('.shell-command-line code')?.textContent, 'sleep 1s');
+  assert.equal(card.querySelector('.shell-command-output'), null);
+  click(card.querySelector('.shell-tool-heading')!);
+  card = log.querySelector<HTMLElement>('.shell-tool')!;
+  assert.equal(card.querySelector('.shell-tool-heading')?.getAttribute('aria-expanded'), 'true');
+  assert.equal(card.querySelector('.shell-command-output')?.textContent, 'slept for one second\n');
+  click(card.querySelector('[data-action="copy-source"]')!);
+  assert.equal(posted(sent, 'copy')?.text, 'completed: sleep 1s\nslept for one second\n');
 });
 
 test('token usage is visibly rendered with cache semantics, context and unsupported state', () => {
@@ -588,21 +716,46 @@ test('a background terminal list error remains visible without files or terminal
 });
 
 
-test('message editing restores the original prompt as a focused draft without sending', () => {
+test('message editing opens inline, preserves attachments, and Cancel restores the original prompt', () => {
   const { window, sent, emit, input } = mount();
   const original = '日本語の質問\n二行目';
   emit(shell(), [
-    { id: 'u', role: 'user', text: original, at: 1 },
+    { id: 'u', role: 'user', text: original, attachments: ['src/notes.md'], at: 1, canRewind: true },
     { id: 'a', role: 'assistant', text: 'Answer', final: true, at: 2 },
   ]);
   click(visible(window.document, '.new-chat'));
   input().value = 'draft';
   click(window.document.querySelector('.user-row > .message-actions > .edit-user')!);
-  assert.equal(input().value, original);
-  assert.equal(window.document.activeElement, input());
+  const editor = window.document.querySelector<HTMLTextAreaElement>('.edit-prompt');
+  assert.equal(editor?.value, original);
+  assert.equal(window.document.activeElement, editor);
+  assert.equal(window.document.querySelector('.edit-attachments')?.textContent, 'src/notes.md');
+  assert.equal(window.document.querySelector<HTMLTextAreaElement>('.composer-card textarea')?.value, 'draft');
   assert.equal(posted(sent, 'send'), undefined);
   assert.equal(posted(sent, 'prepareRetry'), undefined);
-  assert.equal(window.document.querySelector('.bubble')?.textContent, original);
+  click(window.document.querySelector('[data-action="cancel-edit"]')!);
+  assert.equal(window.document.querySelector('.edit-prompt'), null);
+  assert.equal(window.document.querySelector('.bubble')?.textContent, `${original}src/notes.md`);
+  assert.equal(posted(sent, 'send'), undefined);
+});
+
+test('Resend calls onRewind with the edited text and original turn id', () => {
+  const window = new Window();
+  const root = window.document.createElement('main');
+  window.document.body.append(root);
+  const calls: Array<[string, string]> = [];
+  const transcript = new Transcript(createDom(window.document), root, () => {}, () => {}, () => {}, (turnId, text) => calls.push([turnId, text]));
+  const messages: ViewMessage[] = [{ id: 'prompt-7', role: 'user', text: 'First draft', attachments: ['spec.md'], at: 1, canRewind: true }];
+  transcript.render(messages, shell(), strings('en'));
+  click(root.querySelector('.edit-user')!);
+  const editor = root.querySelector<HTMLTextAreaElement>('.edit-prompt')!;
+  editor.value = 'Revised prompt';
+  editor.dispatchEvent(new window.Event('input', { bubbles: true }));
+  transcript.render(messages, shell(), strings('en'));
+  assert.equal(root.querySelector<HTMLTextAreaElement>('.edit-prompt'), editor);
+  click(root.querySelector('[data-action="rewind"]')!);
+  assert.deepEqual(calls, [['prompt-7', 'Revised prompt']]);
+  assert.equal(root.querySelector('.prompt-editor'), null);
 });
 
 

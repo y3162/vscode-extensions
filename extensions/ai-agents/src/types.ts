@@ -80,6 +80,8 @@ export interface ToolInfo {
   name: string;
   status: 'running' | 'completed' | 'error';
   target?: string;
+  line?: number;
+  endLine?: number;
   exitCode?: number;
 }
 
@@ -94,9 +96,26 @@ export interface FileChange {
   kind: 'add' | 'update' | 'delete' | 'rename';
   oldPath?: string;
   previousText?: string | null;
+  previousMode?: number | null;
+  mode?: number | null;
   diff?: string;
+  preview?: FileDiffLine[];
   additions?: number;
   deletions?: number;
+}
+
+export interface FileDiffLine {
+  kind: 'context' | 'add' | 'remove' | 'more' | 'eof';
+  line?: number;
+  text: string;
+}
+
+export interface TurnFileSnapshot {
+  path: string;
+  beforeText: string | null;
+  afterText: string | null;
+  beforeMode: number | null;
+  afterMode: number | null;
 }
 
 export interface TodoEntry {
@@ -159,7 +178,11 @@ export interface TurnRecord {
   finalMessageId?: string;
   usage?: UsageStats;
   userMessageId?: string;
+  imageCount?: number;
   backendTurnId?: string;
+  planBefore?: PlanState;
+  todosBefore?: TodoEntry[];
+  fileCheckpoint?: { status: 'captured' | 'unsupported'; workspaceRoot?: string; files: TurnFileSnapshot[]; reason?: string };
 }
 
 export interface TurnOptions {
@@ -283,6 +306,14 @@ export interface AgentSession {
   steer?(text: string): Promise<boolean>;
   loadTranscript?(emit: (message: ChatMessage) => void): Promise<void>;
   fork?(): Promise<string | undefined>;
+  /** Create a new thread containing only turns strictly before `backendTurnId`. */
+  forkBeforeTurn?(backendTurnId: string): Promise<string>;
+  /** Switch this live connection to a branch it created, without opening a second writer. */
+  activateFork?(branchId: string): void;
+  /** A reason when this session cannot safely fork at a turn boundary. */
+  rewindUnsupportedReason?(): string | undefined;
+  /** The backend turn id for the most recently completed or started run. */
+  latestBackendTurnId?(): string | undefined;
   compact?(): Promise<void>;
   review?(target: 'uncommitted' | 'base', emit: (update: AgentUpdate) => void, signal: AbortSignal): Promise<void>;
   listBackgroundTerminals?(): Promise<TerminalRecord[]>;
@@ -298,6 +329,7 @@ export interface AgentSession {
 
 export interface ChatState {
   terminalError?: string;
+  operationLabel?: 'rewind-check' | 'rewind-branch' | 'rewind-files' | 'rewind-prepare' | 'rewind-send';
   selection: Selection;
   busy: boolean;
   messages: ChatMessage[];

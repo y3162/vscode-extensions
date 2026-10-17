@@ -405,6 +405,11 @@ export class Composer {
 
   private onKey(event: KeyboardEvent): void {
     if (this.composing || event.isComposing || event.keyCode === 229) return;
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      this.submit();
+      return;
+    }
     if (!this.suggest.hidden && (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Tab' || event.key === 'Escape')) {
       event.preventDefault();
       if (event.key === 'Escape') { this.clearSuggestions(); return; }
