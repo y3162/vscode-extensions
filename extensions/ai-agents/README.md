@@ -94,6 +94,23 @@ Cursor SDK 1.0.37のヘルパー探索に合わせ、拡張機能配下の専用
 
 設計と機能差分は [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)、[docs/UI_ARCHITECTURE.md](docs/UI_ARCHITECTURE.md)、[docs/FEATURE_MATRIX.md](docs/FEATURE_MATRIX.md)、[docs/UI_GAP_ANALYSIS.md](docs/UI_GAP_ANALYSIS.md) を参照してください。
 
+## テスト
+
+リポジトリのルートで実行します。
+
+```sh
+npm test                 # 単体・モックプロトコル・DOM。認証も推論も不要
+npm run test:coverage    # 行、分岐、関数のカバレッジ
+npm run test:hygiene     # 生データや秘密らしき追跡ファイルの検査
+npm run test:integration # 隔離した Extension Host。一時ワークスペースと profile を使う
+npm run test:protocol    # インストール済みCLIの接続確認
+npm run test:live        # 短い実推論。利用枠を使う
+npm run test:tools       # 一時ディレクトリでの実ツールと承認
+npm run test:runtime     # 実子エージェントと Background Terminal
+```
+
+`npm test` は実CLIの保存済み会話やスクリーンショットを読みません。プロトコルの境界は `test/fixtures/synthetic-runtime.cjs` の合成イベントで再現します。作業ファイルはOSの一時ディレクトリに作り、終了時に削除します。Live系の証拠やspikeの出力を残す場合は、`AI_AGENTS_RELIABILITY_EVIDENCE` と `AI_AGENTS_SPIKE_OUT` をリポジトリの外に向けてください。DOMテストの成功は、実OSのIMEやGUI操作の成功ではありません。ACPの並列子タイムアウトと、非TTYコマンドが初期stdoutを出さない制限は、実CLIのLive Testで区別します。
+
 ## VSIXの作成・インストール
 
 リポジトリのルートで `npm run package` を実行すると、`extensions/ai-agents/dist/ai-agents-<OS>-<CPU>.vsix` が生成されます。VS Codeの **Extensions: Install from VSIX...** でインストールできます。

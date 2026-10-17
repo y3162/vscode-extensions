@@ -113,6 +113,8 @@
     "watch": "node scripts/build.mjs --watch",
     "check": "tsc --noEmit && tsc -p tsconfig.webview.json --noEmit",
     "test": "tsx --test test/*.test.ts test/webview/*.test.ts",
+    "test:coverage": "node --import tsx --test --experimental-test-coverage --test-coverage-exclude=test/** --test-coverage-exclude=scripts/** --test-coverage-exclude=node_modules/** test/*.test.ts test/webview/*.test.ts",
+    "test:hygiene": "node scripts/check-test-assets.mjs",
     "test:integration": "npm run build && node scripts/test-integration.mjs",
     "test:protocol": "AI_AGENTS_REAL_PROTOCOL=1 tsx --test test/live/protocol.test.ts",
     "test:live": "AI_AGENTS_LIVE_CURSOR_TEST=1 AI_AGENTS_LIVE_ACP_TEST=1 AI_AGENTS_LIVE_TEST=1 AI_AGENTS_LIVE_APP_SERVER_TEST=1 tsx --test test/live/inference.test.ts",

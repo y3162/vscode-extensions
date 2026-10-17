@@ -88,3 +88,7 @@ Cursor SDKの背景shellは、専用worker内で会話の寿命まで保持す�
 ## 最終監査で保護した境界（2026-10-17）
 
 履歴復元もControllerのactive操作とし、送信・設定変更と排他、Stop/Reset後の遅延本文を取り込まない。Resetはactive完了後にretained session IDを再消去する。画像only送信はimages有なら空promptを許可。Retryは元入力と画像をHostからsource Webviewへ返し、会話・turn・draftが一致する場合のみ復元し、明示送信まで推論しない。画像の永続化方式は変更せず、元画像を再取得できない保存会話では再添付を要求する。
+
+## テスト
+
+認証不要の回帰は、合成したプロトコルイベントと一時ディレクトリだけで実行する。採取したセッション記録、スクリーンショット、実行ログは入力にしない。実CLIを使うテストは `AI_AGENTS_LIVE_*` または `AI_AGENTS_REAL_PROTOCOL` が明示されたときだけ動く。ACPの並列子タイムアウトと、非TTYコマンドが初期stdoutを配信しない制限は、モックの成功で解消済みにしない。

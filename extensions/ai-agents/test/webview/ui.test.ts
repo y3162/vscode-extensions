@@ -960,3 +960,105 @@ test('delayed Retry image restoration cannot overwrite typing or another convers
   assert.equal(window.document.querySelectorAll('.composer-card .thumb').length, 0);
   assert.equal(posted(sent, 'send'), undefined);
 });
+
+test('Build posts the visible plan and a plan error stays on the card', () => {
+  const { window, sent, emit } = mount();
+  emit(shell({
+    planView: {
+      id: 'plan-1', revision: 3, phase: 'ready', markdown: 'Do the thing', todos: [], source: 'assistant-text',
+      buildModelId: 'composer-2.5', buildModelLabel: 'Composer 2.5', buildParams: [{ id: 'fast', value: 'true' }],
+      showBuildModel: true, canBuild: true, history: [], error: 'Could not revise',
+    },
+  }), [{ id: 'user', role: 'user', text: 'plan', at: 1 }]);
+  click(visible(window.document, '.new-chat'));
+  assert.match(window.document.querySelector('.plan-error')?.textContent ?? '', /Could not revise/);
+  click(visible(window.document, '.build'));
+  assert.equal(posted(sent, 'buildPlan')?.planId, 'plan-1');
+  assert.equal(posted(sent, 'buildPlan')?.revision, 3);
+  assert.equal(posted(sent, 'buildPlan')?.modelId, 'composer-2.5');
+  assert.equal((window.document.querySelector('.build') as HTMLButtonElement).disabled, true);
+});
+
+test('history selection restores that conversation', () => {
+  const { window, sent, emit } = mount();
+  emit(shell({
+    sessionId: 'current',
+    sessions: [
+      { id: 'current', conversationId: 'current', title: 'Current', updatedAt: '2026-01-02T00:00:00.000Z', provider: 'codex', cwd: '/workspace' },
+      { id: 'earlier', conversationId: 'earlier', title: 'Earlier chat', updatedAt: '2026-01-01T00:00:00.000Z', provider: 'codex', cwd: '/workspace' },
+    ],
+  }));
+  click(visible(window.document, '[data-session-id="earlier"]'));
+  assert.equal(posted(sent, 'restoreSession')?.id, 'earlier');
+  assert.equal(window.document.getElementById('app')?.dataset.page, 'chat');
+});
+
+test('an error card shows the message and does not pretend the copy succeeded', () => {
+  const { window, emit } = mount();
+  emit(shell(), [
+    { id: 'user', role: 'user', text: 'hi', at: 1 },
+    { id: 'err', role: 'error', text: 'connection failed', at: 2 },
+  ]);
+  click(visible(window.document, '.new-chat'));
+  assert.match(window.document.querySelector('.error-block')?.textContent ?? '', /connection failed/);
+  assert.equal(window.document.querySelector('.error-block [data-action="retry"]')?.getAttribute('data-action'), 'retry');
+});
+
+test('choosing another effort posts that value and Escape does not', () => {
+  const { window, sent, emit } = mount();
+  emit(shell());
+  click(visible(window.document, '.new-chat'));
+  click(visible(window.document, '.model-name'));
+  const request = posted(sent, 'loadModelCatalog');
+  window.dispatchEvent(new window.MessageEvent('message', {
+    data: {
+      type: 'modelCatalog', requestId: Number(request?.requestId), provider: 'codex', cwd: '/workspace', status: 'ready',
+      selectedModelId: 'gpt-6', selectedParams: [{ id: 'modelReasoningEffort', value: 'xhigh' }],
+      models: [{
+        id: 'gpt-6', label: 'GPT-6',
+        parameters: [{
+          id: 'modelReasoningEffort', label: 'Effort', role: 'effort', presentation: 'menu',
+          values: [{ value: 'low', label: 'Low' }, { value: 'xhigh', label: 'Extra High' }],
+        }],
+      }],
+    },
+  }));
+  click(visible(window.document, '.menu-item[data-id="modelReasoningEffort"]'));
+  click(visible(window.document, '.menu-item[data-id="modelReasoningEffort:low"]'));
+  assert.equal(posted(sent, 'setModelParam')?.id, 'modelReasoningEffort');
+  assert.equal(posted(sent, 'setModelParam')?.value, 'low');
+  click(visible(window.document, '.model-name'));
+  const again = posted(sent, 'loadModelCatalog');
+  window.dispatchEvent(new window.MessageEvent('message', {
+    data: {
+      type: 'modelCatalog', requestId: Number(again?.requestId), provider: 'codex', cwd: '/workspace', status: 'ready',
+      selectedModelId: 'gpt-6', selectedParams: [{ id: 'modelReasoningEffort', value: 'xhigh' }],
+      models: [{
+        id: 'gpt-6', label: 'GPT-6',
+        parameters: [{
+          id: 'modelReasoningEffort', label: 'Effort', role: 'effort', presentation: 'menu',
+          values: [{ value: 'low', label: 'Low' }, { value: 'xhigh', label: 'Extra High' }],
+        }],
+      }],
+    },
+  }));
+  click(visible(window.document, '.menu-item[data-id="modelReasoningEffort"]'));
+  window.document.querySelector('.model-menu')?.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+  assert.equal(sent.filter((message) => message && typeof message === 'object' && 'type' in message && message.type === 'setModelParam').length, 1);
+});
+
+test('chat colors follow host theme variables instead of a fixed dark or light palette', () => {
+  const css = readFileSync(path.join(__dirname, '../../src/webview/styles.css'), 'utf8');
+  assert.match(css, /color-scheme:\s*light dark/);
+  assert.match(css, /color:\s*var\(--vscode-foreground\)/);
+  assert.match(css, /background:\s*var\(--vscode-sideBar-background\)/);
+  const { window, emit } = mount();
+  emit(shell());
+  const body = window.document.body;
+  for (const [foreground, background] of [['rgb(255, 255, 255)', 'rgb(0, 0, 0)'], ['rgb(20, 20, 20)', 'rgb(250, 250, 250)']] as const) {
+    body.style.setProperty('--vscode-foreground', foreground);
+    body.style.setProperty('--vscode-sideBar-background', background);
+    assert.equal(body.style.getPropertyValue('--vscode-foreground'), foreground);
+    assert.equal(body.style.getPropertyValue('--vscode-sideBar-background'), background);
+  }
+});

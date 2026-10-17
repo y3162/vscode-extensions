@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Read-only capability spikes. Writes redacted JSON under test/fixtures/real.
+// Read-only capability spikes. Writes redacted JSON outside the repository.
 import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -8,7 +8,7 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const outDir = path.join(root, 'test', 'fixtures', 'real');
+const outDir = process.env.AI_AGENTS_SPIKE_OUT || path.join(tmpdir(), 'ai-agents-spikes');
 const summary = { at: new Date().toISOString(), steps: [] };
 const secret = /("|')?(api[_-]?key|token|authorization|secret|password|bearer)("|')?\s*[:=]\s*\S+/gi;
 

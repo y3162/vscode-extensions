@@ -7,7 +7,8 @@ import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const out = path.join(root, 'test', 'fixtures', 'real', 'follow.json');
+const outDir = process.env.AI_AGENTS_SPIKE_OUT || path.join(tmpdir(), 'ai-agents-spikes');
+const out = path.join(outDir, 'follow.json');
 const steps = [];
 const note = (step, data) => { steps.push({ step, ...data }); console.log('SPIKE', step, JSON.stringify(data).slice(0, 400)); };
 

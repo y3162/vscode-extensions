@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { capabilitiesFor, defaultControls } from '../src/capabilities.js';
-import { buildShell, countDiff, diffMessages, presentChange, toViewMessage } from '../src/view-state.js';
+import { buildShell, countDiff, diffMessages, effortText, presentChange, toViewMessage } from '../src/view-state.js';
 import { emptyPlanState, type ChatState } from '../src/types.js';
 
 function state(extra: Partial<ChatState> = {}): ChatState {
@@ -66,4 +66,40 @@ test('the access banner follows the real sandbox and can be dismissed', () => {
   });
   assert.equal(sdk.showMode, false);
   assert.equal(sdk.banner, null);
+});
+
+test('rewind progress and a busy plan are visible without offering Build', () => {
+  const controls = defaultControls('codex', 'app-server');
+  const source = {
+    state: state({
+      busy: true,
+      status: 'restoring' as const,
+      operationLabel: 'rewind-branch' as const,
+      plan: {
+        phase: 'ready' as const,
+        revisions: [],
+        error: 'revision failed',
+        current: { id: 'plan-1', revision: 2, markdown: 'Do the thing', todos: [], source: 'assistant-text' as const, createdAt: 1 },
+      },
+    }),
+    folders: [{ name: 'workspace', path: '/workspace' }], modelLabel: 'gpt', hasModelDetails: true,
+    capabilities: capabilitiesFor('codex', 'app-server'), controls, locale: 'en' as const,
+    tokens: { permission: null, plan: null, question: null }, dismissedWarning: null,
+    backends: { codex: 'app-server' as const, cursor: 'sdk' as const },
+  };
+  const shell = buildShell(source);
+  assert.equal(shell.statusText.startsWith('Branching conversation…'), true);
+  assert.equal(shell.planView?.canBuild, false);
+  assert.equal(shell.planView?.error, 'revision failed');
+  assert.equal(shell.presence, 'running');
+  const user = toViewMessage({ id: 'user', role: 'user', text: 'edit me' }, true);
+  const answer = toViewMessage({ id: 'answer', role: 'assistant', text: 'done' }, true);
+  assert.equal(user.canRewind, true);
+  assert.equal(answer.canRewind, undefined);
+});
+
+test('missing effort details stay blank and a fast flag is not shown as effort', () => {
+  assert.equal(effortText(undefined, true, 'en'), null);
+  assert.equal(effortText([{ id: 'fast', value: 'true' }], true, 'en'), null);
+  assert.equal(effortText([{ id: 'modelReasoningEffort', value: 'xhigh' }], false, 'ja'), 'Extra High');
 });

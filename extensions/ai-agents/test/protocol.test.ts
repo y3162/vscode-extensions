@@ -14,7 +14,7 @@ async function fixture(name: string) {
   const command = path.join(cwd, name);
   const { cp } = await import('node:fs/promises');
   await cp(path.join(__dirname, 'fixtures', name), command);
-  await cp(path.join(__dirname, 'fixtures', 'real', 'runtime-090.json'), path.join(cwd, 'runtime-090.json'));
+  await cp(path.join(__dirname, 'fixtures', 'synthetic-runtime.cjs'), path.join(cwd, 'synthetic-runtime.cjs'));
   await chmod(command, 0o755);
   return { cwd, command, async cleanup() { await rm(cwd, { recursive: true, force: true }); } };
 }
@@ -112,29 +112,35 @@ test('Codex App Server streams deltas, lists threads, and returns an approval de
   } finally { await cleanup(); }
 });
 
-test('captured App Server activities identify two children instead of wait calls', { timeout: 15000 }, async () => {
+test('synthetic App Server activities identify two children and ignore wait calls and start-item completion', { timeout: 15000 }, async () => {
   const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
   const updates: AgentUpdate[] = [];
   const session = await createCodexAppServerSession({ provider: 'codex', cwd, model: 'fixture', storagePath: cwd, codexPath: command });
   const unsubscribe = session.subscribeBackgroundUpdates!((update) => updates.push(update));
   try {
-    await session.run('REAL_SUBAGENTS', new AbortController().signal, (update) => updates.push(update));
+    await session.run('PARALLEL_CHILDREN', new AbortController().signal, (update) => updates.push(update));
     const children = new Map(updates.flatMap((update) => update.meta?.subagent ? [[update.meta.subagent.id, update.meta.subagent] as const] : []));
-    assert.equal(children.size, 2);
+    assert.deepEqual([...children.keys()].sort(), ['child-alpha', 'child-beta']);
     assert.deepEqual([...children.values()].map((item) => item.status), ['completed', 'completed']);
     assert.ok([...children.values()].every((item) => item.name.startsWith('/root/') && item.model === 'gpt-6-luna'));
-    assert.ok([...children.values()].every((item) => item.resultPreview));
+    assert.match([...children.values()].find((item) => item.id === 'child-alpha')?.resultPreview ?? '', /alpha result/);
+    assert.match([...children.values()].find((item) => item.id === 'child-beta')?.resultPreview ?? '', /beta result/);
+    assert.equal(updates.some((item) => item.meta?.subagent?.status === 'completed' && !/result/.test(item.meta.subagent.resultPreview ?? '')), false);
     assert.equal(updates.some((item) => item.role === 'assistant' && /alpha|beta/.test(item.text)), false);
+    for (const id of ['child-alpha', 'child-beta']) {
+      const rows = updates.filter((item) => item.meta?.subagent?.id === id);
+      assert.equal(rows[0]?.meta?.subagent?.status, 'running');
+    }
   } finally { unsubscribe(); await session.dispose(); await cleanup(); }
 });
 
-test('captured ACP task requests enrich the existing running card', { timeout: 15000 }, async () => {
+test('synthetic ACP task requests enrich the existing running card', { timeout: 15000 }, async () => {
   const { cwd, command, cleanup } = await fixture('mock-acp.cjs');
   const updates: AgentUpdate[] = [];
   const session = await createCursorAcpSession({ provider: 'cursor', cwd, model: '', storagePath: cwd, agentPath: command });
   const unsubscribe = session.subscribeBackgroundUpdates!((update) => updates.push(update));
   try {
-    await session.run('REAL_TASKS', new AbortController().signal, (update) => updates.push(update));
+    await session.run('ACP_TASKS', new AbortController().signal, (update) => updates.push(update));
     const children = new Map(updates.flatMap((update) => update.meta?.subagent ? [[update.meta.subagent.id, update.meta.subagent] as const] : []));
     assert.equal(children.size, 2);
     assert.ok([...children.values()].every((child) => child.agentId && child.model === 'composer-2.5-fast' && child.status === 'completed' && child.durationMs && child.background === false));
@@ -227,13 +233,13 @@ test('a silent child is reconciled through public thread/read after its parent e
   } finally { unsubscribe(); await session.dispose(); await cleanup(); }
 });
 
-test('captured native move_path identifies the destination and preserves the source baseline', { timeout: 10000 }, async () => {
+test('synthetic native move_path identifies the destination and preserves the source baseline', { timeout: 10000 }, async () => {
   const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
   execFileSync('git', ['init', '-q'], { cwd });
   await writeFile(path.join(cwd, 'a.txt'), 'alpha\n');
   const controller = new ChatController({ provider: 'codex', cwd, model: 'fixture' }, async (selection) => createCodexAppServerSession({ ...selection, storagePath: cwd, codexPath: command }), () => {});
   try {
-    await controller.send('REAL_RENAME');
+    await controller.send('NATIVE_MOVE');
     const changes = controller.snapshot().changes;
     assert.equal(changes.length, 1, 'native rename and Git delete/add must not create duplicate rows');
     assert.equal(changes[0]?.path, path.join(cwd, 'b.txt'));
@@ -417,3 +423,76 @@ for (const sandbox of ['workspace-write', 'read-only', 'danger-full-access']) {
     } finally { await session.dispose(); await cleanup(); }
   });
 }
+
+async function until(check: () => boolean): Promise<void> {
+  const deadline = Date.now() + 2000;
+  while (!check() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 20));
+}
+
+test('a repeated child id stays one card', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+  const updates: AgentUpdate[] = [];
+  const session = await createCodexAppServerSession({ provider: 'codex', cwd, model: 'fixture', storagePath: cwd, codexPath: command });
+  try {
+    await session.run('DUPLICATE_CHILD', new AbortController().signal, (update) => updates.push(update));
+    const ids = new Set(updates.flatMap((update) => update.meta?.subagent ? [update.meta.subagent.id] : []));
+    assert.deepEqual([...ids], ['child-dup']);
+    assert.equal(updates.filter((update) => update.meta?.subagent?.id === 'child-dup').at(-1)?.meta?.subagent?.status, 'completed');
+  } finally { await session.dispose(); await cleanup(); }
+});
+
+test('a completion that arrives before its start notification stays completed', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+  const updates: AgentUpdate[] = [];
+  const session = await createCodexAppServerSession({ provider: 'codex', cwd, model: 'fixture', storagePath: cwd, codexPath: command });
+  try {
+    await session.run('REORDERED_CHILD', new AbortController().signal, (update) => updates.push(update));
+    const rows = updates.filter((update) => update.meta?.subagent?.id === 'child-reorder');
+    assert.equal(new Set(rows.map((update) => update.meta?.subagent?.id)).size, 1);
+    assert.equal(rows.at(-1)?.meta?.subagent?.status, 'completed');
+    assert.equal(rows[0]?.meta?.subagent?.status, 'completed');
+  } finally { await session.dispose(); await cleanup(); }
+});
+
+test('a child completion that arrives after the parent turn does not add a parent answer', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+  const updates: AgentUpdate[] = [];
+  const session = await createCodexAppServerSession({ provider: 'codex', cwd, model: 'fixture', storagePath: cwd, codexPath: command });
+  const unsubscribe = session.subscribeBackgroundUpdates!((update) => updates.push(update));
+  try {
+    await session.run('DELAYED_CHILD', new AbortController().signal, (update) => updates.push(update));
+    assert.equal(updates.find((update) => update.meta?.subagent?.id === 'child-late')?.meta?.subagent?.status, 'running');
+    const assistants = updates.filter((update) => update.role === 'assistant').length;
+    await until(() => updates.some((update) => update.meta?.subagent?.id === 'child-late' && update.meta.subagent.status === 'completed'));
+    assert.equal(updates.filter((update) => update.role === 'assistant').length, assistants);
+  } finally { unsubscribe(); await session.dispose(); await cleanup(); }
+});
+
+test('App Server usage snapshots keep cache writes and a later smaller total does not become a negative turn delta', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+  const controller = new ChatController({ provider: 'codex', cwd, model: 'fixture' }, async (selection) => createCodexAppServerSession({ ...selection, storagePath: cwd, codexPath: command }), () => {});
+  try {
+    await controller.send('USAGE_TOTAL');
+    const state = controller.snapshot();
+    assert.equal(state.usage?.inputTokens, 10);
+    assert.equal(state.usage?.cacheWriteInputTokens, 1);
+    assert.equal(state.usage?.scope, 'session');
+    assert.equal(state.usage?.cachedInputTokens, 2);
+    assert.equal(state.turns[0]?.usage?.inputTokens, 10);
+    assert.equal(state.turns[0]?.usage?.cacheWriteInputTokens, 1);
+    assert.ok((state.turns[0]?.usage?.outputTokens ?? 0) >= 0);
+  } finally { await controller.dispose(); await cleanup(); }
+});
+
+test('ACP child failure and cancellation stay distinct from a running card', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-acp.cjs');
+  const updates: AgentUpdate[] = [];
+  const session = await createCursorAcpSession({ provider: 'cursor', cwd, model: '', storagePath: cwd, agentPath: command });
+  try {
+    await session.run('ACP_CHILD_OUTCOMES', new AbortController().signal, (update) => updates.push(update));
+    const children = new Map(updates.flatMap((update) => update.meta?.subagent ? [[update.meta.subagent.id, update.meta.subagent.status] as const] : []));
+    assert.equal(children.get('tool-failed'), 'error');
+    assert.equal(children.get('tool-cancelled'), 'cancelled');
+    assert.equal(updates.some((update) => update.role === 'assistant' && /failed child|cancelled child/.test(update.text)), false);
+  } finally { await session.dispose(); await cleanup(); }
+});

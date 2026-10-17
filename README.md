@@ -41,6 +41,13 @@ npm run package               # 実行環境のOS/CPU向けVSIXを作成
 
 `test:protocol`、`test:live`、`test:tools` は通常の `npm test` では走りません。既存の `codex login` と `agent login`、Cursor SDK のログインを使います。APIキーへは切り替えません。ログインが無い場合は、Codex は `codex login`、Cursor CLI は `agent login`、Cursor SDK はサイドバーのログインを使ってください。SDK のログインと CLI のログインは別です。
 
+```sh
+npm run test:coverage          # 行・分岐・関数カバレッジ（認証不要）
+npm run test:hygiene           # 生データ、巨大fixture、秘密らしき文字列の追跡を検査
+```
+
+単体テストとモックプロトコルは、リポジトリ内のテストコードと小さな合成fixtureだけで再現します。実CLIの会話、スクリーンショット、実行ログは読みません。テストが作る作業ディレクトリとVS Code profileはOSの一時ディレクトリで、終了時に削除します。診断や信頼性検証の出力先は `AI_AGENTS_RELIABILITY_EVIDENCE` で指定し、リポジトリの外にしてください。spikeスクリプトの保存先は既定で一時ディレクトリ、変更する場合は `AI_AGENTS_SPIKE_OUT` です。
+
 推論を行わず、統合テストにモデル一覧だけを足す場合は、これまでどおり `AI_AGENTS_LIVE_MODELS_TEST=1` または `AI_AGENTS_LIVE_CURSOR_MODELS_TEST=1` を付けて `npm run test:integration` を実行します。
 
 ## 拡張機能の追加
