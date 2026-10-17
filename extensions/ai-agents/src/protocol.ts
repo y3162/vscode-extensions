@@ -1,5 +1,5 @@
 import type {
-  Backend, ChatMessage, ConnectionStatus, PermissionRequest, PlanPhase, PlanRequest, PlanSource, Provider, QuestionRequest,
+  Backend, ChatMessage, ConnectionStatus, ImageAttachment, PermissionRequest, PlanPhase, PlanRequest, PlanSource, Provider, QuestionRequest,
   SessionSummary, SubagentBackground, ToolInfo, UsageStats,
 } from './types.js';
 
@@ -235,6 +235,7 @@ export interface ModelCatalogMessage {
 export type HostToWebview =
   | StateMessage
   | ModelCatalogMessage
+  | { type: 'retryPrepared'; id: string; text: string; images: ImageAttachment[]; attachments?: string[]; provider: Provider; cwd: string; conversationId?: string }
   | { type: 'copyResult'; requestId: string; ok: boolean }
   | { type: 'error'; text: string }
   | { type: 'suggestions'; requestId: number; items: SuggestionItem[] }

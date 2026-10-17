@@ -176,7 +176,9 @@ function messagesFrom(value: unknown): ChatMessage[] {
           : type.toLowerCase().includes('agent') || type.toLowerCase().includes('message') ? 'assistant' : 'tool';
       const backendTurnId = String(record(turn).id ?? '');
       const backendId = typeof item.id === 'string' ? item.id : `history-${messages.length}`;
-      messages.push({ id: `${backendTurnId}:${backendId}`, backendTurnId, backendId, role, text });
+      messages.push({ id: `${backendTurnId}:${backendId}`, backendTurnId, backendId, role, text,
+        ...(isAgentMessage(type) && item.phase === 'final_answer' ? { final: true } : {}),
+      });
     }
   }
   return messages;
@@ -195,6 +197,11 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
   let threadModel = options.model || '';
   let turnId = '';
   let mode = options.mode ?? 'agent';
+  // turn/start overrides persist on the server, so restore this exact policy on every Build/Agent turn.
+  let configuredSandbox: Record<string, unknown> = options.sandbox === 'danger-full-access' ? { type: 'dangerFullAccess' }
+    : options.sandbox === 'read-only' ? { type: 'readOnly', networkAccess: false }
+      : { type: 'workspaceWrite', writableRoots: [options.cwd, ...(options.additionalDirectories ?? [])], networkAccess: options.network === true, excludeSlashTmp: false, excludeTmpdirEnvVar: false };
+  let configuredApproval: unknown = options.approval || 'never';
   const childThreads = new Set<string>();
   const children = new Map<string, SubagentRecord>();
   const childText = new Map<string, string>();
@@ -285,7 +292,12 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
         const itemId = typeof entry.itemId === 'string' ? entry.itemId : undefined;
         const saved = itemId ? commands.get(itemId) : undefined;
         if (saved?.status && /complete|fail|cancel|interrupt/i.test(saved.status)) continue;
-        rows.push({ ...saved, processId, ...(itemId ? { itemId } : {}), ...(typeof entry.command === 'string' ? { command: entry.command } : {}), status: 'running', error: undefined });
+        // Output can arrive before a command notification includes its process ID.
+        // Join that buffered output once the public list advertises the item mapping.
+        const output = saved?.output ?? (itemId ? buffers.get(itemId) : undefined);
+        const terminal: TerminalRecord = { ...saved, processId, ...(itemId ? { itemId } : {}), ...(typeof entry.command === 'string' ? { command: entry.command } : {}), ...(output !== undefined ? { output } : {}), status: 'running', error: undefined };
+        if (itemId) commands.set(itemId, terminal);
+        rows.push(terminal);
       }
       cursor = typeof listed.nextCursor === 'string' && listed.nextCursor ? listed.nextCursor : undefined;
       if (cursor && cursors.has(cursor)) throw new Error('Background terminal list repeated a cursor.');
@@ -549,6 +561,9 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
     const started = record(options.resumeId
       ? await rpc.request('thread/resume', { threadId: options.resumeId, ...params }, options.signal)
       : await rpc.request('thread/start', params, options.signal));
+    const reportedSandbox = record(started.sandbox);
+    if (['readOnly', 'workspaceWrite', 'dangerFullAccess', 'externalSandbox'].includes(String(reportedSandbox.type))) configuredSandbox = { ...reportedSandbox };
+    if (started.approvalPolicy !== undefined && started.approvalPolicy !== null) configuredApproval = started.approvalPolicy;
     const thread = record(started.thread);
     threadId = typeof thread.id === 'string' ? thread.id : typeof started.threadId === 'string' ? started.threadId : options.resumeId ?? '';
     const reportedModel = typeof thread.model === 'string' ? thread.model : typeof started.model === 'string' ? started.model : '';
@@ -737,6 +752,8 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
         await startTurn('turn/start', {
           threadId,
           input,
+          sandboxPolicy: turnMode === 'plan' ? { type: 'readOnly', networkAccess: false } : configuredSandbox,
+          approvalPolicy: turnMode === 'plan' ? 'never' : configuredApproval,
           ...(model ? { model } : {}),
           ...(turnEffort ? { effort: turnEffort } : {}),
           collaborationMode: {

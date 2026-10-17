@@ -39,3 +39,8 @@ Feature Matrix、Gap Analysis、Architecture を `docs/` に作成した。判�
 ## Phase 6
 
 Inline Edit、補完、意味検索、インラインレビュー、テスト失敗からの自動修正、独自ワークフローは未着手。エージェント実行とは別の推論APIが必要で、共通機能の後に検討する。
+
+
+## 0.10.0 最終再監査（2026-10-17）
+
+旧Phaseの「完了」は全受入シナリオ合格を意味しない。今回の実装・回帰・ライブ・GUI範囲とv1.0.0 No-Goの理由は[AUDIT.md](AUDIT.md)先頭、[VERIFICATION.md](VERIFICATION.md#final-audit)を参照。中央Composerと新規Agent editorは本依頼から明示除外。既存の未コミット修正を保持して追加修復し、Release/commit/pushは行っていない。

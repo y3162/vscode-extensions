@@ -21,7 +21,7 @@ export function parseCursorTerminal(id: string, text: string): CursorTerminal | 
   const rawStatus = fields.get('status') ?? 'unknown';
   const status = rawStatus === 'succeeded' ? 'completed' : rawStatus === 'aborted' ? 'cancelled' : rawStatus === 'failed' ? 'failed' : rawStatus === 'running' ? 'running' : 'unknown';
   const pid = Number(fields.get('pid'));
-  const exit = /\n---\nexit_code: (-?\d+)/.exec(match[2]!);
+  const exit = /(?:^|\r?\n)---\r?\nexit_code: (-?\d+)/.exec(match[2]!);
   return { processId: id, itemId: `cursor-terminal:${id}`, command, status, startedAt,
     ...(Number.isSafeInteger(pid) && pid > 1 ? { pid } : {}),
     output: match[2]!, ...(exit ? { exitCode: Number(exit[1]) } : {}) };

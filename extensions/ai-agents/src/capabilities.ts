@@ -87,10 +87,10 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
       subagentTracking: 'observe',
       backgroundTerminals: 'none',
       plan: 'events',
-      buildModel: 'unsupported',
+      buildModel: 'next-send',
       networkToggle: false,
       additionalDirectories: false,
-      modelSettings: 'unsupported',
+      modelSettings: 'next-send',
     };
   }
   if (provider === 'cursor') {

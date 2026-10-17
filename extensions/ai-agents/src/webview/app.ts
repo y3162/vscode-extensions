@@ -95,7 +95,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   const history = new HistoryPanel(dom, stage, (id) => openSession(id));
   const settings = new SettingsPanel(dom, stage, post, () => { settings.close(); paint(); });
   const composer = new Composer(dom, dock, post, menu, (panel) => show(panel));
-  const transcript = new Transcript(dom, thread, post, (text) => { composer.draft = text; composer.focus(); save(); }, (anchor) => composer.openBuildModel(anchor));
+  const transcript = new Transcript(dom, thread, post, (text, retryId) => { composer.editDraft(text, retryId); save(); }, (anchor) => composer.openBuildModel(anchor));
 
   function openSession(id: string): void {
     if (!shell) return;
@@ -161,7 +161,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
     const messages = log.list();
     transcript.render(messages, shell, copy);
     const last = [...messages].reverse().find((message) => message.role === 'user');
-    if (last) composer.notePrompt(last.text);
+    composer.notePrompt(last?.text ?? '');
     const jumpLabel = jump.querySelector('.btn-label');
     if (jumpLabel) jumpLabel.textContent = copy.latest;
     jump.title = copy.latest;
@@ -186,6 +186,10 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
       log.apply(data.messages);
       shell = data.shell;
       schedule();
+      return;
+    }
+    if (data.type === 'retryPrepared') {
+      if (shell && data.provider === shell.provider && data.cwd === shell.cwd && data.conversationId === shell.conversationId) composer.restoreRetry(data.id, data.text, data.images, data.attachments);
       return;
     }
     if (data.type === 'copyResult') { transcript.copied(data.requestId, data.ok); return; }

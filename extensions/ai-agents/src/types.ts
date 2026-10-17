@@ -279,7 +279,7 @@ export interface AgentSession {
   run(prompt: string, signal: AbortSignal, emit: (update: AgentUpdate) => void, extras?: SendExtras, turn?: TurnOptions): Promise<void>;
   dispose(): Promise<void>;
   setMode?(mode: AgentMode): Promise<void>;
-  setModel?(selection: Selection): void;
+  setModel?(selection: Selection): void | Promise<void>;
   steer?(text: string): Promise<boolean>;
   loadTranscript?(emit: (message: ChatMessage) => void): Promise<void>;
   fork?(): Promise<string | undefined>;

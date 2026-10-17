@@ -24,11 +24,14 @@ export class ChatController {
   private session?: AgentSession;
   private readonly retryInputs = new Map<string, { prompt: string; extras?: SendExtras }>();
   private restored = false;
+  private usageBaselineUnknown = false;
   private unsubscribeBackground?: () => void;
   private readonly updateTurns = new Map<string, string>();
   private workspaceRealPath?: string;
   private active?: { abort: AbortController; done: Promise<void> };
   private resetting?: Promise<void>;
+  private changingModel = false;
+  private modelChangeDone?: Promise<void>;
   private autoDrain = false;
   private queueTail: Promise<void> = Promise.resolve();
   private replayed = false;
@@ -67,7 +70,7 @@ export class ChatController {
   currentSession(): AgentSession | undefined { return this.session; }
   sessionId(): string | undefined { return this.session?.sessionId || this.retainedId; }
   setModePreference(mode: AgentMode): void { this.modePreference = mode; }
-  prepareResume(id: string): void { this.retainedId = id; }
+  prepareResume(id: string): void { this.retainedId = id; this.usageBaselineUnknown = true; }
   planSnapshot(): PlanState { return structuredClone(this.state.plan); }
 
   restoreSnapshot(saved: ChatState, id?: string): void {
@@ -78,7 +81,9 @@ export class ChatController {
     this.state.status = 'idle';
     for (const turn of this.state.turns) if (turn.status === 'running') { turn.status = 'cancelled'; turn.endedAt = Date.now(); }
     for (const child of this.state.subagents) if (child.status === 'running') child.status = 'unknown';
-    for (const terminal of this.state.terminals) terminal.status = 'unknown';
+    for (const terminal of this.state.terminals) {
+      if (!terminal.status || !/complete|exit|done|terminat|kill|dead|fail|cancel|abort|succeed/i.test(terminal.status)) terminal.status = 'unknown';
+    }
     if (this.state.plan.phase === 'planning' || this.state.plan.phase === 'revising') this.state.plan = planningFailed(this.state.plan);
     if (this.state.plan.phase === 'building') this.state.plan = finishBuild(this.state.plan, 'cancelled');
     this.publish();
@@ -134,6 +139,7 @@ export class ChatController {
   }
 
   async select(selection: Selection): Promise<void> {
+    if (this.modelChangeDone) await this.modelChangeDone;
     while (this.resetting) await this.resetting;
     const current = this.state.selection;
     if (current.provider === selection.provider && current.cwd === selection.cwd && current.model === selection.model
@@ -146,7 +152,7 @@ export class ChatController {
 
   async updateSelection(selection: Selection): Promise<void> {
     while (this.resetting) await this.resetting;
-    if (this.active) throw new Error('実行が終わってからモデルを選択してください。');
+    if (this.active || this.changingModel) throw new Error('実行が終わってからモデルを選択してください。');
     const current = this.state.selection;
     if (current.provider === selection.provider && current.cwd === selection.cwd && current.model === selection.model
       && sameModelParams(current.modelParams, selection.modelParams)) return;
@@ -155,19 +161,26 @@ export class ChatController {
       return;
     }
     const previous = { ...current, ...(current.modelParams ? { modelParams: current.modelParams.map((param) => ({ ...param })) } : {}) };
-    this.state.selection = { ...selection };
+    this.changingModel = true;
+    let release!: () => void;
+    this.modelChangeDone = new Promise<void>((resolve) => { release = resolve; });
     try {
-      this.session?.setModel?.(selection);
+      await this.session?.setModel?.(selection);
+      this.state.selection = cloneSelection(selection);
       this.publish();
     } catch (error) {
       this.state.selection = previous;
       this.publish();
       throw error;
+    } finally {
+      this.changingModel = false;
+      this.modelChangeDone = undefined;
+      release();
     }
   }
 
   async review(target: 'uncommitted' | 'base'): Promise<void> {
-    if (this.active || this.resetting) throw new Error('エージェントは実行中です。');
+    if (this.active || this.resetting || this.changingModel) throw new Error('エージェントは実行中です。');
     if (!this.session?.review) throw new Error('コードレビューAPIは Codex App Server でのみ使えます。差分を添付して依頼してください。');
     const turnId = randomUUID();
     const operation = { abort: new AbortController(), done: Promise.resolve() };
@@ -204,10 +217,24 @@ export class ChatController {
   }
 
   async applyMode(mode: AgentMode): Promise<boolean> {
-    this.modePreference = mode;
-    if (!this.session?.setMode) return !this.session;
-    await this.session.setMode(mode);
-    return true;
+    if (this.active || this.resetting || this.changingModel) throw new Error('エージェントは実行中です。');
+    if (!this.session?.setMode) {
+      if (this.session) return false;
+      this.modePreference = mode;
+      return true;
+    }
+    this.changingModel = true;
+    let release!: () => void;
+    this.modelChangeDone = new Promise<void>((resolve) => { release = resolve; });
+    try {
+      await this.session.setMode(mode);
+      this.modePreference = mode;
+      return true;
+    } finally {
+      this.changingModel = false;
+      this.modelChangeDone = undefined;
+      release();
+    }
   }
 
   setBuildModel(selection: Selection, label?: string): void {
@@ -224,7 +251,7 @@ export class ChatController {
   }
 
   async hibernate(): Promise<void> {
-    if (this.active || this.resetting || this.permissionWait || this.planWait || this.questionWait || this.hasLiveTerminals() || this.hasLiveChildren()) return;
+    if (this.active || this.resetting || this.changingModel || this.permissionWait || this.planWait || this.questionWait || this.hasLiveTerminals() || this.hasLiveChildren()) return;
     const session = this.session;
     if (!session) return;
     this.retainedId = session.sessionId || this.retainedId;
@@ -236,14 +263,13 @@ export class ChatController {
 
   async build(planId: string, revision: number, selection: Selection): Promise<void> {
     if (this.state.plan.phase === 'building') return;
+    if (this.active || this.resetting || this.changingModel) throw new Error('エージェントは実行中です。');
+    if (selection.provider !== this.state.selection.provider || selection.cwd !== this.state.selection.cwd) throw new Error('同じ会話のモデルを選択してください。');
     const next = requestBuild(this.state.plan, planId, revision, selection, this.sessionId());
     if ('error' in next) throw new Error(next.error);
     const plan = next.state.current;
     if (!plan) return;
     this.state.plan = next.state;
-    this.state.selection = cloneSelection(selection);
-    this.modePreference = 'agent';
-    this.session?.setModel?.(selection);
     this.publish();
     try {
       await this.send(buildPrompt(plan), { displayText: `Build · ${selection.model || 'default'}` }, { intent: 'build', mode: 'agent', selection });
@@ -258,7 +284,7 @@ export class ChatController {
 
   enqueue(prompt: string, extras?: SendExtras): void {
     prompt = prompt.trim();
-    if (!prompt) return;
+    if (!prompt && !extras?.images?.length) return;
     if (prompt.length > 100000) throw new Error('依頼は100,000文字以内で入力してください。');
     this.state.queue.push({ id: randomUUID(), text: prompt, ...(extras ? { extras } : {}) });
     this.autoDrain = true;
@@ -301,8 +327,8 @@ export class ChatController {
 
   async send(prompt: string, extras?: SendExtras, turn?: TurnOptions): Promise<void> {
     prompt = prompt.trim();
-    if (!prompt) return;
-    if (this.active || this.resetting) throw new Error('エージェントは実行中です。');
+    if (!prompt && !extras?.images?.length) return;
+    if (this.active || this.resetting || this.changingModel) throw new Error('エージェントは実行中です。');
     const selection = turn?.selection ?? this.state.selection;
     const mode = turn?.mode ?? this.modePreference;
     const intent = turn?.intent ?? inferIntent(mode, this.state.plan);
@@ -331,6 +357,13 @@ export class ChatController {
       try {
         await this.openAgent(signal);
         signal.throwIfAborted();
+        if (intent === 'build') {
+          await this.session?.setModel?.(selection);
+          this.state.selection = cloneSelection(selection);
+          signal.throwIfAborted();
+          this.modePreference = 'agent';
+          this.publish();
+        }
         await this.session?.run(prompt, signal, (update) => {
           if (operation.abort.signal.aborted) return;
           this.receiveUpdate(turnId, update);
@@ -456,12 +489,12 @@ export class ChatController {
       const next = update.meta.usage;
       const samples = this.state.usageSamples ??= {};
       const turn = this.state.turns.find((item) => item.id === turnId);
-      if (next.scope === 'request' && this.state.usage?.scope === 'session') return;
+      if (next.scope === 'request' && samples[`session:${next.source ?? 'backend'}`]) return;
       if (next.scope === 'session') {
         const key = `session:${next.source ?? 'backend'}`;
         const previous = samples[key];
         const baselineKey = `baseline:${turnId}`;
-        if (!samples[baselineKey] && (previous || !this.restored)) samples[baselineKey] = previous ?? { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, reasoningTokens: 0, totalTokens: 0 };
+        if (!samples[baselineKey] && (previous || (!this.restored && !this.usageBaselineUnknown && this.state.turns.length === 1))) samples[baselineKey] = previous ?? { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, cacheWriteInputTokens: 0, reasoningTokens: 0, totalTokens: 0 };
         if (turn && samples[baselineKey]) turn.usage = usageDifference(next, samples[baselineKey]);
         samples[key] = next;
         this.state.usage = next;
@@ -637,16 +670,31 @@ export class ChatController {
 
   async openSession(): Promise<void> {
     while (this.resetting) await this.resetting;
-    if (this.active) throw new Error('実行が終わってからエージェントを切り替えてください。');
+    if (this.active || this.changingModel) throw new Error('エージェントは実行中です。');
+    const operation = { abort: new AbortController(), done: Promise.resolve() };
+    this.active = operation;
+    this.state.busy = true;
     this.state.status = 'restoring';
     this.publish();
+    operation.done = this.restoreSessionContents(operation.abort.signal).finally(() => {
+      if (this.active === operation) this.active = undefined;
+      if (this.autoDrain && !this.resetting) this.continueQueue();
+      this.state.busy = Boolean(this.active || this.resetting);
+      this.publish();
+    });
+    await operation.done;
+  }
+
+  private async restoreSessionContents(signal: AbortSignal): Promise<void> {
     try {
-      await this.openAgent();
+      await this.openAgent(signal);
+      signal.throwIfAborted();
       if (!this.session) throw new Error('セッションを再開できませんでした。');
       if (this.session.sessionId) this.retainedId = this.session.sessionId;
       if (this.session.loadTranscript && !this.replayed) {
         const replay: ChatMessage[] = [];
         await this.session.loadTranscript((message) => replay.push(message));
+        signal.throwIfAborted();
         if (replay.length) {
           const knownTurns = new Set(this.state.turns.map((turn) => turn.backendTurnId).filter(Boolean));
           const byId = new Map(this.state.messages.map((m) => [m.id, m]));
@@ -676,13 +724,17 @@ export class ChatController {
       await this.session.listBackgroundTerminals?.().catch(() => undefined);
       this.state.status = 'idle';
     } catch (error) {
-      this.state.status = 'error';
+      this.state.status = signal.aborted ? 'idle' : 'error';
+      if (!signal.aborted) {
+        this.autoDrain = false;
         this.state.messages.push({ id: randomUUID(), role: 'error', text: errorMessage(error), at: Date.now() });
+      }
     }
     this.publish();
   }
 
   reset(): Promise<void> {
+    if (this.modelChangeDone) return this.modelChangeDone.then(() => this.reset());
     if (this.resetting) return this.resetting;
     this.retainedId = undefined;
     this.autoDrain = false;
@@ -694,6 +746,8 @@ export class ChatController {
     this.resetting = (async () => {
       try {
         await this.active?.done;
+        // The finishing turn may retain its session ID after reset first clears it.
+        this.retainedId = undefined;
         const session = this.session;
         this.session = undefined;
         this.unsubscribeBackground?.();
@@ -708,6 +762,7 @@ export class ChatController {
         this.state.usage = null;
         this.state.usageSamples = {};
         this.restored = false;
+        this.usageBaselineUnknown = false;
         this.retryInputs.clear();
         this.state.pendingPermission = null;
         this.state.pendingPlan = null;

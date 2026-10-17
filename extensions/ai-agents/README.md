@@ -96,7 +96,7 @@ Cursor SDK 1.0.37のヘルパー探索に合わせ、拡張機能配下の専用
 
 ## VSIXの作成・インストール
 
-リポジトリのルートで `npm run package` を実行すると、`extensions/ai-agents/dist/ai-agents-<バージョン>-<OS>-<CPU>.vsix` が生成されます。VS Codeの **Extensions: Install from VSIX...** でインストールできます。
+リポジトリのルートで `npm run package` を実行すると、`extensions/ai-agents/dist/ai-agents-<OS>-<CPU>.vsix` が生成されます。VS Codeの **Extensions: Install from VSIX...** でインストールできます。
 
 SDKにはOS/CPU別のネイティブバイナリが含まれるため、VSIXは作成した環境向けです。SDKの動的ロードを壊さないように依存パッケージを同梱し、npm workspacesのhoistingに影響されない一時ディレクトリでパッケージ化します。
 

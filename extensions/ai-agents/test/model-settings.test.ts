@@ -57,7 +57,7 @@ test('display labels, search, and backend support do not invent unavailable sett
   assert.equal(parameterPresentation({ id: 'context', values: [{ value: '256k' }, { value: '500k' }] }), 'menu');
   assert.equal(parameterPresentation({ id: 'effort', values: [] }), 'hidden');
   assert.equal(catalogIsCurrent({ requestId: 2, provider: 'cursor', cwd: '/work' }, { requestId: 1, provider: 'cursor', cwd: '/work' }), false);
-  assert.equal(modelApplyMode('cursor', 'acp'), 'unsupported');
+  assert.equal(modelApplyMode('cursor', 'acp'), 'next-send');
   assert.equal(modelApplyMode('cursor', 'sdk'), 'next-send');
   assert.equal(modelApplyMode('codex', 'app-server'), 'next-send');
   assert.equal(modelApplyMode('codex', 'sdk'), 'new-session');

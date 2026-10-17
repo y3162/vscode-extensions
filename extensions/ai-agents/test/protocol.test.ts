@@ -237,3 +237,140 @@ test('captured native move_path identifies the destination and preserves the sou
     assert.match(changes[0]?.diff ?? '', /-alpha\n\+beta/);
   } finally { await controller.dispose(); await cleanup(); }
 });
+
+
+test('ACP preserves repeated deltas and a final answer repeated after a tool on every turn', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-acp.cjs');
+  const session = await createCursorAcpSession({ provider: 'cursor', cwd, model: '', storagePath: cwd, agentPath: command });
+  try {
+    for (let turn = 0; turn < 3; turn++) {
+      const updates: AgentUpdate[] = [];
+      await session.run('REPEATED_FINAL', new AbortController().signal, (update) => updates.push(update));
+      const messages = new Map(updates.filter((update) => update.role === 'assistant').map((update) => [update.id, update]));
+      assert.deepEqual([...messages.values()].map((message) => message.text), ['done', 'done done done']);
+      assert.equal([...messages.values()].at(-1)?.final, true);
+    }
+  } finally { await session.dispose(); await cleanup(); }
+});
+
+
+test('ACP replay keeps repeated final answers distinct across tools and restored turns', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-acp.cjs');
+  const session = await createCursorAcpSession({ provider: 'cursor', cwd, model: '', storagePath: cwd, agentPath: command, resumeId: 'repeat-history' });
+  try {
+    const replay: import('../src/types.js').ChatMessage[] = [];
+    await session.loadTranscript?.((message) => replay.push(message));
+    const answers = replay.filter((message) => message.role === 'assistant' && message.text === 'done');
+    assert.equal(answers.length, 4);
+    assert.equal(new Set(answers.map((message) => message.id)).size, 4);
+    assert.deepEqual(answers.map((message) => message.final === true), [false, true, false, true]);
+  } finally { await session.dispose(); await cleanup(); }
+});
+
+
+test('ACP applies only advertised canonical model variants and validates backend acknowledgment', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-acp.cjs');
+  const session = await createCursorAcpSession({ provider: 'cursor', cwd, model: '', storagePath: cwd, agentPath: command });
+  const selection = { provider: 'cursor' as const, cwd, model: 'composer-2.5', modelParams: [{ id: 'fast', value: 'true' }] };
+  try {
+    await session.setModel!(selection);
+    await assert.rejects(async () => session.setModel!({ ...selection, modelParams: [{ id: 'fast', value: 'false' }] }), /not advertised/);
+    await assert.rejects(async () => session.setModel!({ ...selection, model: 'missing' }), /not advertised/);
+    const updates: AgentUpdate[] = [];
+    await session.run('REPEATED_FINAL', new AbortController().signal, (update) => updates.push(update), undefined, {intent:'chat',mode:'agent',selection});
+    assert.equal(updates.filter((update) => update.role === 'assistant').at(-1)?.text, 'done done done');
+  } finally { await session.dispose(); await cleanup(); }
+});
+
+
+test('a rejected ACP turn mode releases its live callback before later idle events', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-acp.cjs');
+  const session = await createCursorAcpSession({ provider: 'cursor', cwd, model: '', storagePath: cwd, agentPath: command });
+  const updates: AgentUpdate[] = [];
+  try {
+    await assert.rejects(session.run('plan', new AbortController().signal, (update) => updates.push(update), undefined, {intent:'plan',mode:'plan',selection:{provider:'cursor',cwd,model:''}}), /mode rejected/);
+    await session.setMode!('ask');
+    assert.equal(updates.length, 0);
+    const replay: string[] = [];
+    await session.loadTranscript?.((message) => replay.push(message.text));
+    assert.deepEqual(replay, ['idle mode update']);
+  } finally { await session.dispose(); await cleanup(); }
+});
+
+
+for (const [model, expected] of [['rejected', /model refused/], ['no-ack', /did not acknowledge/]] as const) {
+  test(`ACP closes an uncertain model connection: ${model}`, { timeout: 5000 }, async () => {
+    const { cwd, command, cleanup } = await fixture('mock-acp.cjs');
+    const session = await createCursorAcpSession({ provider: 'cursor', cwd, model: '', storagePath: cwd, agentPath: command });
+    try {
+      await assert.rejects(async () => session.setModel!({provider:'cursor',cwd,model}), expected);
+      assert.equal(session.closed, true);
+      await assert.rejects(session.run('must not send', new AbortController().signal, () => {}), /closed/);
+    } finally { await session.dispose(); await cleanup(); }
+  });
+}
+
+test('ACP resume reapplies a requested advertised model instead of trusting stale UI selection', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-acp.cjs');
+  try {
+    const session = await createCursorAcpSession({ provider: 'cursor', cwd, model: 'composer-2.5', storagePath: cwd, agentPath: command, resumeId:'old' });
+    try {
+      // No-ack is intentionally advertised but not acknowledged. Initial selection must validate too.
+      await assert.rejects(createCursorAcpSession({ provider:'cursor',cwd,model:'no-ack',storagePath:cwd,agentPath:command,resumeId:'old' }), /did not acknowledge/);
+      assert.equal(session.closed, false);
+    } finally { await session.dispose(); }
+  } finally { await cleanup(); }
+});
+
+test('ACP resume restores Agent mode even when the backend saved Plan mode', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-acp.cjs');
+  const session = await createCursorAcpSession({ provider: 'cursor', cwd, model: '', mode: 'agent', storagePath: cwd, agentPath: command, resumeId: 'saved-plan' });
+  try {
+    const updates: AgentUpdate[] = [];
+    await session.run('REPORT_MODE', new AbortController().signal, (update) => updates.push(update), undefined, {
+      intent: 'chat', mode: 'agent', selection: { provider: 'cursor', cwd, model: '' },
+    });
+    assert.equal(updates.filter((update) => update.role === 'assistant').at(-1)?.text, 'agent');
+  } finally { await session.dispose(); await cleanup(); }
+});
+
+test('App Server history retains the backend final answer phase', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+  const session = await createCodexAppServerSession({ provider: 'codex', cwd, model: 'fixture-model', storagePath: cwd, codexPath: command, resumeId: 'history-final' });
+  try {
+    const replay: import('../src/types.js').ChatMessage[] = [];
+    await session.loadTranscript?.((message) => replay.push(message));
+    assert.deepEqual(replay.map((message) => [message.text, message.final === true]), [
+      ['Checking files', false], ['Backend final answer', true],
+    ]);
+    assert.ok(replay.every((message) => message.backendTurnId === 'saved-turn'));
+  } finally { await session.dispose(); await cleanup(); }
+});
+
+test('App Server retains output received before the background process ID is advertised', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+  const session = await createCodexAppServerSession({ provider: 'codex', cwd, model: 'fixture-model', storagePath: cwd, codexPath: command });
+  try {
+    await session.run('EARLY_TERMINAL_OUTPUT', new AbortController().signal, () => {});
+    const terminals = await session.listBackgroundTerminals!();
+    assert.equal(terminals[0]?.processId, 'early-process');
+    assert.equal(terminals[0]?.output, 'EARLY_READY\n');
+  } finally { await session.dispose(); await cleanup(); }
+});
+
+
+for (const sandbox of ['workspace-write', 'read-only', 'danger-full-access']) {
+  test(`App Server Plan enforces read-only and Build restores the exact configured policy: ${sandbox}`, { timeout: 5000 }, async () => {
+    const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+    const session = await createCodexAppServerSession({ provider:'codex',cwd,model:'fixture-model',storagePath:cwd,codexPath:command,sandbox,approval:'on-request',network:true,additionalDirectories:['/tmp/additional'] });
+    try {
+      for (const mode of ['plan','agent','plan','agent'] as const) {
+        const updates: AgentUpdate[]=[];
+        await session.run('SECURITY_POLICY',new AbortController().signal,(update)=>updates.push(update),undefined,{intent:mode==='plan'?'plan':'build',mode,selection:{provider:'codex',cwd,model:'fixture-model'}});
+        const actual = JSON.parse(updates.filter((update)=>update.role==='assistant').at(-1)!.text);
+        if (mode === 'plan') assert.deepEqual(actual,{sandbox:{type:'readOnly',networkAccess:false},approval:'never'});
+        else assert.deepEqual(actual,{sandbox:sandbox==='read-only'?{type:'readOnly',networkAccess:false}:sandbox==='danger-full-access'?{type:'dangerFullAccess'}:{type:'workspaceWrite',writableRoots:[cwd,'/tmp/additional'],networkAccess:true,excludeSlashTmp:true,excludeTmpdirEnvVar:true},approval:'on-request'});
+      }
+    } finally { await session.dispose(); await cleanup(); }
+  });
+}

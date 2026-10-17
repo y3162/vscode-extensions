@@ -40,6 +40,26 @@ test('interrupt is scoped to both SDK shell id and PID, and session disposal sto
   assert.equal(disposed, 2, 'late cleanup after worker disposal cannot retain resources');
 });
 
+test('repeated SDK cleanup after natural exit or worker disposal disposes an executor only once', async () => {
+  const runtime = new CursorBackgroundRuntime();
+  let disposed = 0;
+  const shells = new Map([[42, { pid: 9000 }]]);
+  const executor = { getManager: () => ({ runningShells: shells, abort: () => false }), dispose: () => { disposed++; } };
+  runtime.release(executor);
+  shells.clear();
+  await new Promise((resolve) => setTimeout(resolve, 180));
+  runtime.release(executor);
+  runtime.dispose();
+  runtime.release(executor);
+  assert.equal(disposed, 1);
+
+  const late = { getManager: () => ({ runningShells: shells, abort: () => false }), dispose: () => { disposed++; } };
+  runtime.release(late);
+  runtime.release(late);
+  runtime.dispose();
+  assert.equal(disposed, 2);
+});
+
 test('SDK compatibility transform is pinned and changes only background cleanup', async () => {
   const script = pathToFileURL(path.resolve(__dirname, '../scripts/cursor-runtime-patch.mjs')).href;
   const { patchCursorRuntime } = await import(script) as { patchCursorRuntime(source: string, version: string): string };

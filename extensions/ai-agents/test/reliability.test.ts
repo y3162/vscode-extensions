@@ -101,3 +101,36 @@ test('a long conversation retains complete turns past the old 300-message and 40
   const restored = new ChatController(selection, async () => { throw Error('must not connect'); }, () => {});
   restored.restoreSnapshot(state, 'thread'); assert.deepEqual(restored.snapshot().messages, state.messages);
 });
+
+test('request-only usage accumulates across turns and replaces repeated samples', async () => {
+  let cumulative = false;
+  const controller = new ChatController(selection, async () => ({
+    async run(_prompt, _signal, emit) {
+      if (cumulative) emit({ id: 'total', role: 'status', text: '', meta: { type: 'usage', usage: { inputTokens: 40, outputTokens: 4, scope: 'session', source: 'codex-app-server' } } });
+      for (const outputTokens of [1, 2]) emit({ id: 'request', role: 'status', text: '', meta: { type: 'usage', usage: { inputTokens: 10, outputTokens, scope: 'request', source: 'codex-app-server' } } });
+    }, async dispose() {},
+  }), () => {});
+  await controller.send('one');
+  await controller.send('two');
+  assert.equal(controller.snapshot().usage?.inputTokens, 20);
+  assert.equal(controller.snapshot().usage?.outputTokens, 4);
+  assert.deepEqual(controller.snapshot().turns.map((turn) => turn.usage?.outputTokens), [2, 2]);
+  cumulative = true;
+  await controller.send('native cumulative');
+  assert.equal(controller.snapshot().usage?.inputTokens, 40);
+  assert.equal(controller.snapshot().usage?.outputTokens, 4);
+  assert.equal(controller.snapshot().turns.at(-1)?.usage, undefined, 'the first cumulative sample in a later turn has no known starting baseline');
+});
+
+test('restoring completed terminal records does not turn a finished chat into live background work', () => {
+  const controller = new ChatController(selection, async () => { throw new Error('no connection expected'); }, () => {});
+  const saved = controller.snapshot();
+  saved.terminals = [{ processId: 'done', status: 'completed', exitCode: 0, output: 'done' }, { processId: 'stopped', status: 'cancelled', exitCode: 130 }];
+  controller.restoreSnapshot(saved, 'thread');
+  assert.equal(controller.hasLiveTerminals(), false);
+  assert.deepEqual(controller.snapshot().terminals, saved.terminals);
+  saved.terminals.push({ processId: 'running', status: 'running' });
+  controller.restoreSnapshot(saved, 'thread');
+  assert.equal(controller.snapshot().terminals.at(-1)?.status, 'unknown');
+  assert.equal(controller.hasLiveTerminals(), true);
+});

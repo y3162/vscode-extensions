@@ -1,6 +1,6 @@
 import { isToggleOn, orderedParameters, toggleOnValue } from '../model-settings.js';
 import type { ModelCatalogMessage, ViewChange, ViewShell } from '../protocol.js';
-import type { ModelParameter } from '../types.js';
+import type { ImageAttachment, ModelParameter } from '../types.js';
 import type { Post } from './cards.js';
 import type { Dom } from './dom.js';
 import { ModelMenu, type Menu, type ModelMenuItem, type ModelMenuPage } from './popover.js';
@@ -39,6 +39,7 @@ export class Composer {
   private suggestIndex = 0;
   private suggestToken: CaretToken | undefined;
   private historyPrompt = '';
+  private retryId: string | undefined;
   private timer = 0;
   private terminalsExpanded = true;
 
@@ -99,7 +100,7 @@ export class Composer {
     form.addEventListener('submit', (event) => event.preventDefault());
     this.input.addEventListener('compositionstart', () => { this.composing = true; });
     this.input.addEventListener('compositionend', () => { this.composing = false; });
-    this.input.addEventListener('input', () => { this.resize(); this.queueSuggest(); });
+    this.input.addEventListener('input', () => { this.retryId = undefined; this.resize(); this.queueSuggest(); });
     this.input.addEventListener('keydown', (event) => this.onKey(event));
     this.input.addEventListener('paste', (event) => {
       const files = [...(event.clipboardData?.files ?? [])].filter((item) => item.type.startsWith('image/'));
@@ -109,11 +110,31 @@ export class Composer {
     });
   }
 
+  private changed = () => {};
+
   private readonly fileInput: HTMLInputElement;
   private readonly attach: HTMLButtonElement;
 
   get draft(): string { return this.input.value; }
-  set draft(value: string) { this.input.value = value; this.resize(); }
+  set draft(value: string) { this.retryId = undefined; this.clearSuggestions(); this.input.value = value; this.resize(); }
+  editDraft(text: string, retryId?: string): void {
+    this.draft = text;
+    this.retryId = retryId;
+    this.chips.length = 0;
+    this.images.length = 0;
+    this.renderChips();
+    this.focus();
+  }
+
+  restoreRetry(id: string, text: string, images: ImageAttachment[], attachments: string[] = []): void {
+    if (this.retryId !== id || this.draft !== text) return;
+    this.retryId = undefined;
+    this.images.push(...images.map((image) => ({ ...image })));
+    const names = new Set(images.map((image) => image.name || 'image'));
+    this.chips.push(...attachments.filter((label) => !names.has(label)).map((label) => ({ label, text: '' })));
+    this.renderChips();
+  }
+
   focus(): void { this.input.focus(); }
   closeMenus(): void { this.menu.close(false); this.modelMenu.close(false); }
 
@@ -123,11 +144,13 @@ export class Composer {
     this.catalog = message;
     if (this.modelMenu.isOpen) this.modelMenu.replace(this.modelPage());
   }
-  onInput(handler: () => void): void { this.input.addEventListener('input', handler); }
+  onInput(handler: () => void): void { this.changed = handler; this.input.addEventListener('input', handler); }
 
-  notePrompt(text: string): void { if (text) this.historyPrompt = text; }
+  notePrompt(text: string): void { this.historyPrompt = text; }
 
   insert(text: string, label?: string): void {
+    this.retryId = undefined;
+    this.clearSuggestions();
     const gap = this.input.value && !this.input.value.endsWith('\n') ? '\n' : '';
     this.input.value += `${gap}${text}`;
     if (label) this.chips.push({ label, text });
@@ -174,12 +197,21 @@ export class Composer {
     this.model.classList.toggle('is-static', !adjustable);
     this.model.setAttribute('aria-haspopup', adjustable ? 'menu' : 'false');
     this.model.disabled = shell.busy;
-    const identity = `${shell.provider}\0${shell.cwd}\0${shell.sessionId ?? ''}\0${shell.backend}`;
-    if (this.seenIdentity && this.seenIdentity !== identity) this.modelMenu.close(false);
+    const identity = `${shell.provider}\0${shell.cwd}\0${shell.conversationId ?? ''}\0${shell.sessionId ?? ''}\0${shell.backend}`;
+    if (this.seenIdentity && this.seenIdentity !== identity) {
+      this.retryId = undefined;
+      this.closeMenus();
+      this.clearSuggestions();
+      this.catalog = null;
+      // Host replies carry a request ID, but not the session/backend identity.
+      // Invalidate outstanding requests before accepting a catalog for the new view.
+      this.catalogRequest += 1;
+    }
     this.seenIdentity = identity;
     if ((shell.busy || !adjustable) && this.modelMenu.isOpen) this.modelMenu.close(false);
     this.attach.title = copy.attach;
     this.attach.setAttribute('aria-label', copy.attach);
+    if (shell.busy && this.mode.getAttribute('aria-expanded') === 'true') this.menu.close(false);
     this.mode.disabled = shell.busy;
     this.send.disabled = !shell.cwd;
     const sendLabel = this.send.querySelector('.btn-label');
@@ -326,11 +358,15 @@ export class Composer {
       row.append(chip.label);
       const remove = this.dom.button('icon-btn', 'x', 'close');
       remove.addEventListener('click', () => {
+        this.retryId = undefined;
         const text = this.chips[index]?.text ?? '';
         this.chips.splice(index, 1);
-        const at = this.input.value.indexOf(text);
+        const at = text ? this.input.value.indexOf(text) : -1;
         if (at >= 0) this.input.value = `${this.input.value.slice(0, at)}${this.input.value.slice(at + text.length)}`;
         this.renderChips();
+        this.resize();
+        this.queueSuggest();
+        this.changed();
       });
       row.append(remove);
       this.chipRow.append(row);
@@ -341,7 +377,7 @@ export class Composer {
       preview.alt = image.name || 'image';
       preview.src = `data:${image.mimeType};base64,${image.data}`;
       const remove = this.dom.button('icon-btn', 'x', 'close');
-      remove.addEventListener('click', () => { this.images.splice(index, 1); this.renderChips(); });
+      remove.addEventListener('click', () => { this.retryId = undefined; this.images.splice(index, 1); this.renderChips(); });
       row.append(preview, remove);
       this.chipRow.append(row);
     });
@@ -351,6 +387,7 @@ export class Composer {
     if (!this.shell?.cwd) return;
     const prompt = this.input.value;
     if (!prompt.trim() && !this.images.length) return;
+    this.retryId = undefined;
     const attachments = [...this.chips.map((chip) => chip.label), ...this.images.map((image) => image.name || 'image')];
     this.post({
       type: this.shell.busy ? 'enqueue' : 'send', prompt, images: this.images.map((image) => ({ ...image })),
@@ -360,16 +397,17 @@ export class Composer {
     this.input.value = '';
     this.images.length = 0;
     this.chips.length = 0;
-    this.suggest.hidden = true;
+    this.clearSuggestions();
     this.renderChips();
     this.resize();
+    this.changed();
   }
 
   private onKey(event: KeyboardEvent): void {
     if (this.composing || event.isComposing || event.keyCode === 229) return;
     if (!this.suggest.hidden && (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Tab' || event.key === 'Escape')) {
       event.preventDefault();
-      if (event.key === 'Escape') { this.suggest.hidden = true; return; }
+      if (event.key === 'Escape') { this.clearSuggestions(); return; }
       if (event.key === 'Tab') { this.applySuggestion(this.suggestItems[this.suggestIndex]); return; }
       this.suggestIndex = event.key === 'ArrowUp'
         ? Math.max(0, this.suggestIndex - 1)
@@ -382,18 +420,28 @@ export class Composer {
       event.preventDefault();
       this.input.value = this.historyPrompt;
       this.resize();
+      this.changed();
       return;
     }
   }
 
+  private clearSuggestions(): void {
+    this.dom.document.defaultView?.clearTimeout(this.timer);
+    this.suggestRequest += 1;
+    this.suggest.hidden = true;
+    this.suggestItems = [];
+    this.suggestToken = undefined;
+    this.input.setAttribute('aria-expanded', 'false');
+    this.input.removeAttribute('aria-activedescendant');
+  }
+
   private queueSuggest(): void {
+    this.clearSuggestions();
     const token = caretToken(this.input.value, this.input.selectionStart ?? 0);
     this.suggestToken = token;
-    const view = this.dom.document.defaultView;
-    view?.clearTimeout(this.timer);
-    if (!token) { this.suggest.hidden = true; this.input.setAttribute('aria-expanded', 'false'); return; }
-    const requestId = ++this.suggestRequest;
-    this.timer = view?.setTimeout(() => {
+    if (!token) return;
+    const requestId = this.suggestRequest;
+    this.timer = this.dom.document.defaultView?.setTimeout(() => {
       if (requestId !== this.suggestRequest) return;
       this.post({ type: 'suggest', kind: token.kind, query: token.query, requestId });
     }, 120) ?? 0;
@@ -406,7 +454,9 @@ export class Composer {
       ? `@${item.token.includes(' ') ? `"${item.token}"` : item.token} `
       : `/${item.token} `;
     this.input.value = `${this.input.value.slice(0, this.suggestToken.start)}${insert}${this.input.value.slice(caret)}`;
-    this.suggest.hidden = true;
+    this.clearSuggestions();
+    this.resize();
+    this.changed();
     this.input.focus();
   }
 
@@ -418,6 +468,7 @@ export class Composer {
   }
 
   private addImages(files: FileList | File[] | null): void {
+    this.retryId = undefined;
     for (const file of [...(files ?? [])]) {
       if (!imageTypes.has(file.type === 'image/jpg' ? 'image/jpeg' : file.type) || file.size > 5_000_000 || this.images.length >= 4) continue;
       const reader = new FileReader();

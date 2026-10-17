@@ -5,6 +5,16 @@ import { execFileSync } from 'node:child_process';
 import type { AgentsSidebar } from '../src/sidebar.js';
 import type { Backend, Provider } from '../src/types.js';
 
+function assertFinalAnswers(sidebar: AgentsSidebar, count: number): void {
+  const state = sidebar.controller.snapshot();
+  assert.equal(state.turns.length, count);
+  for (const turn of state.turns) {
+    assert.equal(turn.status, 'completed');
+    const answer = state.messages.find((message) => message.id === turn.finalMessageId);
+    assert.ok(answer?.role === 'assistant' && answer.final && answer.text.trim(), `Missing final assistant answer for ${turn.id}`);
+  }
+}
+
 export async function runReliability(sidebar: AgentsSidebar, cwd: string): Promise<void> {
   execFileSync('git', ['init', '-q'], { cwd });
   const config = vscode.workspace.getConfiguration('ai-agents');
@@ -19,9 +29,11 @@ export async function runReliability(sidebar: AgentsSidebar, cwd: string): Promi
       const state = sidebar.controller.snapshot();
       assert.equal(state.messages.filter((m) => m.role === 'user').length, 3, `${row.provider}/${row.backend}: restored users`);
       assert.equal(state.turns.length, 3); assert.deepEqual(state.usage, row.usage);
+      assertFinalAnswers(sidebar, 3);
       assert.ok(state.messages.some((m) => m.role === 'assistant' && m.text.includes('reliability')));
       await sidebar.handleMessage({ type: 'send', provider: row.provider, cwd, prompt: 'Reply exactly RELOADED. Do not use tools.' });
       assert.equal(sidebar.controller.snapshot().status, 'idle');
+      assertFinalAnswers(sidebar, 4);
       assert.match(sidebar.controller.snapshot().messages.filter((m) => m.role === 'assistant').at(-1)!.text, /RELOADED/i);
       console.log(`RELIABILITY_RELOAD_PASS ${row.provider}/${row.backend}`);
     }
@@ -30,14 +42,16 @@ export async function runReliability(sidebar: AgentsSidebar, cwd: string): Promi
       await sidebar.newChat();
       await sidebar.handleMessage({ type: 'select', provider, cwd });
       await sidebar.handleMessage({ type: 'configure', backend, mode: 'agent', sandbox: provider === 'cursor' ? 'enabled' : 'read-only', approval: 'never' });
-      await sidebar.controller.updateSelection({ provider, cwd, model: provider === 'cursor' ? 'auto' : 'gpt-6-luna', ...(provider === 'codex' ? { modelParams: [{ id: 'modelReasoningEffort', value: 'low' }] } : {}) });
+      await sidebar.controller.updateSelection({ provider, cwd, model: provider === 'cursor' ? 'composer-2.5' : 'gpt-6-luna', ...(provider === 'codex' ? { modelParams: [{ id: 'modelReasoningEffort', value: 'low' }] } : {}) });
       for (const prompt of ['Hi. Remember the word reliability. Reply briefly without tools.', 'What word did I ask you to remember? Reply with that word only. Do not use tools.', 'Reply with Markdown **reliability** and a fenced JavaScript code block containing console.log("日本語 😀");. Do not use tools.']) {
         await sidebar.handleMessage({ type: 'send', provider, cwd, prompt });
         assert.equal(sidebar.controller.snapshot().status, 'idle', `${provider}/${backend}: ${JSON.stringify(sidebar.controller.snapshot().messages.filter((m) => m.role === 'error'))}`);
+        assertFinalAnswers(sidebar, sidebar.controller.snapshot().turns.length);
       }
       const owner = sidebar.controller;
       const before = owner.snapshot(); const id = owner.sessionId()!; assert.ok(id);
       assert.equal(before.messages.filter((m) => m.role === 'user').length, 3);
+      assertFinalAnswers(sidebar, 3);
       assert.match(before.messages.filter((m) => m.role === 'assistant')[1]!.text, /reliability/i);
       if (backend !== 'acp') { assert.ok(before.usage?.totalTokens && before.usage.totalTokens > 0); assert.equal(before.usage.source, `${provider}-${backend}`); }
       else assert.equal(before.usage, null, 'ACP does not provide usage');

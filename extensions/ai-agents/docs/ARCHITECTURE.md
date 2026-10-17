@@ -71,3 +71,8 @@ Cursor SDKの背景shellは、専用worker内で会話の寿命まで保持す�
 - Cursor Cloud / Background の起動。課金とリモート実行を伴うため、確認用のUIを別に設計してからにします。
 - 1つのサイドバーでの同時実行。キューとセッション一覧で足りる範囲に留めました。
 - Inline Edit、補完、意味検索。エージェントのツール実行とは別のAPIが必要です。
+
+
+## 最終監査で保護した境界（2026-10-17）
+
+履歴復元もControllerのactive操作とし、送信・設定変更と排他、Stop/Reset後の遅延本文を取り込まない。Resetはactive完了後にretained session IDを再消去する。画像only送信はimages有なら空promptを許可。Retryは元入力と画像をHostからsource Webviewへ返し、会話・turn・draftが一致する場合のみ復元し、明示送信まで推論しない。画像の永続化方式は変更せず、元画像を再取得できない保存会話では再添付を要求する。

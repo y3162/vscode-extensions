@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased — 0.10.0 audit fixes
+
+- Preserve repeated Cursor ACP deltas, final answers, and per-turn answers after session restore.
+- Await model changes across worker IPC; apply advertised ACP model variants only after backend acknowledgment and reject uncertain connections.
+- Keep Plan / Build model failures and Stop recoverable, and keep asynchronous settings, model selection, and context expansion attached to their originating conversation.
+- Enforce read-only, non-escalating Codex App Server Plan turns and restore the exact configured sandbox and approval policy for Agent / Build.
+- Correct request-only token totals and restored terminal states; make retained background executor cleanup idempotent and parse CRLF terminal completion.
+- Persist cleared Composer drafts and invalidate prompt recall/model catalogs across conversation changes.
+- Record current live provider/runtime verification separately from the still-unverified 300/390px Dark/Light GUI checks in `docs/AUDIT.md`.
+
 ## 0.10.0
 
 - Keep Cursor SDK background processes alive after the parent response, releasing their native executors after completion or session disposal.
@@ -117,3 +127,12 @@
 - Open a running Codex App Server terminal from the composer list or chat header in the VS Code Terminal Panel, with live output and tab reuse.
 - Ctrl+C requests cancellation through the owning runtime. Closing the panel tab only detaches the display.
 - Text stdin forwarding and PTY resizing are not exposed by the agent-owned terminal API; the panel explains this limitation.
+
+
+### 0.10.0 最終監査の追加修正（未リリース）
+
+- Reset/履歴復元の会話競合、画像のみ送信/Queue/明示Retryを修正。
+- ACP再開時Agent適用、App Server履歴の明示finalを保持。
+- 補完・添付削除のdraft保存、古い補完/モードメニュー残留を修正。
+- 4経路3turn、ACP Backend finalと表示一致、Host再起動の各turn final検査を強化。
+- App Serverのprocess ID判明前に受信した背景stdoutを一覧へ結合。no-ttyランタイム自体の初期出力未配信は制限として記録。

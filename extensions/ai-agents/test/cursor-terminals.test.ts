@@ -17,6 +17,12 @@ test('SDK terminal records preserve actual cancellation instead of inferring run
   assert.equal(parseCursorTerminal('1', '---\npid: 5\nactive_command: zsh\n---\ntext'), undefined);
 });
 
+test('terminal exit footers accept CRLF and a footer at the start of empty command output', () => {
+  const footer = '---\nexit_code: 17\nended_at: 2026-10-17T00:48:03.841Z\n---\n';
+  assert.equal(parseCursorTerminal('1', log('failed', footer))?.exitCode, 17);
+  assert.equal(parseCursorTerminal('1', log('failed', footer).replace(/\n/g, '\r\n'))?.exitCode, 17);
+});
+
 test('isolated SDK terminal logs stream output and keep a finished terminal visible after the turn', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'cursor-terminals-'));
   const own = path.join(root, 'own'); const other = path.join(root, 'other');
@@ -40,5 +46,21 @@ test('isolated SDK terminal logs stream output and keep a finished terminal visi
     const count = updates.length; await monitor.refresh();
     assert.equal(updates.length, count, 'unchanged snapshots do not create duplicate updates');
     await assert.rejects(monitor.interrupt('999.txt'), /終了/);
+  } finally { monitor.dispose(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('a shared Cursor directory never claims or interrupts another worker terminal', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'cursor-terminal-owner-'));
+  const folder = path.join(root, 'projects', 'workspace', 'terminals');
+  const updates: AgentUpdate[] = [];
+  let interrupts = 0;
+  const monitor = new CursorTerminals(root, (update) => updates.push(update), async () => false, '/workspace', () => { interrupts++; return true; });
+  try {
+    await mkdir(folder, { recursive: true });
+    await writeFile(path.join(folder, '42.txt'), log());
+    assert.deepEqual(await monitor.refresh(), []);
+    await assert.rejects(monitor.interrupt('workspace/42.txt'), /終了/);
+    assert.equal(interrupts, 0);
+    assert.ok(updates.every((update) => !update.meta?.terminals?.length));
   } finally { monitor.dispose(); await rm(root, { recursive: true, force: true }); }
 });

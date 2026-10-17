@@ -5,17 +5,32 @@ let activeTerminals = [];
 let failLists = false;
 let failTerminate = false;
 let listCount = 0;
+let policyTurn = 0;
+let replayFinal = false;
 require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
   const request = JSON.parse(line);
   if (request.method === 'initialize') emit({ id: request.id, result: { userAgent: 'fixture', codexHome: '/tmp', platformFamily: 'unix', platformOs: 'macos' } });
   else if (request.method === 'initialized') return;
   else if (request.method === 'thread/start' || request.method === 'thread/resume') {
-    emit({ id: request.id, result: { thread: { id: 'thread-1', title: 'Fixture' }, instructionSources: ['AGENTS.md'], threadId: 'thread-1' } });
+    replayFinal = request.params.threadId === 'history-final';
+    const sandbox = request.params.sandbox === 'read-only' ? {type:'readOnly',networkAccess:false}
+      : request.params.sandbox === 'danger-full-access' ? {type:'dangerFullAccess'}
+        : {type:'workspaceWrite', writableRoots:[request.params.cwd,...(request.params.runtimeWorkspaceRoots || [])],networkAccess:request.params.config?.sandbox_workspace_write?.network_access === true,excludeSlashTmp:true,excludeTmpdirEnvVar:true};
+    emit({ id: request.id, result: { thread: { id: 'thread-1', title: 'Fixture' }, sandbox, approvalPolicy:request.params.approvalPolicy, instructionSources: ['AGENTS.md'], threadId: 'thread-1' } });
   } else if (request.method === 'thread/list') {
     emit({ id: request.id, result: { data: [{ id: 'thread-1', title: 'Fixture', updatedAt: '2026-10-16T00:00:00.000Z' }] } });
   } else if (request.method === 'turn/start') {
     pendingTurn = request.id;
     const text = String(request.params.input?.[0]?.text || '');
+    if (text === 'EARLY_TERMINAL_OUTPUT') {
+      emit({ method: 'item/started', params: { threadId: 'thread-1', item: { type: 'commandExecution', id: 'early-command', command: 'python3 -u script.py', status: 'inProgress' } } });
+      emit({ method: 'item/commandExecution/outputDelta', params: { threadId: 'thread-1', itemId: 'early-command', delta: 'EARLY_READY\n' } });
+      activeTerminals = [{ itemId: 'early-command', processId: 'early-process', command: 'python3 -u script.py' }];
+      emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'early-turn', status: 'completed' } } });
+      emit({ id: request.id, result: { turn: { id: 'early-turn' } } });
+      pendingTurn = undefined;
+      return;
+    }
     if (text === 'EXIT_AFTER_START') {
       emit({ id: request.id, result: { turn: { id: 'crash-turn' } } });
       setTimeout(() => process.exit(1), 20);
@@ -100,12 +115,18 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       emit({ id: 50, method: 'item/commandExecution/requestApproval', params: { approvalId: 'approval-1', command: 'npm test', reason: 'fixture command' } });
       return;
     }
+    const streamId = text === 'SECURITY_POLICY' ? `policy-${++policyTurn}` : 'agent-1';
     emit({ method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'inProgress', items: [] } } });
-    emit({ method: 'item/agentMessage/delta', params: { itemId: 'agent-1', delta: 'app ' } });
-    emit({ method: 'item/agentMessage/delta', params: { itemId: 'agent-1', delta: 'server' } });
+    emit({ method: 'item/agentMessage/delta', params: { itemId: streamId, delta: text === 'SECURITY_POLICY' ? JSON.stringify({sandbox:request.params.sandboxPolicy,approval:request.params.approvalPolicy}) : 'app ' } });
+    emit({ method: 'item/agentMessage/delta', params: { itemId: streamId, delta: text === 'SECURITY_POLICY' ? '' : 'server' } });
     emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', items: [] } } });
     emit({ id: request.id, result: { turn: { id: 'turn-1', status: 'completed' } } });
     pendingTurn = undefined;
+  } else if (request.method === 'thread/turns/list' && replayFinal) {
+    emit({ id: request.id, result: { data: [{ id: 'saved-turn', status: 'completed', items: [
+      { id: 'commentary', type: 'agentMessage', text: 'Checking files', phase: 'commentary' },
+      { id: 'answer', type: 'agentMessage', text: 'Backend final answer', phase: 'final_answer' },
+    ] }], nextCursor: null } });
   } else if (request.method === 'thread/read' && request.params.threadId === 'silent-child') {
     emit({ id: request.id, result: { thread: { status: { type: 'notLoaded' }, turns: [{ id: 'silent-child-turn', status: 'interrupted', items: [] }] } } });
   } else if (request.method === 'thread/backgroundTerminals/list') {

@@ -34,7 +34,8 @@ function mount() {
   window.document.documentElement.lang = 'en';
   window.document.body.innerHTML = '<div id="app"></div>';
   const sent: unknown[] = [];
-  const vscode: VsCodeApi = { postMessage(message) { sent.push(message); }, getState: () => null, setState: () => {} };
+  let persisted: unknown;
+  const vscode: VsCodeApi = { postMessage(message) { sent.push(message); }, getState: () => null, setState(state) { persisted = state; } };
   const app = createApp(vscode, { document: window.document });
   const emit = (next: ViewShell, messages: ViewMessage[] = []) => {
     window.dispatchEvent(new window.MessageEvent('message', {
@@ -42,7 +43,7 @@ function mount() {
     }));
     app.flush();
   };
-  return { window, sent, app, emit, input: () => window.document.querySelector('textarea') as HTMLTextAreaElement };
+  return { window, sent, app, emit, persisted: () => persisted as { draft?: string }, input: () => window.document.querySelector('textarea') as HTMLTextAreaElement };
 }
 
 test('markdown stays text and reuses completed blocks', () => {
@@ -651,4 +652,158 @@ test('finished SDK background terminals remain visible above the composer and in
   const list = window.document.querySelector('.terminals')!;
   const form = window.document.querySelector('.composer-card')!;
   assert.ok(list.compareDocumentPosition(form) & window.Node.DOCUMENT_POSITION_FOLLOWING);
+});
+
+test('sending persists the cleared draft and a new conversation forgets prompt recall', () => {
+  const window = new Window();
+  window.document.body.innerHTML = '<div id="app"></div>';
+  let persisted: { draft?: string } = {};
+  const app = createApp({ postMessage() {}, getState: () => null, setState(state) { persisted = state as typeof persisted; } }, { document: window.document });
+  const emit = (messages: ViewMessage[]) => {
+    window.dispatchEvent(new window.MessageEvent('message', { data: {
+      type: 'state', full: true, shell: shell(), messages: { removed: [], upserts: messages, order: messages.map((item) => item.id) },
+    } }));
+    app.flush();
+  };
+  emit([{ id: 'old', role: 'user', text: 'prior conversation', at: 1 }]);
+  click(visible(window.document, '.new-chat'));
+  const input = window.document.querySelector('textarea')!;
+  input.value = 'send me';
+  input.dispatchEvent(new window.Event('input', { bubbles: true }));
+  assert.equal(persisted.draft, 'send me');
+  click(visible(window.document, '.send'));
+  assert.equal(persisted.draft, '');
+  emit([]);
+  input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true }));
+  assert.equal(input.value, '');
+  app.destroy();
+});
+
+test('a model catalog cannot cross a backend or session change', () => {
+  const { window, sent, emit } = mount();
+  emit(shell({ backend: 'sdk', sessionId: 'a' }));
+  click(visible(window.document, '.new-chat'));
+  click(visible(window.document, '.model-name'));
+  const request = posted(sent, 'loadModelCatalog')!;
+  const deliver = (requestId: unknown) => window.dispatchEvent(new window.MessageEvent('message', { data: {
+    type: 'modelCatalog', requestId, provider: 'codex', cwd: '/workspace', status: 'ready',
+    selectedModelId: 'stale', selectedParams: [], models: [{ id: 'stale', label: 'Stale model', parameters: [] }],
+  } }));
+  deliver(request.requestId);
+  assert.match(window.document.querySelector('.model-menu')!.textContent!, /Stale model/);
+  emit(shell({ backend: 'app-server', sessionId: 'b' }));
+  deliver(request.requestId);
+  click(visible(window.document, '.model-name'));
+  assert.match(window.document.querySelector('.model-menu')!.textContent!, /Loading models/);
+  assert.doesNotMatch(window.document.querySelector('.model-menu')!.textContent!, /Stale model/);
+});
+
+
+test('suggestion insertion and attachment removal persist the visible draft', async () => {
+  const { window, sent, emit, input, persisted } = mount();
+  emit(shell());
+  click(visible(window.document, '.new-chat'));
+  input().value = '@read';
+  input().selectionStart = input().selectionEnd = 5;
+  input().dispatchEvent(new window.Event('input', { bubbles: true }));
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  const request = posted(sent, 'suggest')!;
+  window.dispatchEvent(new window.MessageEvent('message', { data: {
+    type: 'suggestions', requestId: request.requestId, items: [{ label: 'README', token: 'README.md' }],
+  } }));
+  input().dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }));
+  assert.equal(input().value, '@README.md ');
+  assert.equal(persisted().draft, input().value);
+  window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'insert', text: 'file content', label: 'file.ts' } }));
+  click(window.document.querySelector('.composer-card .chip button')!);
+  assert.equal(input().value.includes('file content'), false);
+  assert.equal(persisted().draft, input().value);
+});
+
+test('late suggestions cannot reopen after removing a token, sending, or switching conversations', async () => {
+  const { window, sent, emit, input } = mount();
+  emit(shell());
+  click(visible(window.document, '.new-chat'));
+  for (const dismiss of ['edit', 'send', 'switch']) {
+    input().value = '@file';
+    input().selectionStart = input().selectionEnd = 5;
+    input().dispatchEvent(new window.Event('input', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const request = posted(sent, 'suggest')!;
+    if (dismiss === 'edit') {
+      input().value = 'plain draft';
+      input().dispatchEvent(new window.Event('input', { bubbles: true }));
+    } else if (dismiss === 'send') click(visible(window.document, '.send'));
+    else emit(shell({ conversationId: 'other' }));
+    window.dispatchEvent(new window.MessageEvent('message', { data: {
+      type: 'suggestions', requestId: request.requestId, items: [{ label: 'old file', token: 'old.ts' }],
+    } }));
+    assert.equal(window.document.querySelector('.suggest')?.hidden, true, dismiss);
+    assert.equal(input().getAttribute('aria-expanded'), 'false', dismiss);
+  }
+});
+
+test('an open mode menu closes when its conversation changes or starts running', () => {
+  const { window, emit } = mount();
+  emit(shell());
+  click(visible(window.document, '.new-chat'));
+  click(visible(window.document, '.mode'));
+  assert.equal(window.document.querySelector('.menu')?.hidden, false);
+  emit(shell({ conversationId: 'other', modes: [{ id: 'agent', label: 'Agent' }] }));
+  assert.equal(window.document.querySelector('.menu')?.hidden, true);
+  click(visible(window.document, '.mode'));
+  emit(shell({ conversationId: 'other', busy: true }));
+  assert.equal(window.document.querySelector('.menu')?.hidden, true);
+});
+
+test('an image-only failed turn restores its original image for explicit Retry', () => {
+  const { window, sent, emit, input } = mount();
+  emit(shell(), [
+    { id: 'image-turn', role: 'user', text: '', attachments: ['image.png'], at: 1 },
+    { id: 'failed', role: 'error', text: 'Disconnected', at: 2 },
+  ]);
+  click(visible(window.document, '.new-chat'));
+  const retry = window.document.querySelector('[data-action="retry"]')!;
+  assert.match(retry.getAttribute('title') ?? '', /取り消されません/);
+  click(retry);
+  assert.equal(posted(sent, 'prepareRetry')?.id, 'image-turn');
+  assert.equal(posted(sent, 'send'), undefined);
+  assert.equal(window.document.activeElement, input());
+  const image = { mimeType: 'image/png', data: 'aW1hZ2U=', name: 'image.png' };
+  window.dispatchEvent(new window.MessageEvent('message', { data: {
+    type: 'retryPrepared', id: 'image-turn', text: '', images: [image], attachments: ['image.png'],
+    provider: 'codex', cwd: '/workspace', conversationId: 'front',
+  } }));
+  assert.equal(window.document.querySelectorAll('.composer-card .thumb').length, 1);
+  assert.equal(window.document.querySelectorAll('.composer-card .chip').length, 1);
+  click(visible(window.document, '.send'));
+  assert.deepEqual(posted(sent, 'send')?.images, [image]);
+  assert.deepEqual(posted(sent, 'send')?.attachments, ['image.png']);
+  assert.equal(posted(sent, 'send')?.prompt, '');
+  assert.equal(window.document.querySelectorAll('.composer-card .thumb').length, 0);
+});
+
+test('delayed Retry image restoration cannot overwrite typing or another conversation', () => {
+  const { window, sent, emit, input } = mount();
+  const messages: ViewMessage[] = [
+    { id: 'image-turn', role: 'user', text: '', attachments: ['image.png'], at: 1 },
+    { id: 'failed', role: 'error', text: 'Disconnected', at: 2 },
+  ];
+  emit(shell(), messages);
+  click(visible(window.document, '.new-chat'));
+  const deliver = () => window.dispatchEvent(new window.MessageEvent('message', { data: {
+    type: 'retryPrepared', id: 'image-turn', text: '', images: [{ mimeType: 'image/png', data: 'aW1hZ2U=', name: 'image.png' }],
+    provider: 'codex', cwd: '/workspace', conversationId: 'front',
+  } }));
+  click(window.document.querySelector('[data-action="retry"]')!);
+  input().value = 'new draft';
+  input().dispatchEvent(new window.Event('input', { bubbles: true }));
+  deliver();
+  assert.equal(input().value, 'new draft');
+  assert.equal(window.document.querySelectorAll('.composer-card .thumb').length, 0);
+  click(window.document.querySelector('[data-action="retry"]')!);
+  emit(shell({ conversationId: 'other' }));
+  deliver();
+  assert.equal(window.document.querySelectorAll('.composer-card .thumb').length, 0);
+  assert.equal(posted(sent, 'send'), undefined);
 });
