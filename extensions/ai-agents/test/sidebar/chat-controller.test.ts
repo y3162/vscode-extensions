@@ -46,6 +46,78 @@ test('continues the same session and replaces item snapshots without mixing turn
   assert.equal(new Set(controller.snapshot().messages.map((message) => message.id)).size, 4);
 });
 
+test('a running child does not imply parent wait; backend wait events set and clear that state', async () => {
+  const entered = deferred();
+  const release = deferred();
+  let emitUpdate!: (update: import('../../src/types.js').AgentUpdate) => void;
+  const controller = new ChatController(selection, async () => ({
+    async run(_prompt, _signal, emit) {
+      emitUpdate = emit;
+      emit({ id: 'child', role: 'status', text: 'child work', meta: { type: 'subagent', subagent: { id: 'child-1', name: 'Explorer', status: 'running', background: true } } });
+      entered.resolve();
+      await release.promise;
+      emit({ id: 'answer', role: 'assistant', text: 'done' });
+    }, async dispose() {},
+  }), () => {});
+  const running = controller.send('inspect in parallel');
+  await entered.promise;
+  assert.equal(controller.snapshot().subagents[0]?.status, 'running');
+  assert.equal(controller.snapshot().subagentWaiting, undefined, 'child presence alone does not mark the parent waiting');
+  const startedAt = Date.now() - 50;
+  emitUpdate({ id: 'wait-call', role: 'status', text: '', meta: { type: 'subagentWait', subagentWait: { waiting: true, startedAt } } });
+  assert.equal(controller.snapshot().subagentWaiting?.startedAt, startedAt);
+  emitUpdate({ id: 'wait-call', role: 'status', text: '', meta: { type: 'subagentWait', subagentWait: { waiting: false } } });
+  assert.equal(controller.snapshot().subagentWaiting, undefined, 'the parent wait clears on the backend completion event');
+  emitUpdate({ id: 'wait-call', role: 'status', text: '', meta: { type: 'subagentWait', subagentWait: { waiting: true, startedAt } } });
+  controller.stop();
+  assert.equal(controller.snapshot().subagentWaiting, undefined, 'parent Stop cannot leave a stale waiting state');
+  release.resolve();
+  await running;
+  await controller.dispose();
+});
+
+test('child event history redacts secrets and stays within per-child storage limits', async () => {
+  const controller = new ChatController(selection, async () => ({
+    async run(_prompt, _signal, emit) {
+      emit({ id: 'spawn', role: 'status', text: 'child', meta: { type: 'subagent', subagent: { id: 'child-1', name: 'Explorer', status: 'running', background: true } } });
+      emit({ id: 'secret', role: 'tool', text: 'api_key=super-secret-value', subagentId: 'child-1' });
+      for (let index = 0; index < 85; index += 1) emit({ id: `event-${index}`, role: 'tool', text: `event ${index}`, subagentId: 'child-1' });
+    }, async dispose() {},
+  }), () => {});
+  await controller.send('inspect');
+  const state = controller.snapshot();
+  const rows = state.messages.filter((message) => message.subagentId === 'child-1');
+  assert.equal(rows.length, 80);
+  assert.equal(rows.some((message) => message.text.includes('super-secret-value')), false);
+  assert.equal(state.subagents[0]?.historyOmitted, true);
+  await controller.dispose();
+});
+
+test('restored child details redact and bound saved text, metadata, and history', async () => {
+  const factory = async (): Promise<AgentSession> => ({ async run() {}, async dispose() {} });
+  const source = new ChatController(selection, factory, () => {});
+  const saved = source.snapshot();
+  saved.subagents.push({ id: 'child-restore', name: 'Explorer', status: 'running', background: 'unknown', task: 'api_key=task-secret', progress: 'token=progress-secret' });
+  saved.messages.push({
+    id: 'child-log', role: 'tool', text: `sk-${'x'.repeat(80)} ${'y'.repeat(13000)}`, subagentId: 'child-restore',
+    tool: { kind: 'shell', name: 'command', status: 'completed', target: 'token=command-secret' },
+    meta: { type: 'plan', plan: { markdown: 'password=plan-secret', source: 'assistant-text' } },
+  });
+  const restored = new ChatController(selection, factory, () => {});
+  restored.restoreSnapshot(saved);
+  const child = restored.snapshot().subagents[0]!;
+  const log = restored.snapshot().messages.find((item) => item.subagentId === child.id)!;
+  assert.equal(child.status, 'unknown');
+  assert.equal(child.task, 'api_key=[redacted]');
+  assert.equal(child.progress, 'token=[redacted]');
+  assert.equal(log.text.includes('xxxxxxxx'), false);
+  assert.equal(log.tool?.target, 'token=[redacted]');
+  assert.equal(JSON.stringify(log.meta).includes('plan-secret'), false);
+  assert.equal(child.historyOmitted, true);
+  await source.dispose();
+  await restored.dispose();
+});
+
 test('rejects simultaneous sends, aborts the active run, and allows a follow-up', async () => {
   const entered = deferred();
   let count = 0;

@@ -17,6 +17,7 @@ const previewHeadLines = 6;
 export class Transcript {
   private readonly pending: HTMLElement;
   private readonly planHost: HTMLElement;
+  private readonly subagentWait: HTMLElement;
   private readonly nodes = new Map<string, HTMLElement>();
   private readonly logSig = new WeakMap<HTMLElement, Segment[]>();
   private readonly answerText = new WeakMap<HTMLElement, string>();
@@ -44,9 +45,13 @@ export class Transcript {
     private readonly onRetry: (text: string, retryId?: string) => void,
     private readonly onPickModel: (anchor: HTMLElement) => void,
     private readonly onRewind: (turnId: string, editedText: string) => void,
+    private readonly onOpenSubagent: (id: string) => void = () => {},
   ) {
     this.planHost = dom.el('div', 'plan-slot');
     this.planHost.hidden = true;
+    this.subagentWait = dom.el('div', 'waiting-subagent');
+    this.subagentWait.hidden = true;
+    this.subagentWait.setAttribute('role', 'status');
     this.pending = dom.el('div', 'pending');
     this.pending.hidden = true;
     this.root.addEventListener('click', (event) => this.onClick(event));
@@ -75,6 +80,10 @@ export class Transcript {
     renderPending(this.pending, shell, this.dom, copy, this.post);
     if (shell.plan) renderPlanBody(this.pending, (parent, text) => renderMarkdown(parent, text, this.dom, copy.copy), shell.plan.request.overview, shell.plan.request.plan);
     renderPlanView(this.planHost, shell, this.dom, copy, this.post, this.onPickModel);
+    const wait = shell.subagentWaiting;
+    this.subagentWait.hidden = !wait;
+    if (wait) this.subagentWait.textContent = wait.count !== undefined && wait.count > 1 ? copy.waitingSubagents : copy.waitingSubagent;
+    if (this.subagentWait.parentElement !== this.root) this.root.insertBefore(this.subagentWait, this.pending);
     if (this.pending.parentElement !== this.root) this.root.append(this.pending);
   }
 
@@ -299,14 +308,18 @@ export class Transcript {
         const group = this.dom.el('div', 'subagents');
         group.append(this.dom.el('p', 'subagent-label', copy.subagents));
         for (const item of segment.items) {
-          const row = this.dom.el('div', `subagent ${item.status}`);
+          const row = this.dom.button(`subagent ${item.status}`, '', 'chevron-right');
+          row.dataset.subagentId = item.id;
+          row.setAttribute('aria-label', `${item.name} · ${item.status}`);
+          row.addEventListener('click', () => this.onOpenSubagent(item.id));
           const mark = item.status === 'unknown' ? '?' : item.status === 'completed' ? '✓' : item.status === 'error' || item.status === 'cancelled' ? '✕' : '◌';
           const time = item.durationMs ? ` ${formatDuration(item.durationMs)}` : '';
-          row.append(this.dom.el('span', undefined, `${mark} ${item.name}${time}`));
+          row.querySelector('.btn-label')!.textContent = `${mark} ${item.name}${time}`;
           row.title = `${item.agentId ?? item.id}${item.model ? ` · ${item.model}` : ''} · ${item.status}`;
           if (item.model) row.append(this.dom.el('span', 'tool-target', item.model));
           if (item.background === true) row.append(this.dom.el('span', 'tool-target', copy.backgroundAgent));
           if (item.task) row.append(this.dom.el('span', 'tool-target', item.task));
+          if (item.progress) row.append(this.dom.el('span', 'tool-target', item.progress));
           if (item.resultPreview) row.append(this.dom.el('span', 'tool-target', item.resultPreview));
           group.append(row);
         }

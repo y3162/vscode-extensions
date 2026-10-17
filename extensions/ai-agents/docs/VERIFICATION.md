@@ -1,3 +1,27 @@
+# サブエージェントのサイドバー表示（2026-10-18）
+
+この更新では、Composer直上の折りたたみ式子一覧、既存サイドバー内の子の詳細画面、親の明示的な待機状態、子イベントの保存上限、Backendごとの対応状況を記録します。以前のリリースやGUI検証の記録は変更していません。
+
+| 確認項目 | 結果 |
+| --- | --- |
+| 型チェック | 成功（`npm run check`） |
+| 単体・モックプロトコル・DOM | **811/811件成功**。明示的な待機状態の遷移、子ID 2件、復元、順序入れ替わり・重複イベント、子専用ログ、秘匿情報のマスクと容量制限、サイドバー内の移動をfixtureで検証しました。 |
+| Extension Host統合 | `npm run test:integration` 成功。既存の翻訳パッケージ、ready handshake、SDK subprocess、Stop/キュー、履歴、モデル・設定、ファイルリンク、会話の並行実行を確認しました。実際の子エージェントUI操作は対象外です。 |
+| カバレッジ | **文・行99.78%、分岐99.03%、関数99.89%**。実行可能な本番モジュール62件、型定義のみのモジュール2件です。 |
+| ビルド・ローカルVSIXパッケージ | 成功。VSIXはローカルで生成しただけで、公開・リリースは行っていません。 |
+
+## 子エージェントのライブ検証
+
+- **Codex App Server**: 実際の子2件が、実行時間を重ねて完了しました（約10.6秒、約10.9秒）。モデルは`gpt-6-luna`と報告されました。親の明示的な待機イベントは`[true, false, true, false]`で、子のRunning状態とは独立して待機表示の開始・解除を確認できました。
+- **Cursor ACP**: 実際の子記録2件は完了しましたが、報告された実行区間は重ならず、並列実行の判定は失敗しました。この試行は約42秒で終了し、以前の約200秒のタイムアウトは再現しませんでした。タイムアウトが解決したとは扱いません。このUI変更はタスクのスケジューリングに影響しません。
+- **Cursor SDK**: 実際のTask呼び出しからRunningとCompletedのイベントを受信し、子shellの出力`CHILD_SANDBOX_OK`を確認しました（約18秒）。SDKアダプターは子専用の履歴ストリームや親の明示的な待機イベントを提供しません。
+- **Codex SDK**: Taskを要求するライブプロンプトを1回実行しましたが、公開されたTask子イベントは返りませんでした。この不足を合成データで補いません。SDKが実際に提供した場合に限り、子の項目を対応付けます。
+- **子のStop**: 実測した子thread IDとturn IDを指定したApp Server要求は受理されましたが、子の状態はCancelledではなくCompletedと報告されました。そのため、どのBackendでも子用Stop操作を提供しません。親のStopとは別に扱います。
+
+300/390px、Dark/Light、High ContrastのGUI目視確認は行っていません。DOMテストでは両ロケール、詳細画面への移動、折りたたみ状態の保持、状態ラベル、下書きとスクロール位置の保持を確認します。Host統合テストをGUI検証の結果としては扱いません。
+
+実装概要とBackend別の対応表は[SUBAGENTS.md](SUBAGENTS.md)を参照してください。
+
 # 0.10.0 再監査（2026-10-17）
 
 今回の監査開始HEADは `b699abd`。過去版の成功と混同しない。改修内容・今回の証拠・未検証・v1.0.0判断は [AUDIT.md](AUDIT.md) を参照。
@@ -8,13 +32,13 @@
 - 実Extension Development Hostの結合テスト成功。コンテキスト展開中の会話切替で送信先を保持する回帰も追加。GUI目視とは別の証拠。
 - GUI holdでは実ClipboardのUnicode往復に成功し元の内容を復元。一方、対象HostのGUIウィンドウを選択できず、300/390px・Dark/Light・nativeクリックは未検証。[詳細](UI_AUDIT.md)
 - 最終型チェック・単体 **144/144** 成功。App Server Planのread-only / 承認never指定と、Agent / Buildで実sandbox・承認設定を戻す回帰3件を追加。追加の実Plan→改訂→Buildでもファイル非変更とBuild編集を確認。
-- **v1.0.0: No-Go**。最終梱包と追加Planライブテストの詳細は総合監査に記録する。
+- **v1.0.0: 移行見送り（No-Go）**。最終梱包と追加Planライブテストの詳細は総合監査に記録する。
 
 以下は以前の検証記録を保持したもの。
 
 ---
 
-# Verification
+# 過去の検証記録
 
 実施日: 2026-10-16。作業ディレクトリは `vscode-extensions`。対象は AI Agents 0.6.0。
 
@@ -34,10 +58,10 @@
 
 ## 実行した結果
 
-| Check | Result |
+| 確認項目 | 結果 |
 | --- | --- |
 | `npm run check` | 成功 |
-| `npm test --workspace ai-agents` | 54 passed, 0 failed。通常のテストにライブ推論は含まれない |
+| `npm test --workspace ai-agents` | 54件成功、0件失敗。通常のテストにライブ推論は含まれない |
 | `npm run build` | 成功 |
 | `npm run test:integration` | 成功。Webview の ready、モック SDK、停止、差分の復元、承認トークン、履歴プローブ |
 | `npm run test:protocol` | 成功。実 `agent acp` と同梱 `codex app-server` |
@@ -115,10 +139,10 @@ Cursor ACP のファイル復元は、変更前テキストを書き戻して `a
 
 2026-10-16。モデル設定メニュー。
 
-| Check | Result |
+| 確認項目 | 結果 |
 | --- | --- |
 | `npm run check` | 成功 |
-| `npm test --workspace ai-agents` | 65 passed, 0 failed。ライブ推論は含まない |
+| `npm test --workspace ai-agents` | 65件成功、0件失敗。ライブ推論は含まない |
 | `npm run build` | 成功 |
 | `npm run test:integration` | 成功。モック Codex で Quick Pick の Effort と、Webview メッセージ `setModelParam` の `medium` が `model_reasoning_effort` に載ることを確認。未対応の `context` は選択を変えない |
 
@@ -141,7 +165,7 @@ Cursor ACP のファイル復元は、変更前テキストを書き戻して `a
 
 2026-10-16。Enterで改行し、送信ボタンのクリックで送信する。補完候補の確定はTabまたはクリック。
 
-- `npm run check`、`npm test`（65 passed）、`npm run package` は成功。
+- `npm run check`、`npm test`（65件成功）、`npm run package` は成功。
 - VSIXへの `package.nls.json` と `package.nls.ja.json` の梱包漏れを修正。両ファイルがマニフェスト内の翻訳キーをすべて持つことを統合テストでも確認する。
 - `ai-agents-0.8.1-darwin-arm64.vsix` を一時ディレクトリ内のVS Code 1.142.0へCLIでインストールし、成功。
 - そのインストール済み拡張機能を `AI_AGENTS_TEST_EXTENSION_PATH` に指定して `npm run test:integration` を実行し、起動、Webview、モック送信、継続、停止、キュー、モデル選択、差分、承認まで成功。
@@ -153,7 +177,7 @@ Cursor ACP のファイル復元は、変更前テキストを書き戻して `a
 
 - 報告された `/Users/sekiyuuta/Developer/y3162/vscode-extensions/README.md` で再現する回帰テストを追加し、修正前に失敗、修正後に成功することを確認した。
 - UIテストでは、Markdownリンク、絶対・相対パス、`file://`、空白を含むパス、行・列番号、Windows形式のパスがクリック時に正しく渡る。外部URLと未対応のスキームも検証した。
-- `npm run check`、`npm test`（67 passed）、`npm run package` は成功。
+- `npm run check`、`npm test`（67件成功）、`npm run package` は成功。
 - 0.8.2のVSIXを隔離したVS Code 1.142.0へインストールし、インストール済みファイルを使った `npm run test:integration` が成功。絶対パス、相対パス、空白をエンコードしたfile URIで同じREADMEの2行3列目を開けること、ワークスペース外のfile URIが拒否されることを確認した。
 
 ### 0.9.0
@@ -162,7 +186,7 @@ Cursor ACP のファイル復元は、変更前テキストを書き戻して `a
 
 実機 Spike（一時ディレクトリ。API キーには切り替えていない）:
 
-| Check | Result |
+| 確認項目 | 結果 |
 | --- | --- |
 | ACP `session/new` | `modes` は agent / plan / ask。`mode: plan` を渡しても `currentModeId` は `agent` だった。続けて `session/set_mode` が必要 |
 | ACP Plan + `cursor/create_plan` に `cancelled` | 計画名 Hello、To-do 3 件。`stopReason` は `end_turn`。同じターンで実装は始まらない。Design B を採用 |
@@ -188,10 +212,10 @@ Cursor ACP のファイル復元は、変更前テキストを書き戻して `a
 - `cursor/task` は status または duration が無いとき完了にしない。`spawn_agent` は assistant 本文にしない。子スレッドの本文は結果プレビューに残す。`unknown` は Background と表示しない。
 - Codex 0.162.1 のバイナリに `spawn_agent`、`wait_agent`、`exec_command`、`write_stdin`、`thread/backgroundTerminals/list|terminate|clean` がある。子の終了待ち、stdin、ターミナル stdout の購読 RPC は使っていない。親の Stop は親ターンの interrupt だけ。
 
-| Check | Result |
+| 確認項目 | 結果 |
 | --- | --- |
 | `npm run check` | 成功 |
-| `npm test --workspace ai-agents` | 78 passed, 0 failed。ライブ推論は含まない |
+| `npm test --workspace ai-agents` | 78件成功、0件失敗。ライブ推論は含まない |
 | `npm run build` | 成功 |
 | `npm run test:integration` | 成功。実行中の New Chat のあと、同じセッションへ戻して Stop できる |
 | `npm run test:protocol` | 成功。実 Cursor ACP `session/set_mode` の plan / ask / agent。同梱 Codex App Server の短い推論 |
@@ -228,7 +252,7 @@ Extension Development Host（`.vscode/launch.json` の Run AI Agents）で、次
 
 ## 0.9.0 実機検証・残存不具合修正（2026-10-16）
 
-この節は上の履歴への追記である。着手時の未コミット変更 23 ファイルと既存の新規テストを保持した。対象バージョンは **0.9.0** のまま。移行評価は **Not Ready**。サンドボックス解除、認証変更、非公開 RPC の推測呼び出し、Release は行っていない。
+この節は上の履歴への追記である。着手時の未コミット変更 23 ファイルと既存の新規テストを保持した。対象バージョンは **0.9.0** のまま。移行評価は **準備未完了**。サンドボックス解除、認証変更、非公開 RPC の推測呼び出し、Release は行っていない。
 
 ### 環境とバックエンド別結果
 
@@ -239,7 +263,7 @@ macOS arm64、通常 Node 26.7.0、Extension Host Node 24.21.0、VS Code 1.142.0
 | Cursor SDK | `@cursor/sdk 1.0.37` | 推論・編集 auto、Plan / Build composer-2.5。Task の解決モデルは実行前に失敗し不明 | `Agent.create` / `send` / `run.stream` / cancel、SDK tool / plan イベント | 推論・編集・Plan 改訂・Build 成功。Task + shell の Spike は通常 Node と Extension Host の両方で `Local SDK sandboxing was requested, but sandboxing is not supported in this environment`。設定は維持し、並列・子別モデル・継承・Foreground / Background の検証成功には含めない |
 | Cursor ACP | CLI `2026.06.26-7079533` | モデルを送らず runtime-default → 実 Task 要求では composer-2.5-fast | `session/new` / `set_mode` / `prompt` / `cancel`、`session/update`、ID 付き `cursor/task` 要求と応答、permission RPC | 推論・編集・拒否 / 許可・Plan 改訂 / Build・実 Task 並列成功。モデル選択は既存の非対応を維持 |
 | Codex SDK | `@openai/codex-sdk 0.162.1`、同梱 CLI `0.162.1` | gpt-6-luna。ランタイムが別の解決モデル ID を返さない箇所は要求値として記録 | `startThread` / `runStreamed` / resume、item / turn イベント、AbortSignal | 推論・編集・Git baseline / 復元成功。Plan と対話承認は非対応。SDK 経路の子並列は今回未検証 |
-| Codex App Server | `@openai/codex 0.162.1` | gpt-6-luna → 実子イベントでも gpt-6-luna | `model/list`、`thread/start` / resume / read、`turn/start` / interrupt、`item/started` / completed / command output、`subAgentActivity`、`thread/backgroundTerminals/list` / terminate | 推論・編集・拒否 / 許可・Plan / Build・子並列・Background Terminal 成功。子の全終了を親 Stop から推定しない |
+| Codex App Server | `@openai/codex 0.162.1` | gpt-6-luna → 実子イベントでもgpt-6-luna | `model/list`、`thread/start` / resume / read、`turn/start` / interrupt、`item/started` / completed / command output、`subAgentActivity`、`thread/backgroundTerminals/list` / terminate | 推論・編集・拒否 / 許可・Plan / Build・子並列・背景ターミナルに成功。子の全終了を親Stopから推定しない |
 
 モデル一覧を取得してから明示モデルを選んだ。一覧にあることだけを実行成功とはしていない。ACP の Task の子 ID / モデルは実要求を採用し、親の回答に書かれた別の ID は採用しない。
 
@@ -251,12 +275,12 @@ macOS arm64、通常 Node 26.7.0、Extension Host Node 24.21.0、VS Code 1.142.0
 | ACP の実 Task 要求に応答し、親本文へ子の回答を混ぜない | 通知だけを想定していた。ID 付き `cursor/task` サーバー要求にも同じ処理を適用して `{}` を返す。tool_call と更新を同じカードへ関連付け | 実要求 fixture 再生とライブ Task 並列。実 agentId / model / duration を保持 |
 | 親終了後の自然終了でターミナル行と出力を更新する。修正前は RPC 空でも行が残った | run 内の emitter だけに依存していた。任意のセッション購読を追加し、元ターンへ関連付け。公開一覧を 2 秒でページング取得し、空も反映 | late update、poll-only exit、ページング、取得失敗、terminate 失敗の再生テスト。実自然終了・stdout / stderr・別会話・terminate をライブ / 実画面確認 |
 | 取得失敗で停止済みや空と断定しない | 一覧失敗を空へ潰さず、最後の情報と error / unknown を保持。terminate 応答と再取得で確認 | LIST_FAIL / TERMINATE_FAIL の決定的再生。実機の非空 → terminated true → 空を別途確認 |
-| 改訂失敗 / Stop は元の版と状態を戻す。Build 済みの旧版が ready へ戻って再 Build できた | 改訂前 phase を保持し、成功した改訂だけ新しい ready 版にする | implemented の失敗・Stop・復元で Build 不可、成功時新 revision だけ Build 可の状態テスト。成功改訂 / Build は対応 3 経路でライブ確認 |
+| 改訂失敗 / Stopで元の版と状態を戻す。Build済みの旧版がreadyに戻って再Buildできた | 改訂前のphaseを保持し、成功した改訂だけ新しいready版にする | `implemented`状態での失敗・Stop・復元後はBuild不可、成功時は新revisionだけBuild可能とする状態テスト。成功した改訂 / Buildは対応する3経路でライブ確認 |
 | 別会話からの遅延操作や同時承認が対象を取り違えない | conversationId による対象確定、承認のトークン付きキュー、購読解除 / 復元購読、元ターン ID の維持 | stale 操作、同時承認、Stop 時拒否、late update の別会話隔離を自動 / Extension Host fixture で確認 |
-| 子・ターミナルが残る会話を表示切替だけで破棄しない | 親 busy と別に live child / terminal を保持。hibernate を抑止 | 上限既定 3 と親 busy のみの集計、設定上限到達、New Chat / 復帰を自動確認。実ターミナルの Home 往復も確認 |
+| 子・ターミナルが残る会話を表示切替だけで破棄しない | 親の実行中状態とは別に稼働中の子・ターミナルを保持し、休止を抑止 | 既定上限3と親の実行中会話だけを数えること、設定上限への到達、新規チャット / 復帰を自動確認。実ターミナルを開いたままHomeへ戻る動作も確認 |
 | ユーザーの未コミット原文を復元し、読み取りを変更に数えない | Git の開始時リビジョンを固定し、dirty / untracked の原文と正味差分を取得。特殊文字を含む porcelain -z を解析。不明な原文は HEAD で代用しない | 特殊文字・未追跡・dirty・途中 HEAD 変更・中断・read 除外・workspace 外を自動確認。4 経路の実編集と復元も確認 |
 | Rename を元パスと移動先で 1 件として扱う | 実イベントは kind.type=update と move_path だった。移動先を path、元を oldPath として保持し、Git fallback の delete / add 重複を抑止。復元は元パスへの排他的作成で保護 | 実 move_path fixture、自動パス別名テスト。実機で dirty alpha → b.txt beta、+1/-1、1 行だけ、再作成した元ファイルの保護、原文 alpha への復元を確認 |
-| 実画面の Build 状態とアイコンを正確に表示する | readonly 拒否でも「Implemented」と表示していたため「Build 終了」に変更。HC 枠線追加。テーマの CSS escape `\E023` を Unicode に変換 | 実 readonly 拒否と workspace-write の実変更を区別。HC 実画面とアイコン修正後の再読込、無効コードポイントを含む UI 回帰テスト |
+| 実画面のBuild状態とアイコンを正確に表示する | readonlyで拒否された場合も「Implemented」と表示していたため、「Build終了」に変更。HC枠線を追加し、テーマのCSS escape `\E023`をUnicodeへ変換 | 実際のreadonly拒否とworkspace-writeでの変更を区別。HCテーマの実画面とアイコン修正後の再読み込み、無効なコードポイントを含むUI回帰テスト |
 
 ### 子エージェント並列の実証
 
@@ -269,33 +293,33 @@ macOS arm64、通常 Node 26.7.0、Extension Host Node 24.21.0、VS Code 1.142.0
 - 親 Stop 後の bounded 観測では子が継続する場合があった。最終 runtime suite の 18 秒後は 2 件 running、独立した追加観測では 1 件 completed / 1 件 running。どちらも完了成功や停止へ書き換えていない。通知が来ない子には公開 `thread/read` の実 turn status を用いる。dispose は既存の CLI 終了方針を維持し、全子の強制停止保証とはしていない。
 - Cursor SDK の並列は **環境制限で失敗 / 未検証**。通常推論や Plan の成功を並列成功へ転用しない。子別モデル指定・親コンテキスト継承の独立確認も残る。
 
-### Background Terminal
+### 背景ターミナル
 
 App Server のモデル用 exec_command が返した processId と command itemId を関連付けた。`process/spawn` は使っていない。
 
 - 事前実機: processId 61382 は親完了後に非空一覧へ残り、terminate 応答 terminated=true、再取得で空を確認した。
-- 修正後 live runtime: 自然終了と最終 stdout / stderr / exitCode=0 を元会話へ配送。他会話へ移動しても元セッションを保持。別プロセス 14805 の terminate と空一覧も確認した。
+- 修正後の実ランタイム: 自然終了時の最終stdout / stderr / exitCode=0を元の会話へ配送しました。他の会話へ移動しても元セッションを保持し、別プロセス14805のterminateと空の一覧も確認しました。
 - 実画面: processId 56619 は親回答後も running 行が表示された。Home を往復し、30 秒の自然終了後には行が消え、元の Tool Call に UI_BG_STARTED / UI_BG_DONE が表示された。別 processId 2974 は Terminate ボタン操作後に行が消えた。
 - 取得失敗 / false terminate / ページングは fixture による決定的確認。今回の実機で通信断を注入した成功とは記録しない。
 
 ### Plan / Build 10 シナリオ
 
-「live」は各バックエンドの実推論。「回帰」は状態関数・コントローラー・プロトコル fixture の自動テストであり、ライブ成功とは区別する。
+「ライブ検証」は各バックエンドを使った実推論です。「回帰」は状態関数・コントローラー・プロトコルfixtureの自動テストを指し、ライブ検証の成功とは区別します。
 
 | シナリオ | Cursor SDK | Cursor ACP | App Server |
 | --- | --- | --- | --- |
-| 初回 Plan 成功、編集せず停止 | live | live | live + 実画面 |
-| 初回 Plan 失敗、途中本文を破棄 | 回帰、live 未再現 | 回帰、live 未再現 | 回帰、live 未再現 |
-| Plan 中に Stop | 回帰、live 未確認 | 回帰、live 未確認 | 回帰、live 未確認 |
-| Plan 改訂成功、版更新 | live | live | live |
-| Plan 改訂失敗、旧版維持 | 回帰、live 未再現 | 回帰、live 未再現 | 回帰、live 未再現 |
-| Build は同一会話の Agent ターン | live、実ファイル revised | live、実ファイル revised | live + 実画面、実ファイル revised / hello |
-| Build 再押下、二重開始防止 | live + 回帰 | live + 回帰 | live + 回帰 |
-| implemented 復元時の Build 不可 | 実 Plan を復元して確認 | 実 Plan を復元して確認 | 実 Plan を復元して確認 |
-| 改訂後 Build のモデル ID / ラベル保持 | live、composer-2.5 | live、既定 / 保存ラベル | live、gpt-6-luna |
-| 別モデルへの変更で履歴保持 | 回帰、別モデル live 未確認 | 非対応を維持 | 回帰・実画面の選択、別モデル推論は未確認 |
+| 初回 Plan 成功、編集せず停止 | 実機 | 実機 | 実機・実画面 |
+| 初回 Plan 失敗、途中本文を破棄 | 回帰、実機未再現 | 回帰、実機未再現 | 回帰、実機未再現 |
+| Plan 中に Stop | 回帰、実機未確認 | 回帰、実機未確認 | 回帰、実機未確認 |
+| Plan 改訂成功、版更新 | 実機 | 実機 | 実機 |
+| Plan 改訂失敗、旧版維持 | 回帰、実機未再現 | 回帰、実機未再現 | 回帰、実機未再現 |
+| Build は同一会話の Agent ターン | 実機、実ファイル `revised` | 実機、実ファイル `revised` | 実機・実画面、実ファイル `revised` / `hello` |
+| Build 再押下、二重開始防止 | 実機・回帰 | 実機・回帰 | 実機・回帰 |
+| 実装済み（`implemented`）状態を復元した場合はBuild不可 | 実Planを復元して確認 | 実Planを復元して確認 | 実Planを復元して確認 |
+| 改訂後BuildのモデルID / ラベル保持 | 実機、composer-2.5 | 実機、既定 / 保存ラベル | 実機、gpt-6-luna |
+| 別モデルへの変更で履歴保持 | 回帰、別モデルは実機未確認 | 非対応を維持 | 回帰・実画面での選択。別モデル推論は未確認 |
 
-implemented の改訂失敗 / Stop と ready の改訂失敗 / Stop を別にテストした。失敗後の実装済み旧版は再 Build 不可。成功した改訂は新しい版だけ Build 可。全 30 ケースのライブ完了とはしていない。Codex SDK の Plan は非対応。
+`implemented`状態での改訂失敗・Stopと、`ready`状態での改訂失敗・Stopは別々にテストしました。失敗後は実装済みの旧版を再Buildできません。成功した改訂では、新しい版だけBuildできます。全30ケースをライブ検証したとはしていません。Codex SDKのPlanは非対応です。
 
 ### 承認、変更ファイルと耐障害性
 
@@ -322,20 +346,20 @@ Review / 復元は確実に取得した原文だけを使う。Git 管理外、i
 | チェック | 結果 |
 | --- | --- |
 | `npm run check` | 成功、最後のアイコン修正を含む |
-| `npm test --workspace ai-agents` | **98 passed / 0 failed**。初期 78 件から追加。実 fixture 再生を含み、ライブ推論は含まない |
+| `npm test --workspace ai-agents` | **98件成功 / 0件失敗**。初期 78 件から追加。実 fixture 再生を含み、ライブ推論は含まない |
 | `npm run build` | 成功、0.9.0 |
 | `npm run test:integration` | 成功。実 Extension Host + プロトコル fixture。stale 操作、New Chat / Stop / 復帰、親上限、モデル、Review / 復元、承認 token を含む |
-| `npm run test:protocol` | 実 Cursor CLI / 同梱 App Server、2 passed |
-| `npm run test:live` | 実 4 バックエンドと切替、**5 passed** |
-| `npm run test:tools` | 実 4 バックエンド独立、**4 passed** |
-| `npm run test:runtime`（追加） | 実子並列 2 経路、自然終了 / terminate、Plan / Build 3 経路、親 Stop、**7 passed** |
+| `npm run test:protocol` | 実 Cursor CLI / 同梱 App Server、2件成功 |
+| `npm run test:live` | 実 4 バックエンドと切替、**5件成功** |
+| `npm run test:tools` | 実 4 バックエンド独立、**4件成功** |
+| `npm run test:runtime`（追加） | 実子並列 2 経路、自然終了 / terminate、Plan / Build 3 経路、親 Stop、**7件成功** |
 | 追加の実 Rename | 1 行、+1/-1、dirty 原文保持、再作成元保護、復元を成功確認。evidence の LIVE_RENAME |
 
-最後の実ライブ各 suite の後に追加した Rename / 履歴復元 / アイコン変更は、通常 98 テスト、型チェック、build、最終 Integration / protocol、実 Rename Spike、Webview 再読込で検証した。live / tools / runtime 全体をその後もう一巡したという意味ではない。
+最後に実ライブ各テスト群を実行した後で追加したRename、履歴復元、アイコン変更は、通常テスト98件、型チェック、ビルド、最終統合 / protocol、実Renameの試行、Webview再読み込みで検証しました。ライブ推論・ツール・ランタイムのテスト群全体を、その後もう一巡したという意味ではありません。
 
 ### 移行評価と残作業
 
-**Not Ready**。確認した P0 の状態管理不具合は修正し、App Server / ACP の実並列と Background Terminal を証拠付きで確認した。一方、主要機能である Cursor SDK の子実行がこの環境では失敗し、全バックエンドの Plan 失敗・Stop のライブ再現にも未完了がある。
+**準備未完了**。確認したP0の状態管理不具合は修正し、App Server / ACPの実並列と背景ターミナルを証拠付きで確認しました。一方、主要機能であるCursor SDKの子実行はこの環境で失敗し、全BackendでPlanの失敗・Stopをライブ再現する検証も完了していません。
 
 残作業:
 
@@ -347,7 +371,7 @@ Review / 復元は確実に取得した原文だけを使う。Git 管理外、i
 
 ## 0.9.0 チャット信頼性修復（2026-10-17）
 
-本節は今回の追記。バージョンは **0.9.0**。実装・自動テスト・実バックエンド確認に加え、GUI権限反映後に実サイドバーの手操作を追加した。ACPの最終回答欠落と未検証ケースが残るため、v1.0.0移行評価は **Not Ready** とする。スクリーンショットは今回の実Extension Development Hostで新規撮影した。
+本節は今回の追記。バージョンは **0.9.0**。実装・自動テスト・実バックエンド確認に加え、GUI権限反映後に実サイドバーの手操作を追加した。ACPの最終回答欠落と未検証ケースが残るため、v1.0.0移行評価は **準備未完了** とする。スクリーンショットは今回の実Extension Development Hostで新規撮影した。
 
 環境: macOS arm64、開発Node 26.7.0、VS Code 1.142.0、Extension Host Node 24.21.0。Cursor SDK 1.0.37／platform package 1.0.37、Cursor CLI 2026.06.26-7079533、Codex SDK／同梱CLI 0.162.1。実推論は一時Gitワークスペースと隔離profileで実施。グローバル認証・sandbox設定は変更していない。
 
@@ -375,9 +399,9 @@ Review / 復元は確実に取得した原文だけを使う。Git 管理外、i
 - 表示snapshotを先に戻してからbackendへ接続する。過去プロンプトの再送はしない。保存済みIDは重複表示せず、backendの未知ターンと識別できる欠落itemを取り込む。取得失敗でもローカル本文を消さない。
 - 保存時に実行中だったTurnは中断として戻し、承認待ちは再利用しない。子・Terminalは不明を完了扱いしない。旧Planは読み取り移行用として維持し、新規Planは会話snapshotに含める。
 
-### Backend別の履歴とToken Usage
+### バックエンド別の履歴とトークン使用量
 
-| Backend | 表示履歴の取得 | Usageの取得・集計 | 未取得・制限 |
+| バックエンド | 表示履歴の取得 | Usageの取得・集計 | 未取得・制限 |
 | --- | --- | --- | --- |
 | Cursor SDK | local snapshot + 公開Agent.messages.list／listRuns／run.conversation | SDKUsageMessage、run/result.usage fallback。Runの記録を会話へ集計。inputはcacheを含まず、totalはinput + output + cache read + cache write。reasoningはoutput内数 | context window未取得。Agent.getUsageのlocal usage UUIDとクライアントRun IDは別物。請求・価格推定は表示しない |
 | Cursor ACP | local snapshot + initializeで広告されたsession/loadの再生 | このCLIのinitialize応答にはUsage広告がなく、使用量は非対応と表示 | session/resumeも未広告のため使用しない。未知の拡張通知から推測しない |
@@ -391,14 +415,14 @@ Review / 復元は確実に取得した原文だけを使う。Git 管理外、i
 | 検証 | 結果 |
 | --- | --- |
 | npm run check | 成功 |
-| npm test | **108 passed / 0 failed**。表示保存・再構築・ID照合・protobuf oneof・320メッセージ／160Turn・長文・Usage差分・Retry・コピー原文／成功／失敗を含む |
+| npm test | **108件成功 / 0件失敗**。表示保存・再構築・ID照合・protobuf oneof・320メッセージ／160ターン・長文・Usage差分・Retry・コピー原文／成功／失敗を含む |
 | npm run build | 成功。extension／webview／cursor-workerの3成果物 |
 | npm run test:integration | 実Extension Host + fixtureで成功。モデルpicker、Stop、Queue、背景会話、設定変更、承認、Review、webview probeを含む |
-| npm run test:protocol | 実CLI、**2 passed** |
-| npm run test:live | 実4backend + 切替、**5 passed**。新規・2ターン・Stop・再開 |
-| npm run test:tools | 実4backend、**4 passed**。実編集・拒否／許可・原文復元。ツール出力処理の修正後にも再実行 |
-| npm run test:runtime | 実子並列2経路、Terminal自然終了／terminate、Plan改訂／Build3経路、親Stop、**7 passed** |
-| 追加Cursor SDK Task | runtime suiteへ新規ケースを追加し、そのケースを単独実行、**1 passed**。実Task running → completed、実子のshell出力CHILD_SANDBOX_OK。sandbox有効の専用worker。上の7件と合わせて1回の8件suiteを回したという意味ではない |
+| npm run test:protocol | 実CLI、**2件成功** |
+| npm run test:live | 実4バックエンドと切替、**5件成功**。新規会話・2ターン・Stop・再開 |
+| npm run test:tools | 実4backend、**4件成功**。実編集・拒否／許可・原文復元。ツール出力処理の修正後にも再実行 |
+| npm run test:runtime | 実子並列2経路、Terminal自然終了／terminate、Plan改訂／Build3経路、親Stop、**7件成功** |
+| 追加Cursor SDK Task | runtime suiteへ新規ケースを追加し、そのケースを単独実行、**1件成功**。実Task running → completed、実子のshell出力CHILD_SANDBOX_OK。sandbox有効の専用worker。上の7件と合わせて1回の8件suiteを回したという意味ではない |
 | 保存前Cursor会話の復元 | 実JsonlLocalAgentStoreを公開APIで再開し、2ユーザー＋2公開Thought＋2回答をworker経由で復元。型fixtureだけでなく実protobuf oneofを確認 |
 | VSIX package／install | 0.9.0 darwin-arm64 VSIX生成・隔離profileへのCLIインストール成功 |
 | インストール済みVSIX | 開発source指定をinstalled extension pathへ変更した実Hostで既存integration成功。worker／helper／tree-sitterの同梱・権限・内容一致を確認 |
@@ -524,7 +548,7 @@ Cursor SDK 1.0.37の実記録では、背景sleep 120は開始約1.2秒後にsta
 - 型チェック成功、単体156/156成功（開始時144/144）。追加回帰は修正前の失敗を確認してから修正。DOMは30件を含む。
 - build成功。通常Extension Development Host結合成功。Retry準備返信と自動実行なしのHost検査も追加した。
 - protocol 2/2成功。コマンド名に反し実際にpong推論を含むため「推論なし」とは記録しない。
-- live 6/6成功。4経路3ターン・Stop・再開、provider切替、ACP専用3ターンのBackend final/Controller本文一致。
+- ライブ検証6/6件成功。4経路での3ターン・Stop・再開、Provider切替、ACP専用3ターンでのBackend最終回答とController本文の一致を確認しました。
 - tools 5/5成功。4経路の隔離Git編集、対話Backendで承認拒否/許可、原文復元。追加App ServerのPlan→改訂→Buildで禁止ファイルなし、原文不変→実編集、同一session。
 - reliability Host: 4経路すべて3ターン各final確認→別会話→履歴復帰→Hostプロセス終了→同profile再起動で全3finalとUsage復元→4ターン目成功。通常の手操作Reload Windowとは分ける。
 - package成功。0.10.0 darwin-arm64、1658ファイル、137.6 MB。最新成果物の整合性を別途記録。
@@ -541,9 +565,9 @@ Cursor SDK 1.0.37の実記録では、背景sleep 120は開始約1.2秒後にsta
 6. 実背景PythonをGUI起動。親Ready後もrunning、同じprocess ID90028の行からTerminal Panelを開き、接続ヘッダー・未対応文字入力の案内を確認。初期stdoutがPanelへ出なかったため追加調査（成功扱いせず）。90秒後に保存toolはexit0・GUI_BG_READY/GUI_BG_DONE両方を保持。
 7. 通常開発Hostを同profileで再起動、Back→履歴の同会話を選択し5turn・2回答・Plan/Build・Usageを実画面で再表示。
 
-実GUIは全4経路の全項目完了ではない。Copy failureはDOM、auth failureは隔離fixture、モデル変更失敗はfixture/IPC、実ネットワーク断・実認証失効の4経路網羅は未実施。OS IME変換、実画像paste/画像Retry、全Plan経路の失敗/Stop、子専用詳細、背景中Reloadと副作用は未検証。代替自動試験と混同せず、現時点はv1.0.0 **No-Go**。
+実GUIでは4経路すべての全項目を完了していません。コピー失敗はDOM、認証失敗は隔離fixture、モデル変更失敗はfixture/IPCで確認しましたが、実ネットワーク切断と実認証失効を4経路すべてで検証していません。OS IME変換、実画像貼り付け・画像Retry、全Plan経路の失敗・Stop、子専用詳細、背景実行中のReloadと副作用は未検証です。代替の自動試験とは区別し、現時点でv1.0.0への移行は**見送り（No-Go）**です。
 
-### Background Terminal追加検証
+### 背景ターミナルの追加検証
 
 App Serverの「processIdなしstarted→outputDelta→listがitemId/processId広告」で既受信出力を捨てる順序バグを修正。修正前fixture失敗、修正後protocol/TerminalMonitor回帰成功。
 
@@ -560,7 +584,7 @@ App Serverの「processIdなしstarted→outputDelta→listがitemId/processId�
 
 初回App ServerのPlanとparentStopは公開backend実行記録に`usage_limit_exceeded`、Assistant本文なし。途中中断した初回suiteを合格には含めない（安全な要約`runtime-quota.json`）。再試験でApp Server Plan/Build・parentStop成功を確認したが、ACPの並列2子は200秒run timeoutで失敗。通常チャット・ACP Plan/Buildの成功と、子並列試験の失敗を分ける。期待値の緩和/skip化はしていない。最終suite件数と原因はruntime-final.logへ残す。
 
-最終 `npm run test:runtime`: **11 passed / 1 failed / 0 skipped**、538秒。失敗はACP実並列子のrun TimeoutError（200秒deadline、case全体208,542ms）。対応3経路Plan改訂/Build、App Server親Stop、Cursor SDK子/背景120秒自然終了/追加turn/Ctrl+C/disposeは成功。過去の12/12と区別し、今回を全成功にしない。実装側原因はこの時点で未確定で、未解決のライブ信頼性リスクとしてNo-Go理由に含める。
+最終 `npm run test:runtime`: **11件成功 / 1件失敗 / 0件スキップ**、538秒。失敗したのはACPの実並列子実行で、run TimeoutErrorが発生しました（制限時間200秒、ケース全体208,542ms）。対応する3経路のPlan改訂/Build、App Serverの親Stop、Cursor SDKの子実行・背景処理120秒後の自然終了・追加turn・Ctrl+C・disposeは成功しました。過去の12/12件成功とは区別し、今回を全件成功とはしません。実装側の原因はこの時点で未確定であり、未解決のライブ信頼性リスクとして移行見送り（No-Go）の理由に含めます。
 
 ### ACP GUIのBackend原文照合
 
@@ -584,7 +608,7 @@ ACP GUIの3ターン目は実Askへ変更し、ACP_GUI_ASK_FINALの要求どお�
 
 - `npm run check`: 成功。
 - `npm test`: 161/161成功。既存テストに加え、中間ターンで同一ファイルの複数回変更と新規ファイルを巻き戻すケース、checkpoint不足と競合のfail-closed、複数ファイル復元途中の失敗後に既復元ファイルを戻すケース、inline editor／添付保持／キャンセル／Resendの分離を確認。
-- `npm run test:protocol`: Cursor CLIとCodex App Serverのprotocol検査2/2成功。`npm run test:live`: 4経路の推論・ACP final表示検査6/6成功。これらは任意ターン巻き戻しのライブ対応を意味しない。
+- `npm run test:protocol`: Cursor CLIとCodex App Serverのプロトコル検査が2/2件成功。`npm run test:live`: 4経路の推論とACP最終回答表示の検査が6/6件成功。これらは任意ターンの巻き戻しがライブ環境で対応済みであることを意味しません。
 - 実Codex App Server GPT-6-Lunaを使った隔離Git workspaceの実GUI Test A: `touch a.txt`→`abcd`を書き込み→2番目のUserメッセージを`1234`へ編集。確認後にbranchへ切替、復元完了後の`a.txt`が空であることを実行中に確認し、新しい応答で`1234`になった。旧`abcd`のUser／Assistantは表示とbranchのローカル履歴から消えた。実Backend session IDも変わった。
 - 実Extension Development Hostのmock App Server UI統合試験も成功。編集アイコン→inline editor→`write 1234 into a.txt`→再送確認→履歴分岐→Readyまで操作し、一時workspaceの`a.txt`が`1234`、旧turn IDが履歴にないことをassertした。VS Code test modeではnative warning dialog APIが使えないため、このハーネスに限り同じ警告本文を表示するQuickPickへ差し替えて確認操作を行った。productionの確認UIのOS描画はこのハーネス検査に含めない。
 - Extension Development Hostで300px／390px相当、Light Modern／Darkテーマの組み合わせを画面で確認。inline編集とキャンセルで元本文が保たれることも実GUIで確認した。
@@ -595,4 +619,4 @@ ACP GUIの3ターン目は実Askへ変更し、ACP_GUI_ASK_FINALの要求どお�
 - rename、binary、500,000 byte超、symlink経由、workspace外、ワークスペース移動、ファイルcheckpoint不足、手動編集／外部変更の競合、履歴保存無効、画像を再取得できない旧promptは巻き戻しを拒否する。空ディレクトリやファイル外への副作用は復元しない。
 - 実行中turn、queue、保留中の承認／質問／plan、稼働中の子エージェントやBackground Terminalがある会話は巻き戻しを拒否する。既存の子・terminalを停止して巻き戻す処理は実装していない。
 - Retryの意味は変更していない。Plan/Todo/Usage/turn/file-change/terminal/subagent状態はローカル履歴で対象境界へ切り詰める。外部side effect、旧Backend threadの物理削除、過去分岐の完全なGCは保証しない。
-- `docs/AUDIT_0100.md`はローカルに存在しない。既存のNo-Go項目と区別してこの限定対応をFeature Matrixに記録する。Commit、Push、Releaseは実施していない。
+- `docs/AUDIT_0100.md`はローカルに存在しない。既存の移行見送り（No-Go）項目と区別してこの限定対応をFeature Matrixに記録する。Commit、Push、Releaseは実施していない。

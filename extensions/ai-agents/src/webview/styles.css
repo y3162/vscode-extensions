@@ -247,6 +247,57 @@ a { color: var(--vscode-textLink-foreground); }
   display: grid; place-items: center;
 }
 .dock { flex: 0 0 auto; padding: .35em 0 .45em; }
+.subagent-slot { margin: 0 .55em .35em; min-width: 0; }
+.subagent-slot[hidden] { display: none; }
+.subagent-panel-heading {
+  width: 100%; min-height: 1.8em; display: flex; align-items: center; gap: .35em;
+  border: 0; padding: .15em .25em; background: transparent; color: var(--vscode-descriptionForeground);
+  text-align: left; font-size: .88em;
+}
+.subagent-panel-heading .codicon-chevron-down { transform: rotate(0); }
+.subagent-panel-rows { max-height: 8.5em; overflow: auto; display: flex; flex-direction: column; gap: .1em; }
+.subagent-panel-row {
+  display: flex; align-items: center; gap: .25em;
+  min-width: 0; width: 100%; min-height: 1.9em; border-radius: .35em; padding: .05em .1em;
+}
+.subagent-panel-row:hover, .subagent:hover { background: color-mix(in srgb, var(--vscode-foreground) 7%, transparent); }
+.subagent-panel-open {
+  flex: 1; display: grid; grid-template-columns: 1.2em minmax(0, 1fr) auto 1em; align-items: center; gap: .35em;
+  min-width: 0; min-height: 1.8em; border: 0; padding: .1em .15em; background: transparent;
+  color: var(--vscode-foreground); text-align: left;
+}
+.subagent-mark { width: 1.1em; text-align: center; color: var(--vscode-descriptionForeground); }
+.subagent-mark.running { color: var(--vscode-progressBar-background); animation: subagent-turn 2.4s linear infinite; }
+.subagent-mark.completed { color: var(--vscode-testing-iconPassed, var(--vscode-charts-green)); }
+.subagent-mark.error, .subagent-mark.cancelled { color: var(--vscode-errorForeground); }
+.subagent-panel-copy { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.subagent-panel-title, .subagent-panel-progress { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subagent-panel-title { font-size: .9em; }
+.subagent-panel-role, .subagent-panel-progress, .subagent-panel-state { font-size: .78em; color: var(--vscode-descriptionForeground); }
+.subagent-panel-state { white-space: nowrap; }
+.subagent { width: 100%; display: flex; flex-wrap: wrap; border: 0; text-align: left; color: inherit; }
+.waiting-subagent { margin: .35em 0; padding: .35em .5em; border-left: 2px solid var(--vscode-editorWarning-foreground); color: var(--vscode-descriptionForeground); font-size: .9em; }
+.subagent-detail-host { flex: 1; min-height: 0; overflow: auto; padding: .75em; }
+.subagent-detail { display: flex; flex-direction: column; gap: .75em; min-width: 0; }
+.subagent-detail-head { display: flex; flex-direction: column; gap: .45em; min-width: 0; border-bottom: 1px solid var(--vscode-panel-border, transparent); padding-bottom: .65em; }
+.subagent-back { align-self: flex-start; }
+.subagent-detail-identity { display: flex; flex-direction: column; gap: .2em; min-width: 0; }
+.subagent-detail-identity h2 { margin: 0; font-size: 1.05em; overflow-wrap: anywhere; }
+.subagent-state, .subagent-elapsed { color: var(--vscode-descriptionForeground); font-size: .85em; }
+.subagent-state.running { color: var(--vscode-progressBar-background); }
+.subagent-state.error, .subagent-state.cancelled { color: var(--vscode-errorForeground); }
+.subagent-facts { display: flex; flex-wrap: wrap; gap: .35em; }
+.subagent-detail-section, .subagent-event-list { min-width: 0; border: 1px solid var(--vscode-panel-border, transparent); border-radius: .55em; padding: .55em .65em; }
+.subagent-detail-section h3, .subagent-event-list h3 { margin: 0 0 .35em; font-size: .9em; color: var(--vscode-descriptionForeground); }
+.subagent-detail-text, .subagent-event-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; max-height: 22em; overflow: auto; }
+.subagent-event-list { display: flex; flex-direction: column; gap: .4em; }
+.subagent-event { min-width: 0; border-top: 1px solid var(--vscode-panel-border, transparent); padding-top: .4em; }
+.subagent-event-heading { margin-bottom: .2em; color: var(--vscode-descriptionForeground); font-size: .82em; }
+.subagent-event-heading.error, .subagent-history-omitted { color: var(--vscode-errorForeground); }
+.subagent-error h3 { color: var(--vscode-errorForeground); }
+.subagent-unavailable, .subagent-history-omitted { margin: 0; color: var(--vscode-descriptionForeground); font-size: .9em; }
+@keyframes subagent-turn { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .subagent-mark.running { animation: none; } }
 .host-error { margin: 0 .6em .35em; color: var(--vscode-errorForeground); font-size: .9em; }
 .banner { margin: 0 .55em .4em; gap: .5em; background: var(--vscode-inputValidation-warningBackground); border-color: var(--vscode-inputValidation-warningBorder); }
 .banner-copy { flex: 1; min-width: 0; }

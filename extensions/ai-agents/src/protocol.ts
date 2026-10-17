@@ -37,6 +37,7 @@ export interface ViewMessage {
   meta?: ViewMeta;
   final?: boolean;
   turnId?: string;
+  subagentId?: string;
   failure?: ChatMessage['failure'];
   canRewind?: boolean;
   rewindReason?: string;
@@ -97,14 +98,21 @@ export interface ViewTurnTiming {
 
 export interface ViewSubagent {
   id: string;
+  parentTurnId?: string;
   agentId?: string;
   model?: string;
   name: string;
   task?: string;
+  taskOmitted?: boolean;
   status: 'running' | 'completed' | 'error' | 'cancelled' | 'unknown';
   background: SubagentBackground;
+  progress?: string;
+  startedAt?: number;
+  endedAt?: number;
   durationMs?: number;
   resultPreview?: string;
+  error?: string;
+  historyOmitted?: boolean;
 }
 
 export interface ViewTerminal {
@@ -165,6 +173,7 @@ export interface ViewShell {
   planView: ViewPlan | null;
   timings: ViewTurnTiming[];
   subagents: ViewSubagent[];
+  subagentWaiting: { startedAt: number; count?: number } | null;
   terminals: ViewTerminal[];
   terminalError?: string;
   additions: number;

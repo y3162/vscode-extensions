@@ -110,6 +110,11 @@ function isSubagentType(type: string): boolean {
   return normalized.includes('collab') || normalized === 'subagentactivity' || normalized === 'spawnagent' || normalized === 'waitagent';
 }
 
+function isWaitTool(item: Record<string, unknown>): boolean {
+  return normalizedType(itemType(item)) === 'collabagenttoolcall'
+    && normalizedType(String(item.tool ?? item.name ?? '')) === 'wait';
+}
+
 function isAgentMessage(type: string): boolean {
   return normalizedType(type).includes('agentmessage');
 }
@@ -154,29 +159,52 @@ function messagesFrom(value: unknown): ChatMessage[] {
   const turns = Array.isArray(thread.turns) ? thread.turns : Array.isArray(root.turns) ? root.turns : [];
   const messages: ChatMessage[] = [];
   for (const turn of turns) {
-    const items = Array.isArray(record(turn).items) ? record(turn).items as unknown[] : [];
+    const turnRecord = record(turn);
+    const turnId = String(turnRecord.id ?? '');
+    const turnError = failureText(turnRecord.error);
+    if (turnError) messages.push({
+      id: `${turnId}:error`, backendId: `${turnId}:error`, backendTurnId: turnId, role: 'error', text: turnError,
+    });
+    const items = Array.isArray(turnRecord.items) ? turnRecord.items as unknown[] : [];
     for (const raw of items) {
       const item = record(raw);
       const type = itemType(item);
       if (isSubagentType(type)) {
         for (const id of threadIdsIn(item)) {
           const childState = record(record(item.agentsStates)[id]);
-          const child: SubagentRecord = { id, name: typeof item.agentPath === 'string' ? item.agentPath : 'Subagent', status: subagentStatus(String(childState.status ?? item.kind ?? '')), background: 'unknown', ...(typeof item.model === 'string' ? { model: item.model } : {}), ...(typeof childState.message === 'string' ? { resultPreview: childState.message.slice(0, 500) } : {}) };
-          const message: ChatMessage = { id: `subagent:${id}`, role: 'status', text: child.name, meta: { type: 'subagent', subagent: child } };
+          const parentTurnId = String(record(turn).id ?? '');
+          const status = subagentStatus(String(childState.status ?? item.kind ?? ''));
+          const detail = typeof childState.message === 'string' ? childState.message.slice(0, 500) : '';
+          const child: SubagentRecord = {
+            id,
+            name: typeof item.agentPath === 'string' ? item.agentPath : 'Subagent',
+            status, background: 'unknown',
+            ...(parentTurnId ? { parentTurnId } : {}),
+            ...(typeof item.prompt === 'string' ? { task: item.prompt } : {}),
+            ...(typeof item.model === 'string' ? { model: item.model } : {}),
+            ...(status === 'error' && detail ? { error: detail } : detail ? { resultPreview: detail } : {}),
+          };
+          const message: ChatMessage = { id: `subagent:${id}`, role: 'status', text: child.name, ...(parentTurnId ? { backendTurnId: parentTurnId } : {}), backendId: `subagent:${id}`, meta: { type: 'subagent', subagent: child } };
           const index = messages.findIndex((entry) => entry.id === message.id);
           if (index < 0) messages.push(message);
           else messages[index] = message;
         }
         continue;
       }
-      const text = textOf(item);
+      const command = typeof item.command === 'string' ? item.command : '';
+      const output = typeof item.aggregatedOutput === 'string' ? item.aggregatedOutput : typeof item.output === 'string' ? item.output : '';
+      const text = type.toLowerCase().includes('command') ? [command, output].filter(Boolean).join('\n') : textOf(item);
       if (!text) continue;
       const role = type.toLowerCase().includes('user') ? 'user'
         : type.toLowerCase().includes('error') ? 'error'
+          : type.toLowerCase().includes('reasoning') ? 'status'
           : type.toLowerCase().includes('agent') || type.toLowerCase().includes('message') ? 'assistant' : 'tool';
       const backendTurnId = String(record(turn).id ?? '');
       const backendId = typeof item.id === 'string' ? item.id : `history-${messages.length}`;
+      const files = type.toLowerCase().includes('file') ? filesOf(item) : [];
       messages.push({ id: `${backendTurnId}:${backendId}`, backendTurnId, backendId, role, text,
+        ...(type.toLowerCase().includes('command') ? { tool: { ...describedTool('shell', command, String(item.status ?? 'completed')), ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}) } } : {}),
+        ...(files.length ? { meta: { type: 'files', files } } : type.toLowerCase().includes('reasoning') ? { meta: { type: 'thinking' } } : {}),
         ...(isAgentMessage(type) && item.phase === 'final_answer' ? { final: true } : {}),
       });
     }
@@ -207,6 +235,8 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
   let configuredApproval: unknown = options.approval || 'never';
   const childThreads = new Set<string>();
   const children = new Map<string, SubagentRecord>();
+  const childParentTurns = new Map<string, string>();
+  const waitStarts = new Map<string, number>();
   const childText = new Map<string, string>();
   const buffers = new Map<string, string>();
   const agentTexts = new Map<string, string>();
@@ -236,7 +266,8 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
   function updateChild(id: string, patch: Partial<SubagentRecord>): void {
     if (!id || id === threadId) return;
     childThreads.add(id);
-    const child: SubagentRecord = { id, name: 'Subagent', status: 'unknown', background: 'unknown', ...children.get(id), ...patch };
+    const parentTurnId = childParentTurns.get(id) || (turnId ? (childParentTurns.set(id, turnId), turnId) : undefined);
+    const child: SubagentRecord = { id, name: 'Subagent', status: 'unknown', background: 'unknown', ...children.get(id), ...(parentTurnId ? { parentTurnId } : {}), ...patch };
     children.set(id, child);
     emitBackground({ id: `subagent:${id}`, role: 'status', text: child.task || child.name, meta: { type: 'subagent', subagent: child } });
   }
@@ -325,9 +356,12 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
     else current.resolve();
   };
 
-  const emitItem = (item: Record<string, unknown>) => {
+  const emitItem = (item: Record<string, unknown>, subagentId?: string, waitState?: boolean) => {
     const destination = emitLive.current ?? emitBackground;
-    const emit = (update: AgentUpdate) => destination({ ...update, backendTurnId: turnId });
+    const emit = (update: AgentUpdate) => {
+      const text = subagentId && update.text.length > 12000 ? `${update.text.slice(0, 12000)}\n[Earlier output omitted]` : update.text;
+      destination({ ...update, text, backendTurnId: subagentId ? childParentTurns.get(subagentId) ?? turnId : turnId, ...(subagentId ? { subagentId } : {}) });
+    };
     const type = itemType(item).toLowerCase();
     const id = typeof item.id === 'string' ? item.id : type || 'item';
     const text = textOf(item) || buffers.get(id) || '';
@@ -344,8 +378,9 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
           if (/complete|fail|cancel|interrupt/i.test(status)) terminals.splice(active, 1);
           else terminals[active] = { ...terminals[active], ...command };
         }
-        emitBackground({ id, role: 'tool', text: [command.command, command.output].filter(Boolean).join('\n'), tool: { ...describedTool('shell', command.command ?? '', status), ...(command.exitCode !== undefined ? { exitCode: command.exitCode } : {}) } });
-        if (active >= 0) publishTerminals();
+        if (subagentId) emit({ id, role: 'tool', text: [command.command, command.output].filter(Boolean).join('\n'), tool: { ...describedTool('shell', command.command ?? '', status), ...(command.exitCode !== undefined ? { exitCode: command.exitCode } : {}) } });
+        else emitBackground({ id, role: 'tool', text: [command.command, command.output].filter(Boolean).join('\n'), tool: { ...describedTool('shell', command.command ?? '', status), ...(command.exitCode !== undefined ? { exitCode: command.exitCode } : {}) } });
+        if (active >= 0 && !subagentId) publishTerminals();
         return;
       }
       emit({ id, role: 'tool', text: [typeof item.command === 'string' ? item.command : '', output].filter(Boolean).join('\n'), tool: { ...describedTool('shell', typeof item.command === 'string' ? item.command : '', status), ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}) } });
@@ -370,6 +405,19 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
     if (type.includes('todo')) {
       const todos = todosOf(item.items ?? item.todos ?? item.plan);
       emit({ id, role: 'status', text: text || todos.map((todo) => `${todo.status}: ${todo.content}`).join('\n'), ...(todos.length ? { meta: { type: 'todo', todos } } : {}) });
+      return;
+    }
+    if (isWaitTool(item)) {
+      const status = String(item.status ?? '').toLowerCase();
+      const waiting = waitState ?? /progress|running|pending|start/.test(status);
+      if (subagentId) {
+        emit({ id, role: 'tool', text: `wait${waiting ? ' (in progress)' : ''}`, tool: { ...describedTool('subagent', 'wait', waiting ? 'inProgress' : 'completed') } });
+        return;
+      }
+      if (waiting && !waitStarts.has(id)) waitStarts.set(id, Date.now());
+      const startedAt = waitStarts.get(id);
+      if (!waiting) waitStarts.delete(id);
+      emit({ id: `subagent-wait:${id}`, role: 'status', text: '', meta: { type: 'subagentWait', subagentWait: { waiting, ...(waiting && startedAt !== undefined ? { startedAt } : {}) } } });
       return;
     }
     if (isSubagentType(type)) {
@@ -433,14 +481,19 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       const noted = typeof body.threadId === 'string' ? body.threadId : '';
       if (noted && threadId && noted !== threadId && !childThreads.has(noted)) return;
       if (noted && childThreads.has(noted)) {
-        if (isSubagentType(itemType(item))) emitItem(item);
+        if (itemType(item) && ['item/started', 'item/completed', 'item/updated'].includes(method)) emitItem(item, noted);
         const turn = record(body.turn);
-        const status = method === 'turn/completed' ? subagentStatus(String(turn.status ?? '')) : method === 'turn/started' ? 'running' : children.get(noted)?.status ?? 'unknown';
+        const previous = children.get(noted);
+        const previousFinished = previous?.status === 'completed' || previous?.status === 'error' || previous?.status === 'cancelled';
+        const status = method === 'turn/completed' ? subagentStatus(String(turn.status ?? ''))
+          : method === 'turn/started' ? previousFinished ? previous.status : 'running'
+            : previous?.status ?? 'unknown';
+        const childError = method === 'turn/completed' ? failureText(turn.error) || failureText(body.error) : '';
         const piece = isAgentMessage(itemType(item)) ? textOf(item) : method === 'item/agentMessage/delta' && typeof body.delta === 'string' ? body.delta : '';
         if (piece && method.includes('delta')) childText.set(noted, `${childText.get(noted) ?? ''}${piece}`);
         else if (piece) childText.set(noted, piece);
         const preview = childText.get(noted) ?? '';
-        updateChild(noted, { status, ...(preview ? { resultPreview: preview.slice(0, 500) } : {}), ...(method === 'turn/completed' ? { endedAt: Date.now(), ...(typeof turn.durationMs === 'number' ? { durationMs: turn.durationMs } : {}) } : {}) });
+        updateChild(noted, { status, ...(method === 'turn/started' && !previous?.startedAt ? { startedAt: Date.now() } : {}), ...(preview ? { resultPreview: preview.slice(0, 500) } : {}), ...(childError ? { error: childError.slice(0, 4000) } : {}), ...(method === 'turn/completed' ? { endedAt: Date.now(), ...(typeof turn.durationMs === 'number' ? { durationMs: turn.durationMs } : {}) } : {}) });
         const childType = itemType(item).toLowerCase();
         if (childType.includes('file')) {
           const files = filesOf(item);
@@ -458,7 +511,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
           type: method.includes('command') ? 'commandExecution' : method.includes('reasoning') ? 'reasoning' : method.includes('plan') ? 'plan' : 'agentMessage',
           text: buffers.get(id),
           status: 'in_progress',
-        });
+        }, noted);
         return;
       }
       if (method === 'turn/started') {
@@ -466,7 +519,10 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
         if (id) turnId = id;
         if (stopRequested && id) void rpc.request('turn/interrupt', { threadId, turnId: id }).catch(() => undefined);
       }
-      if (method === 'item/started' || method === 'item/completed' || method === 'item/updated') emitItem(item);
+      if (method === 'item/started' || method === 'item/completed' || method === 'item/updated') {
+        const waitState = isWaitTool(item) ? method === 'item/started' || (method === 'item/updated' && /progress|running|pending/i.test(String(item.status ?? ''))) : undefined;
+        emitItem(item, undefined, waitState);
+      }
       if (method === 'turn/completed' || method === 'turn/diff/updated') {
         const id = turnIdOf(body, turnId);
         if (typeof body.diff === 'string' && emitLive.current) {
@@ -584,6 +640,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
     for (const message of replay) if (message.meta?.subagent) {
       children.set(message.meta.subagent.id, message.meta.subagent);
       childThreads.add(message.meta.subagent.id);
+      if (message.meta.subagent.parentTurnId) childParentTurns.set(message.meta.subagent.id, message.meta.subagent.parentTurnId);
     }
     if (!threadId) throw new Error('Codex App Server did not return a thread id.');
     ownedThreadIds.add(threadId);
@@ -622,8 +679,12 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
 
   async function startTurn(method: string, params: unknown, signal: AbortSignal): Promise<void> {
     stopRequested = signal.aborted;
+    turnId = '';
     const response = record(await rpc.request(method, params, signal));
     turnId = turnIdOf(response, turnId);
+    if (turnId) {
+      for (const [id, child] of children) if (!child.parentTurnId) updateChild(id, { parentTurnId: turnId });
+    }
     if (!turnId) return;
     if (signal.aborted) {
       void rpc.request('turn/interrupt', { threadId, turnId }).catch(() => undefined);
@@ -660,7 +721,33 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
           else if (replay.length) { for (const message of replay) emit(message); return; }
           cursor = typeof page.nextCursor === 'string' ? page.nextCursor : undefined;
         } while (cursor);
-        for (const message of messagesFrom({ turns })) emit(message);
+        const parentMessages = messagesFrom({ turns });
+        for (const message of parentMessages) if (message.meta?.subagent) {
+          const child = message.meta.subagent;
+          children.set(child.id, child);
+          childThreads.add(child.id);
+          if (message.backendTurnId) childParentTurns.set(child.id, message.backendTurnId);
+        }
+        for (const message of parentMessages) emit(message);
+        for (const [childId, child] of children) {
+          const parentTurnId = childParentTurns.get(childId) ?? child.parentTurnId;
+          if (!parentTurnId) continue;
+          let childCursor: string | undefined;
+          const childTurns: unknown[] = [];
+          try {
+            do {
+              const page = record(await rpc.request('thread/turns/list', { threadId: childId, limit: 50, itemsView: 'full', sortDirection: 'asc', ...(childCursor ? { cursor: childCursor } : {}) }));
+              if (!Array.isArray(page.data)) break;
+              childTurns.push(...page.data);
+              childCursor = typeof page.nextCursor === 'string' && page.nextCursor ? page.nextCursor : undefined;
+            } while (childCursor);
+            for (const message of messagesFrom({ turns: childTurns })) {
+              if (message.meta?.type === 'subagent') continue;
+              const backendId = message.backendId ?? message.id;
+              emit({ ...message, id: `${childId}:${message.id}`, backendId, backendTurnId: parentTurnId, subagentId: childId });
+            }
+          } catch { /* Child history is an optional App Server capability. Keep the known task and result. */ }
+        }
       } catch (error) {
         if (replay.length) { for (const message of replay) emit(message); }
         else {

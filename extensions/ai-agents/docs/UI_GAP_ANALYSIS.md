@@ -1,4 +1,4 @@
-# UI Gap Analysis
+# UIギャップ分析
 
 調査日: 2026-10-16。比較対象は 0.4.0 の Webview、ユーザー提供の Cursor IDE / Codex IDE 拡張 / ChatGPT デスクトップの画面、および `yutat23/cursor-agent-sidebar` v0.3.7（commit `63a1672`）のソース。
 
