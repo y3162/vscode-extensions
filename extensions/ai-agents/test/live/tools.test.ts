@@ -45,9 +45,9 @@ async function run(options: SessionOptions, prompt: string, decide: (request: Pe
 }
 
 const cases: Array<{ name: string; options: Omit<SessionOptions, 'cwd' | 'storagePath' | 'interactions'> }> = [
-  { name: 'cursor-acp', options: { provider: 'cursor', backend: 'acp', model: '', sandbox: 'enabled' } },
+  { name: 'cursor-acp', options: { provider: 'cursor', backend: 'acp', model: 'composer-2.5', sandbox: 'enabled' } },
   { name: 'codex-app-server', options: { provider: 'codex', backend: 'app-server', model: 'gpt-6-luna', sandbox: 'workspace-write', approval: 'untrusted' } },
-  { name: 'cursor-sdk', options: { provider: 'cursor', backend: 'sdk', model: 'auto', sandbox: 'enabled' } },
+  { name: 'cursor-sdk', options: { provider: 'cursor', backend: 'sdk', model: 'composer-2.5', sandbox: 'enabled' } },
   { name: 'codex-sdk', options: { provider: 'codex', backend: 'sdk', model: 'gpt-6-luna', sandbox: 'workspace-write', approval: 'never', modelParams: [{ id: 'modelReasoningEffort', value: 'low' }] } },
 ];
 

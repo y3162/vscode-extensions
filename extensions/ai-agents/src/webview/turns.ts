@@ -136,7 +136,18 @@ export function buildTurns(messages: readonly ViewMessage[], busy: boolean, pend
       done: false,
     });
   };
+  // Retry attempts retain one user bubble, even if the attempt was appended after another turn.
+  const order: string[] = [];
+  const groups = new Map<string, ViewMessage[]>();
+  let current = '';
   for (const message of messages) {
+    if (message.role === 'user') current = message.id;
+    const key = message.turnId ?? current;
+    if (!groups.has(key)) { groups.set(key, []); order.push(key); }
+    groups.get(key)!.push(message);
+  }
+  const ordered = order.flatMap((key) => groups.get(key)!);
+  for (const message of ordered) {
     if (message.role === 'user') {
       finish();
       id = message.id;

@@ -192,6 +192,19 @@ test('spawn completion, child failure, interruption, and unknown activity remain
   } finally { await session.dispose(); await cleanup(); }
 });
 
+test('Ctrl+C cancels only a currently listed runtime terminal and rejects stale handles', { timeout: 5000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+  const session = await createCodexAppServerSession({ provider: 'codex', cwd, model: 'fixture', storagePath: cwd, codexPath: command });
+  try {
+    await session.run('PAGED', new AbortController().signal, () => {});
+    await assert.rejects(session.interruptBackgroundTerminal!('not-a-terminal'), /終了/);
+    assert.equal((await session.listBackgroundTerminals!()).length, 2);
+    await session.interruptBackgroundTerminal!('proc-1');
+    assert.deepEqual((await session.listBackgroundTerminals!()).map((row) => row.processId), ['proc-2']);
+    await assert.rejects(session.interruptBackgroundTerminal!('proc-1'), /終了/);
+  } finally { await session.dispose(); await cleanup(); }
+});
+
 test('a silent child is reconciled through public thread/read after its parent ends', { timeout: 10000 }, async () => {
   const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
   const session = await createCodexAppServerSession({ provider: 'codex', cwd, model: 'fixture', storagePath: cwd, codexPath: command });

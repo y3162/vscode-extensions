@@ -40,6 +40,7 @@ export class Composer {
   private suggestToken: CaretToken | undefined;
   private historyPrompt = '';
   private timer = 0;
+  private terminalsExpanded = true;
 
   constructor(
     private readonly dom: Dom,
@@ -225,8 +226,8 @@ export class Composer {
     const count = shell.changes.length;
     const terminals = shell.terminals ?? [];
     this.changes.hidden = !count && !terminals.length && !shell.terminalError;
-    if (shell.terminalError) this.changes.append(this.dom.el('p', 'error-block', `${copy.backgroundTerminals}: ${shell.terminalError}`));
     this.changes.replaceChildren();
+    if (shell.terminalError) this.changes.append(this.dom.el('p', 'error-block', `${copy.backgroundTerminals}: ${shell.terminalError}`));
     if (count) {
       const head = this.dom.el('div', 'change-head');
       const stats = `${shell.additions || shell.deletions ? ` +${shell.additions} −${shell.deletions}` : ''}`;
@@ -239,17 +240,34 @@ export class Composer {
     }
     if (terminals.length) {
       const list = this.dom.el('div', 'terminals');
-      list.append(this.dom.el('p', 'subagent-label', copy.backgroundTerminals));
+      const heading = this.dom.button('ghost terminal-heading', `${terminals.length} ${copy.backgroundTerminals}`, this.terminalsExpanded ? 'chevron-down' : 'chevron-right');
+      heading.setAttribute('aria-expanded', String(this.terminalsExpanded));
+      const items = this.dom.el('div', 'terminal-items');
+      items.hidden = !this.terminalsExpanded;
+      heading.addEventListener('click', () => {
+        this.terminalsExpanded = !this.terminalsExpanded;
+        items.hidden = !this.terminalsExpanded;
+        heading.setAttribute('aria-expanded', String(this.terminalsExpanded));
+        const icon = heading.querySelector('.codicon');
+        if (icon) icon.className = `codicon codicon-chevron-${this.terminalsExpanded ? 'down' : 'right'}`;
+      });
+      list.append(heading, items);
       for (const terminal of terminals) {
         const row = this.dom.el('div', 'terminal-row');
         const label = terminal.status ? `${terminal.command || terminal.processId} · ${terminal.status}` : terminal.command || terminal.processId;
-        row.append(this.dom.el('span', undefined, label));
-        const stop = this.dom.button('ghost tiny', copy.terminate);
+        const open = this.dom.button('ghost terminal-open', label, 'terminal');
+        const commandLabel = open.querySelector('.btn-label');
+        if (commandLabel) commandLabel.textContent = terminal.command || terminal.processId;
+        if (terminal.status) open.append(this.dom.el('span', 'terminal-state', terminal.status));
+        open.addEventListener('click', () => this.post({ type: 'openTerminal', processId: terminal.processId }));
+        row.append(open);
+        const stop = this.dom.button('ghost tiny terminal-stop', copy.terminate);
+        stop.disabled = Boolean(terminal.status && /complete|cancel|fail|abort|exit/.test(terminal.status));
         stop.addEventListener('click', () => this.post({ type: 'terminateTerminal', processId: terminal.processId }));
         row.append(stop);
         if (terminal.error) row.append(this.dom.el('p', 'terminal-detail error-block', terminal.error));
-        if (terminal.output) row.append(this.dom.el('pre', 'terminal-detail', terminal.output));
-        list.append(row);
+        if (terminal.output) row.append(this.dom.el('pre', 'terminal-detail terminal-output', terminal.output));
+        items.append(row);
       }
       this.changes.append(list);
     }
@@ -515,16 +533,13 @@ export class Composer {
 
   private modelListPage(catalog: ModelCatalogMessage): ModelMenuPage {
     const copy = this.copy;
-    const models = [
-      { id: '', label: copy?.defaultModel ?? 'Default model', description: undefined, aliases: [] as string[] },
-      ...catalog.models,
-    ];
+    const models = catalog.models.filter((model) => model.id);
     return {
       backLabel: copy?.back,
       search: { placeholder: copy?.searchModels ?? 'Search models', empty: copy?.noModels ?? 'No matching models' },
       items: [
         ...models.map((model) => ({
-          id: model.id ? `model:${model.id}` : 'model:default',
+          id: `model:${model.id}`,
           label: model.label,
           description: model.description,
           searchText: [model.id, ...(model.aliases ?? [])].filter(Boolean).join(' '),

@@ -1,6 +1,25 @@
 # Changelog
 
+## 0.10.0
+
+- Keep Cursor SDK background processes alive after the parent response, releasing their native executors after completion or session disposal.
+- Route terminal Ctrl+C through the retained native shell manager and make worker disposal idempotent.
+- Guard the SDK compatibility adapter by the pinned version and source hash; verify 120-second completion, follow-up turns, interruption, and session cleanup against real processes.
+
+## 0.9.1
+
+- Register Cursor SDK background terminal states from the SDK terminal records, including output and cancellation after the parent turn.
+- Forward background notifications and terminal controls through the SDK worker so the composer list and header are populated.
+- Verify worker process ownership before reading a terminal into a conversation or sending an interrupt.
+
 ## 0.9.0
+
+- Cursor SDKを拡張機能配下の専用プロセスで実行し、Extension Hostからsandbox helperを発見できない問題を修正。sandboxの既定は維持。
+- 会話のローカル表示履歴とUsageを永続化し、Home往復・Host再起動後の復元に対応。Cursorの保存メッセージのprotobuf oneof形式を読み、ユーザー・公開Thought・ツール・回答を復元。
+- CopyをExtension Hostのclipboard APIへ接続し、Markdown原文・コード・ユーザー本文・ツール結果と成功／失敗表示を追加。
+- Usageを可視化し、Codex SDKの累積値とApp Serverのtotal／lastを区別。未取得と非対応を0で代用しない。
+- Retry試行のユーザー表示重複、設定エラー後の自動送信、休止済み会話の設定変更、空の会話でのbackend設定伝搬を修正。
+- 実画面の手操作・テーマ別スクリーンショットは未検証。検証範囲と残作業はdocs/VERIFICATION.mdに記録。
 
 - 親ターン終了後も子・Background Terminal の状態と出力を元の会話へ届け、空一覧・自然終了・一覧取得失敗・terminate の結果を反映する。
 - App Server の実際の子IDと ACP の ID 付き `cursor/task` 要求に対応し、起動や wait の終了を子の成功と混同しない。
@@ -91,3 +110,10 @@
 - 会話の継続、ツール実行状況、停止、新しい会話、モデルと作業フォルダの選択に対応。
 - Cursor SDKのブラウザログインと、SecretStorageへのAPIキー保存に対応。
 - npm workspacesの開発環境、単体・統合テスト、OS/CPU別のVSIX作成を追加。
+
+
+### Background terminal panel
+
+- Open a running Codex App Server terminal from the composer list or chat header in the VS Code Terminal Panel, with live output and tab reuse.
+- Ctrl+C requests cancellation through the owning runtime. Closing the panel tab only detaches the display.
+- Text stdin forwarding and PTY resizing are not exposed by the agent-owned terminal API; the panel explains this limitation.

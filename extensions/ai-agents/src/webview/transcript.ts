@@ -1,7 +1,8 @@
 import { renderPending, renderPlanBody, type Post } from './cards.js';
 import { renderPlanView } from './plan-view.js';
 import { isButton, isElement, type Dom } from './dom.js';
-import { renderMarkdown } from './markdown.js';
+import { usageText } from '../usage.js';
+import { codeSources, renderMarkdown } from './markdown.js';
 import type { ViewMessage, ViewShell } from '../protocol.js';
 import { countLabel, formatDuration, type Copy, type Locale } from './strings.js';
 import { buildTurns, type FileRow, type Segment, type ToolRow, type TurnModel } from './turns.js';
@@ -16,6 +17,9 @@ export class Transcript {
   private readonly openLogs = new Set<string>();
   private readonly closedLogs = new Set<string>();
   private readonly openDetails = new Set<string>();
+  private copySequence = 0;
+  private readonly copying = new Map<string, HTMLButtonElement>();
+  private readonly copySources = new WeakMap<Element, string>();
   private turns: TurnModel[] = [];
   private shell: ViewShell | null = null;
   private labels: Copy | null = null;
@@ -71,11 +75,14 @@ export class Transcript {
     if (!article) {
       article = this.dom.el('article', 'turn');
       article.dataset.id = turn.id;
-      article.append(this.dom.el('div', 'user-row'), this.logButton(copy), this.dom.el('div', 'log'), this.answerShell(copy), this.dom.el('div', 'errors'));
+      article.append(this.dom.el('div', 'turn-usage'), this.dom.el('div', 'user-row'), this.logButton(copy), this.dom.el('div', 'log'), this.answerShell(copy), this.dom.el('div', 'errors'));
       this.nodes.set(turn.id, article);
       this.root.insertBefore(article, this.pending);
     }
     article.classList.toggle('done', turn.done);
+    const usageHost = article.querySelector('.turn-usage');
+    const usage = shellUsage(this.shell, turn.id);
+    if (usageHost) { usageHost.textContent = usage ? usageText(usage) : ''; (usageHost as HTMLElement).hidden = !usage; }
     const user = article.querySelector('.user-row');
     if (isElement(user)) this.renderUser(user, turn);
     const toggle = article.querySelector('.log-toggle');
@@ -103,6 +110,8 @@ export class Transcript {
     if (isElement(answer)) {
       answer.hidden = !turn.answer;
       const markdown = answer.querySelector('.md');
+      const copyButton = answer.querySelector('.copy-answer');
+      if (copyButton && turn.answer) this.copySources.set(copyButton, turn.answer.text);
       if (turn.answer && isElement(markdown) && this.answerText.get(markdown) !== turn.answer.text) {
         this.answerText.set(markdown, turn.answer.text);
         renderMarkdown(markdown, turn.answer.text, this.dom, copy.copy);
@@ -121,9 +130,11 @@ export class Transcript {
   private answerShell(copy: Copy): HTMLElement {
     const answer = this.dom.el('div', 'answer');
     answer.append(this.dom.el('div', 'md'));
-    const copyButton = this.dom.button('ghost copy-answer', copy.copy, 'copy');
+    const copyButton = this.dom.button('ghost icon-btn copy-answer', copy.copy, 'copy');
     copyButton.dataset.action = 'copy-answer';
-    answer.append(copyButton);
+    const actions = this.dom.el('div', 'message-actions');
+    actions.append(copyButton);
+    answer.append(actions);
     return answer;
   }
 
@@ -132,7 +143,15 @@ export class Transcript {
     if (!turn.user) { host.hidden = true; return; }
     host.hidden = false;
     const bubble = this.dom.el('div', 'bubble', turn.user.text);
-    host.append(bubble);
+    const copyButton = this.dom.button('ghost icon-btn copy-user', this.labels?.copy ?? 'Copy', 'copy');
+    copyButton.dataset.action = 'copy-source';
+    this.copySources.set(copyButton, turn.user.text);
+    const actions = this.dom.el('div', 'message-actions');
+    const edit = this.dom.button('ghost icon-btn edit-user', this.labels?.editMessage ?? 'Edit message', 'edit');
+    edit.dataset.action = 'edit-user';
+    edit.dataset.turn = turn.id;
+    actions.append(copyButton, edit);
+    host.append(bubble, actions);
     if (turn.user.attachments?.length) {
       const row = this.dom.el('div', 'chips');
       for (const attachment of turn.user.attachments) row.append(this.dom.el('span', 'chip', attachment));
@@ -149,6 +168,7 @@ export class Transcript {
       const retry = this.dom.button('secondary tiny', copy.retry);
       retry.dataset.action = 'retry';
       retry.dataset.turn = turn.id;
+      retry.title = '入力を確認して再送します。既に行われた操作は取り消されません。';
       const logs = this.dom.button('secondary tiny', copy.logs);
       logs.dataset.action = 'post';
       logs.dataset.type = 'logs';
@@ -250,6 +270,8 @@ export class Transcript {
       const lines = tool.detail.split('\n');
       const full = this.openDetails.has(`${tool.id}:all`) || lines.length <= 40;
       row.append(this.dom.el('pre', undefined, full ? tool.detail : lines.slice(0, 40).join('\n')));
+      const copyButton = this.dom.button('ghost tiny', copy.copy, 'copy');
+      copyButton.dataset.action = 'copy-source'; this.copySources.set(copyButton, tool.detail); row.append(copyButton);
       if (!full) {
         const more = this.dom.button('ghost tiny', copy.showMore);
         more.dataset.action = 'more';
@@ -299,14 +321,23 @@ export class Transcript {
       this.refreshOpenTurn();
       return;
     }
-    if (action === 'copy-answer' || action === 'copy-code') {
-      const source = action === 'copy-code' ? button.closest('.code-block')?.querySelector('code') : button.closest('.answer')?.querySelector('.md');
-      if (source?.textContent) void this.dom.document.defaultView?.navigator.clipboard?.writeText(source.textContent).catch(() => undefined);
+    if (action === 'copy-answer' || action === 'copy-code' || action === 'copy-source') {
+      const code = button.closest('.code-block');
+      const text = action === 'copy-code' && code ? codeSources.get(code) : this.copySources.get(button);
+      if (text === undefined) return;
+      const requestId = `copy-${++this.copySequence}`;
+      this.copying.set(requestId, button); button.disabled = true;
+      this.post({ type: 'copy', requestId, text });
+      return;
+    }
+    if (action === 'edit-user' && button.dataset.turn) {
+      const text = this.turns.find((turn) => turn.id === button.dataset.turn)?.user?.text;
+      if (text !== undefined) this.onRetry(text);
       return;
     }
     if (action === 'retry' && button.dataset.turn) {
       const text = this.turns.find((turn) => turn.id === button.dataset.turn)?.user?.text;
-      if (text) this.onRetry(text);
+      if (text) { this.post({ type: 'prepareRetry', id: button.dataset.turn }); this.onRetry(text); }
       return;
     }
     if (action === 'post' && button.dataset.type) { this.post({ type: button.dataset.type }); return; }
@@ -315,6 +346,16 @@ export class Transcript {
       const column = Number(button.dataset.column);
       this.post({ type: action === 'open-file' ? 'openFile' : 'openDiff', path: button.dataset.path, ...(line ? { line } : {}), ...(column ? { column } : {}) });
     }
+  }
+
+  copied(requestId: string, ok: boolean): void {
+    const button = this.copying.get(requestId); if (!button) return;
+    this.copying.delete(requestId); button.disabled = false;
+    button.title = ok ? this.labels?.copied ?? 'Copied' : this.shell?.locale === 'ja' ? 'コピーに失敗しました' : 'Copy failed';
+    const icon = button.querySelector('.codicon');
+    if (icon) icon.className = `codicon codicon-${ok ? 'check' : 'error'}`;
+    const label = button.querySelector('.btn-label'); if (label) label.textContent = button.title;
+    button.setAttribute('aria-label', button.title);
   }
 
   private refreshOpenTurn(): void {
@@ -355,3 +396,5 @@ function toolIcon(kind: ToolInfo['kind']): string {
     default: return 'tools';
   }
 }
+
+function shellUsage(shell: ViewShell | null, id: string) { return shell?.timings.find((turn) => turn.id === id)?.usage; }

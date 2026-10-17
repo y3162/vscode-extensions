@@ -7,6 +7,7 @@ import type { HostToWebview, MessageDiff, ViewMessage, ViewShell, VsCodeApi } fr
 import { Menu } from './popover.js';
 import { SettingsPanel } from './settings.js';
 import { strings, type Locale } from './strings.js';
+import { usageText } from '../usage.js';
 import { Transcript } from './transcript.js';
 
 interface Persisted { draft?: string; expanded?: string[]; stick?: boolean; page?: Page }
@@ -51,6 +52,11 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   const jump = dom.button('jump', 'Latest', 'arrow-down');
   jump.hidden = true;
   const dock = dom.el('footer', 'dock');
+  const usagePanel = dom.el('details', 'usage-panel');
+  const usageSummary = dom.el('summary');
+  const usageDetail = dom.el('pre');
+  usagePanel.append(usageSummary, usageDetail);
+  dock.append(usagePanel);
   const alert = dom.el('p', 'host-error');
   alert.hidden = true;
   alert.setAttribute('role', 'alert');
@@ -79,7 +85,13 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
         onSelect: () => post({ type: 'select', provider: item.id }),
       })),
     ]);
-  }, () => { post({ type: 'newChat' }); show('chat'); }, () => show('settings'), () => show('history'));
+  }, () => { post({ type: 'newChat' }); show('chat'); }, () => show('settings'), () => show('history'), (anchor) => {
+    if (!shell) return;
+    menu.open(anchor, shell.terminals.map((terminal) => ({
+      id: terminal.processId, label: terminal.command || terminal.processId,
+      onSelect: () => post({ type: 'openTerminal', processId: terminal.processId }),
+    })));
+  });
   const history = new HistoryPanel(dom, stage, (id) => openSession(id));
   const settings = new SettingsPanel(dom, stage, post, () => { settings.close(); paint(); });
   const composer = new Composer(dom, dock, post, menu, (panel) => show(panel));
@@ -137,6 +149,15 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
     history.render(shell, copy);
     settings.render(shell, copy);
     composer.render(shell, copy);
+    usageSummary.textContent = usageText(shell.usage, shell.backend === 'acp' ? 'Token Usage: 非対応 / Unsupported' : 'Token Usage: 未取得 / Not reported');
+    const usage = shell.usage;
+    usageDetail.textContent = usage ? [
+      'Session · ' + usageText(usage),
+      `Cache read: ${usage.cachedInputTokens ?? '—'} · Cache write: ${usage.cacheWriteInputTokens ?? '—'}`,
+      `Reasoning: ${usage.reasoningTokens ?? '—'} (included in Output)`,
+      usage.inputIncludesCache === false ? 'Input excludes cache; cache is included in Total.' : 'Cached tokens are included in Input.',
+      usage.contextWindow && usage.contextTokens !== undefined ? `Context: ${usage.contextTokens} / ${usage.contextWindow} (${(100 * usage.contextTokens / usage.contextWindow).toFixed(1)}%)` : 'Context: 未取得 / Not reported',
+    ].join('\n') : 'No token estimate or cost estimate.';
     const messages = log.list();
     transcript.render(messages, shell, copy);
     const last = [...messages].reverse().find((message) => message.role === 'user');
@@ -167,6 +188,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
       schedule();
       return;
     }
+    if (data.type === 'copyResult') { transcript.copied(data.requestId, data.ok); return; }
     if (data.type === 'error') { alert.hidden = false; alert.textContent = data.text; return; }
     if (data.type === 'modelCatalog') { composer.setCatalog(data); return; }
     if (data.type === 'suggestions') { composer.setSuggestions(data.requestId, data.items); return; }

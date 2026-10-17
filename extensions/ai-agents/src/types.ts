@@ -48,6 +48,12 @@ export interface ModelParameter {
 }
 
 export interface UsageStats {
+  scope?: 'turn' | 'run' | 'session' | 'request';
+  source?: string;
+  sampleId?: string;
+  inputIncludesCache?: boolean;
+  contextWindow?: number;
+  contextTokens?: number;
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens?: number;
@@ -63,6 +69,7 @@ export interface ImageAttachment {
 }
 
 export interface SendExtras {
+  retryOf?: string;
   displayText?: string;
   images?: ImageAttachment[];
   attachments?: string[];
@@ -150,6 +157,9 @@ export interface TurnRecord {
   model: string;
   intent: TurnIntent;
   finalMessageId?: string;
+  usage?: UsageStats;
+  userMessageId?: string;
+  backendTurnId?: string;
 }
 
 export interface TurnOptions {
@@ -207,6 +217,10 @@ export interface ChatMessage {
   at?: number;
   attachments?: string[];
   final?: boolean;
+  turnId?: string;
+  backendId?: string;
+  backendTurnId?: string;
+  failure?: { kind: string; retryable: boolean; operation?: string };
 }
 
 export type AgentUpdate = Omit<ChatMessage, 'role'> & {
@@ -244,6 +258,8 @@ export interface QuestionRequest {
 }
 
 export interface SessionSummary {
+  backend?: Backend;
+  conversationId?: string;
   id: string;
   title: string;
   updatedAt: string;
@@ -271,6 +287,7 @@ export interface AgentSession {
   review?(target: 'uncommitted' | 'base', emit: (update: AgentUpdate) => void, signal: AbortSignal): Promise<void>;
   listBackgroundTerminals?(): Promise<TerminalRecord[]>;
   terminateBackgroundTerminal?(processId: string): Promise<void>;
+  interruptBackgroundTerminal?(processId: string): Promise<void>;
   listSessions?(): Promise<SessionSummary[]>;
   rateLimits?(): Promise<string>;
   instructions?(): Promise<string>;
@@ -287,6 +304,7 @@ export interface ChatState {
   queue: QueuedPrompt[];
   status: ConnectionStatus;
   usage: UsageStats | null;
+  usageSamples?: Record<string, UsageStats>;
   changes: FileChange[];
   todos: TodoEntry[];
   sessions: SessionSummary[];

@@ -4,15 +4,12 @@ import { normalizeChangeKind } from '../diff-stats.js';
 import type { FileChange, TodoEntry, UpdateMeta, UsageStats } from '../types.js';
 
 export function addUsage(current: UsageStats | null, next: UsageStats): UsageStats {
-  const sum = (left?: number, right?: number) => (left ?? 0) + (right ?? 0);
-  return {
-    inputTokens: sum(current?.inputTokens, next.inputTokens),
-    outputTokens: sum(current?.outputTokens, next.outputTokens),
-    cachedInputTokens: sum(current?.cachedInputTokens, next.cachedInputTokens),
-    cacheWriteInputTokens: sum(current?.cacheWriteInputTokens, next.cacheWriteInputTokens),
-    reasoningTokens: sum(current?.reasoningTokens, next.reasoningTokens),
-    totalTokens: sum(current?.totalTokens, next.totalTokens) || undefined,
-  };
+  const result: UsageStats = { ...next, inputTokens: (current?.inputTokens ?? 0) + next.inputTokens, outputTokens: (current?.outputTokens ?? 0) + next.outputTokens };
+  for (const key of ['cachedInputTokens', 'cacheWriteInputTokens', 'reasoningTokens', 'totalTokens'] as const) {
+    if (next[key] !== undefined && (!current || current[key] !== undefined)) result[key] = (current?.[key] ?? 0) + next[key]!;
+    else delete result[key];
+  }
+  return result;
 }
 
 export function codexUsage(usage: {
@@ -81,6 +78,7 @@ export function cursorMeta(event: SDKMessage): UpdateMeta | undefined {
     return {
       type: 'usage',
       usage: {
+        scope: 'run', source: 'cursor-sdk', inputIncludesCache: false,
         inputTokens: event.usage.inputTokens,
         outputTokens: event.usage.outputTokens,
         cachedInputTokens: event.usage.cacheReadTokens,
