@@ -14,7 +14,7 @@ import {
   restoreTurnRewindFiles, rollbackTurnRewindJournal, workspaceRelativePath, type TurnRewindPlan,
 } from './turn-rewind.js';
 import {
-  emptyPlanState, errorMessage, type AgentInteractions, type AgentMode, type AgentSession, type AgentUpdate, type ChatMessage,
+  emptyPlanState, errorMessage, redactSecrets, type AgentInteractions, type AgentMode, type AgentSession, type AgentUpdate, type ChatMessage,
   type ChatState, type ConnectionStatus, type FileChange, type PermissionDecision, type PermissionRequest, type PlanRequest, type PlanState,
   type QuestionRequest, type Selection, type SendExtras, type SessionSummary, type TerminalRecord, type TurnFileSnapshot, type TurnOptions, type TurnRecord,
 } from './types.js';
@@ -241,7 +241,21 @@ export class ChatController {
     if (this.rewinding) return;
     const sessions = this.state.sessions;
     Object.assign(this.state, structuredClone(saved), { busy: false, queue: [], pendingPermission: null, pendingPlan: null, pendingQuestion: null, autoApprove: false, sessions });
+    this.state.messages = this.state.messages.map((message) => this.sanitizeSubagentMessage(message));
+    for (const child of this.state.subagents) {
+      const task = child.task ? redactSecrets(child.task) : undefined;
+      const progress = child.progress ? redactSecrets(child.progress) : undefined;
+      const result = child.resultPreview ? redactSecrets(child.resultPreview) : undefined;
+      const error = child.error ? redactSecrets(child.error) : undefined;
+      child.task = task?.slice(0, 12000);
+      child.taskOmitted ||= Boolean(task && task.length > 12000);
+      child.progress = progress?.slice(0, 180);
+      child.resultPreview = result?.slice(0, 500);
+      child.error = error?.slice(0, 4000);
+      this.trimSubagentHistory(child.id);
+    }
     this.retainedId = id;
+    this.state.subagentWaiting = undefined;
     this.restored = true;
     this.state.status = 'idle';
     for (const turn of this.state.turns) if (turn.status === 'running') { turn.status = 'cancelled'; turn.endedAt = Date.now(); }
@@ -762,6 +776,7 @@ export class ChatController {
   stop(): void {
     this.autoDrain = false;
     this.settleInteractions();
+    this.state.subagentWaiting = undefined;
     if (this.active && !this.active.abort.signal.aborted) {
       this.active.abort.abort();
       this.state.status = 'cancelling';
@@ -801,10 +816,14 @@ export class ChatController {
   }
 
   private stamp(turnId: string, update: AgentUpdate): ChatMessage {
+    const text = update.subagentId
+      ? `${redactSecrets(update.text).slice(0, 12000)}${update.text.length > 12000 ? '\n[Earlier output omitted]' : ''}`
+      : update.text;
     return {
       ...update,
-      id: `${turnId}:${update.id}`,
-      text: update.text,
+      ...(update.subagentId && update.tool ? { tool: { ...update.tool, name: redactSecrets(update.tool.name).slice(0, 120), ...(update.tool.target ? { target: redactSecrets(update.tool.target).slice(0, 2000) } : {}) } } : {}),
+      id: update.subagentId ? `${turnId}:child:${update.subagentId}:${update.id}` : `${turnId}:${update.id}`,
+      text,
       turnId: this.state.turns.find((turn) => turn.id === turnId)?.userMessageId ?? turnId,
       backendId: update.backendId ?? update.id,
       ...(update.backendTurnId ? { backendTurnId: update.backendTurnId } : {}),
@@ -814,8 +833,87 @@ export class ChatController {
     };
   }
 
+  private sanitizeSubagentMessage(message: ChatMessage): ChatMessage {
+    if (!message.subagentId) return message;
+    const redacted = redactSecrets(message.text);
+    const text = redacted.length > 12000 ? `${redacted.slice(0, 12000)}\n[Earlier output omitted]` : redacted;
+    if (redacted.length > 12000) {
+      const child = this.state.subagents.find((item) => item.id === message.subagentId);
+      if (child) child.historyOmitted = true;
+    }
+    let meta = lightMeta(message.meta);
+    if (meta) {
+      try {
+        const encoded = JSON.stringify(meta);
+        if (encoded.length > 30000) {
+          meta = undefined;
+          const child = this.state.subagents.find((item) => item.id === message.subagentId);
+          if (child) child.historyOmitted = true;
+        } else {
+          const safe = JSON.stringify(meta, (_key, value: unknown) => typeof value === 'string' ? redactSecrets(value) : value);
+          meta = JSON.parse(safe) as ChatMessage['meta'];
+        }
+      } catch { meta = undefined; }
+    }
+    return {
+      ...message,
+      text,
+      ...(message.tool ? { tool: { ...message.tool, name: redactSecrets(message.tool.name).slice(0, 120), ...(message.tool.target ? { target: redactSecrets(message.tool.target).slice(0, 2000) } : {}) } } : {}),
+      ...(meta ? { meta } : { meta: undefined }),
+    };
+  }
+
+  private trimSubagentHistory(subagentId: string): void {
+    const rows = this.state.messages.filter((message) => message.subagentId === subagentId);
+    const size = (message: ChatMessage) => { try { return JSON.stringify(message).length; } catch { return message.text.length; } };
+    let total = rows.reduce((sum, message) => sum + size(message), 0);
+    let omitted = false;
+    while (rows.length > 80 || total > 160000) {
+      const old = rows.shift();
+      if (!old) break;
+      total -= size(old);
+      const index = this.state.messages.findIndex((message) => message.id === old.id);
+      if (index >= 0) this.state.messages.splice(index, 1);
+      omitted = true;
+    }
+    if (omitted) {
+      const child = this.state.subagents.find((item) => item.id === subagentId);
+      if (child) child.historyOmitted = true;
+    }
+    this.trimTotalSubagentHistory();
+  }
+
+  private trimTotalSubagentHistory(): void {
+    const rows = this.state.messages.filter((message) => message.subagentId);
+    const size = (message: ChatMessage) => { try { return JSON.stringify(message).length; } catch { return message.text.length; } };
+    let total = rows.reduce((sum, message) => sum + size(message), 0);
+    while (total > 1000000) {
+      const old = rows.shift();
+      if (!old) break;
+      total -= size(old);
+      const index = this.state.messages.findIndex((message) => message.id === old.id);
+      if (index >= 0) this.state.messages.splice(index, 1);
+      const child = this.state.subagents.find((item) => item.id === old.subagentId);
+      if (child) child.historyOmitted = true;
+    }
+  }
+
   private receiveUpdate(turnId: string, update: AgentUpdate): void {
-    const origin = this.updateTurns.get(update.id) ?? turnId;
+    const childTurnId = update.subagentId
+      ? this.state.subagents.find((child) => child.id === update.subagentId)?.parentTurnId : undefined;
+    const origin = childTurnId ?? this.updateTurns.get(update.id) ?? turnId;
+    if (update.meta?.type === 'subagentWait' && update.meta.subagentWait) {
+      if (update.meta.subagentWait.waiting) {
+        if (this.active && origin === this.currentTurn) {
+          this.state.subagentWaiting = { parentTurnId: origin, startedAt: update.meta.subagentWait.startedAt ?? Date.now() };
+          this.updateTurns.set(update.id, origin);
+        }
+      } else if (this.state.subagentWaiting?.parentTurnId === origin) {
+        this.state.subagentWaiting = undefined;
+      }
+      this.publish();
+      return;
+    }
     if (update.meta?.type === 'files' && update.meta.files) {
       const observation = this.fileObservations.get(origin);
       if (observation) {
@@ -827,6 +925,13 @@ export class ChatController {
     const turn = this.state.turns.find((item) => item.id === origin);
     if (turn && update.backendTurnId) turn.backendTurnId = update.backendTurnId;
     this.absorb(update, origin);
+    if (update.subagentId) {
+      const child = this.state.subagents.find((item) => item.id === update.subagentId);
+      const progress = update.tool
+        ? `${update.tool.name}${update.tool.target ? ` · ${update.tool.target}` : ''}`
+        : update.text.trim().split('\n')[0];
+      if (child && progress) child.progress = redactSecrets(progress).slice(0, 180);
+    }
     if (update.meta?.type !== 'terminals' && !(update.meta?.type === 'usage' && !update.text)) {
       const message = this.stamp(origin, update);
       let index = this.state.messages.findIndex((item) => item.id === message.id);
@@ -845,6 +950,7 @@ export class ChatController {
           at: previous.at ?? message.at,
         };
       }
+      if (update.subagentId) this.trimSubagentHistory(update.subagentId);
 
     }
     this.publish();
@@ -892,8 +998,13 @@ export class ChatController {
     if (update.meta?.type === 'plan' && update.meta.plan?.markdown) this.state.plan = stageDraft(this.state.plan, update.meta.plan);
     if (update.meta?.type === 'subagent' && update.meta.subagent) {
       const previous = this.state.subagents.find((item) => item.id === update.meta?.subagent?.id);
-      const parentTurnId = previous?.parentTurnId ?? this.updateTurns.get(update.id) ?? this.currentTurn;
-      const incoming = { ...update.meta.subagent, ...(parentTurnId ? { parentTurnId } : {}) };
+      const safeSubagent = lightMeta(update.meta)?.subagent ?? update.meta.subagent;
+      const suppliedParent = safeSubagent.parentTurnId;
+      const mappedParent = suppliedParent ? this.state.turns.find((turn) => turn.backendTurnId === suppliedParent)?.id : undefined;
+      const parentTurnId = previous?.parentTurnId ?? this.updateTurns.get(update.id) ?? mappedParent
+        ?? (suppliedParent && this.state.turns.some((turn) => turn.id === suppliedParent) ? suppliedParent : undefined)
+        ?? this.currentTurn;
+      const incoming = { ...safeSubagent, ...(parentTurnId ? { parentTurnId } : {}) };
       const index = this.state.subagents.findIndex((item) => item.id === incoming.id);
       if (index < 0) this.state.subagents.push(incoming);
       else this.state.subagents[index] = { ...this.state.subagents[index], ...incoming };
@@ -905,6 +1016,7 @@ export class ChatController {
   }
 
   private finishTurn(turnId: string, status: TurnRecord['status'], intent: TurnOptions['intent']): void {
+    if (this.state.subagentWaiting?.parentTurnId === turnId) this.state.subagentWaiting = undefined;
     if (this.waitStarted !== undefined) {
       this.turnWait += Date.now() - this.waitStarted;
       this.waitStarted = undefined;
@@ -1071,13 +1183,15 @@ export class ChatController {
             if (message.backendTurnId && knownTurns.has(message.backendTurnId)) {
               const turn = this.state.turns.find((item) => item.backendTurnId === message.backendTurnId)!;
               if (message.role === 'user' || !message.backendId) continue;
-              const id = `${turn.id}:${message.backendId}`;
+              const id = message.subagentId
+                ? `${turn.id}:child:${message.subagentId}:${message.backendId}`
+                : `${turn.id}:${message.backendId}`;
               const local = byId.get(id);
               if (local) {
                 // A terminal backend snapshot can complete a saved prefix without discarding local metadata.
                 if (turn.status === 'completed' && message.text.startsWith(local.text) && message.text.length > local.text.length) byId.set(id, { ...local, text: message.text });
               } else {
-                const recovered = { ...message, id, turnId: turn.userMessageId ?? turn.id };
+            const recovered = this.sanitizeSubagentMessage({ ...message, id, turnId: turn.userMessageId ?? turn.id });
                 this.absorb(recovered); byId.set(id, recovered);
               }
               continue;

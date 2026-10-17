@@ -45,7 +45,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     if (historyFile !== path.join(cwd, '.git', 'ai-agents-mock-app-server.json')) loadHistory(cwd);
     replayFinal = request.params.threadId === 'history-final';
     const requestedThreadId = typeof request.params.threadId === 'string' ? request.params.threadId : '';
-    const responseThreadId = request.method === 'thread/resume' && /^thread-\d+$/.test(requestedThreadId) ? requestedThreadId : 'thread-1';
+    const responseThreadId = request.method === 'thread/resume' && (/^thread-\d+$/.test(requestedThreadId) || requestedThreadId === 'thread-restore-child') ? requestedThreadId : 'thread-1';
     if (!threadTurnIds.has(responseThreadId)) threadTurnIds.set(responseThreadId, []);
     saveHistory();
     const sandbox = request.params.sandbox === 'read-only' ? {type:'readOnly',networkAccess:false}
@@ -172,12 +172,20 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     emit({ id: request.id, result: { turn: { id: backendTurnId, status: 'completed' } } });
     pendingTurn = undefined;
   } else if (request.method === 'thread/turns/list') {
+    const requestedThreadId = String(request.params.threadId || '');
+    const restoredChildParent = requestedThreadId === 'thread-restore-child' ? [{ id: 'parent-turn', status: 'completed', items: [
+      { id: 'spawn-child', type: 'collabAgentToolCall', tool: 'spawnAgent', prompt: 'inspect restored child', model: 'gpt-test', receiverThreadIds: ['child-thread'], agentsStates: { 'child-thread': { status: 'completed', message: 'restored child answer' } } },
+    ] }] : undefined;
+    const childHistory = requestedThreadId === 'child-thread' ? [{ id: 'child-history-turn', status: 'completed', items: [
+      { id: 'child-command', type: 'commandExecution', command: 'printf child', aggregatedOutput: 'restored child output\n', status: 'completed', exitCode: 0 },
+      { id: 'child-answer', type: 'agentMessage', text: 'Restored child result', phase: 'final_answer' },
+    ] }] : undefined;
     const data = replayFinal
       ? [{ id: 'saved-turn', status: 'completed', items: [
         { id: 'commentary', type: 'agentMessage', text: 'Checking files', phase: 'commentary' },
         { id: 'answer', type: 'agentMessage', text: 'Backend final answer', phase: 'final_answer' },
       ] }]
-      : (threadTurnIds.get(String(request.params.threadId)) ?? []).map((id) => ({ id, status: 'completed', items: [] }));
+      : childHistory ?? restoredChildParent ?? (threadTurnIds.get(requestedThreadId) ?? []).map((id) => ({ id, status: 'completed', items: [] }));
     emit({ id: request.id, result: { data, nextCursor: null } });
   } else if (request.method === 'thread/read' && request.params.threadId === 'silent-child') {
     emit({ id: request.id, result: { thread: { status: { type: 'notLoaded' }, turns: [{ id: 'silent-child-turn', status: 'interrupted', items: [] }] } } });
@@ -188,7 +196,9 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
   } else if (request.method === 'thread/backgroundTerminals/terminate') {
     if (!failTerminate) activeTerminals = activeTerminals.filter((item) => item.processId !== request.params.processId);
     emit({ id: request.id, result: { terminated: !failTerminate } });
-  } else if (request.method === 'turn/interrupt') emit({ id: request.id, result: {} });
+  } else if (request.method === 'turn/interrupt') {
+    emit({ id: request.id, result: {} });
+  }
   else if (request.id === 50 || (pendingTurn && request.result)) {
     emit({ method: 'item/completed', params: { item: { id: 'agent-1', type: 'agentMessage', text: `approved:${request.result?.decision}` } } });
     emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', items: [] } } });

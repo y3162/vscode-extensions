@@ -199,12 +199,16 @@ export interface SubagentRecord {
   parentTurnId?: string;
   name: string;
   task?: string;
+  taskOmitted?: boolean;
   status: 'running' | 'completed' | 'error' | 'cancelled' | 'unknown';
   startedAt?: number;
   endedAt?: number;
   durationMs?: number;
   background: SubagentBackground;
   resultPreview?: string;
+  progress?: string;
+  error?: string;
+  historyOmitted?: boolean;
 }
 
 export interface TerminalRecord {
@@ -218,7 +222,7 @@ export interface TerminalRecord {
 }
 
 export interface UpdateMeta {
-  type: 'usage' | 'files' | 'thinking' | 'todo' | 'image' | 'task' | 'plan' | 'subagent' | 'terminals';
+  type: 'usage' | 'files' | 'thinking' | 'todo' | 'image' | 'task' | 'plan' | 'subagent' | 'subagentWait' | 'terminals';
   usage?: UsageStats;
   files?: FileChange[];
   todos?: TodoEntry[];
@@ -227,6 +231,7 @@ export interface UpdateMeta {
   append?: boolean;
   plan?: { name?: string; overview?: string; markdown: string; todos?: TodoEntry[]; files?: string[]; source: PlanSource };
   subagent?: SubagentRecord;
+  subagentWait?: { waiting: boolean; startedAt?: number };
   terminals?: TerminalRecord[];
   terminalError?: string;
   final?: boolean;
@@ -244,6 +249,8 @@ export interface ChatMessage {
   turnId?: string;
   backendId?: string;
   backendTurnId?: string;
+  /** Set only for events received from a child thread with an explicit backend thread ID. */
+  subagentId?: string;
   failure?: { kind: string; retryable: boolean; operation?: string };
 }
 
@@ -348,6 +355,8 @@ export interface ChatState {
   plan: PlanState;
   turns: TurnRecord[];
   subagents: SubagentRecord[];
+  /** Live backend-confirmed wait for child results. Never restored across host restarts. */
+  subagentWaiting?: { parentTurnId: string; startedAt: number };
   terminals: TerminalRecord[];
 }
 

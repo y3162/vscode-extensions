@@ -9,8 +9,9 @@ import { SettingsPanel } from './settings.js';
 import { strings, type Locale } from './strings.js';
 import { usageText } from '../usage.js';
 import { Transcript } from './transcript.js';
+import { renderSubagentDetail, SubagentPanel } from './subagents.js';
 
-interface Persisted { draft?: string; expanded?: string[]; stick?: boolean; page?: Page }
+interface Persisted { draft?: string; expanded?: string[]; stick?: boolean; page?: Page; subagentsExpanded?: boolean }
 
 class MessageLog {
   private readonly byId = new Map<string, ViewMessage>();
@@ -49,6 +50,8 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   const stage = dom.el('div', 'stage');
   const thread = dom.el('main', 'thread');
   thread.setAttribute('role', 'log');
+  const childDetail = dom.el('div', 'subagent-detail-host');
+  childDetail.hidden = true;
   const jump = dom.button('jump', 'Latest', 'arrow-down');
   jump.hidden = true;
   const dock = dom.el('footer', 'dock');
@@ -56,11 +59,12 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   const usageSummary = dom.el('summary');
   const usageDetail = dom.el('pre');
   usagePanel.append(usageSummary, usageDetail);
+  const subagentSlot = dom.el('div', 'subagent-slot');
   dock.append(usagePanel);
   const alert = dom.el('p', 'host-error');
   alert.hidden = true;
   alert.setAttribute('role', 'alert');
-  stage.append(alert, thread, jump);
+  stage.append(alert, thread, childDetail, jump);
   root.append(headerHost, stage, dock);
 
   const log = new MessageLog();
@@ -68,6 +72,8 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   let locale: Locale = document.documentElement.lang === 'en' ? 'en' : 'ja';
   let copy = strings(locale);
   let stick = true;
+  let selectedSubagentId: string | null = null;
+  let subagentsExpanded = saved?.subagentsExpanded ?? true;
   let scheduled = false;
   let painted = '';
 
@@ -94,9 +100,14 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   });
   const history = new HistoryPanel(dom, stage, (id) => openSession(id));
   const settings = new SettingsPanel(dom, stage, post, () => { settings.close(); paint(); });
-  const composer = new Composer(dom, dock, post, menu, (panel) => show(panel));
+  const composer = new Composer(dom, dock, post, menu, (panel) => show(panel), subagentSlot);
+  const subagentPanel = new SubagentPanel(dom, subagentSlot, (id) => { selectedSubagentId = id; paint(); }, (expanded) => {
+    subagentsExpanded = expanded;
+    save();
+    paint();
+  });
   const transcript = new Transcript(dom, thread, post, (text, retryId) => { composer.editDraft(text, retryId); save(); }, (anchor) => composer.openBuildModel(anchor),
-    (turnId, editedText) => post({ type: 'rewind', turnId, editedText }));
+    (turnId, editedText) => post({ type: 'rewind', turnId, editedText }), (id) => { selectedSubagentId = id; paint(); });
 
   function openSession(id: string): void {
     if (!shell) return;
@@ -107,6 +118,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   }
 
   show = (panel) => {
+    if (panel !== 'chat') selectedSubagentId = null;
     alert.hidden = true;
     alert.textContent = '';
     menu.close(false);
@@ -128,14 +140,17 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   if (saved?.expanded) transcript.restoreExpanded(saved.expanded);
   if (saved?.stick === false) stick = false;
 
-  const save = () => vscode.setState({ draft: composer.draft, expanded: transcript.expandedIds(), stick, page });
+  const save = () => vscode.setState({ draft: composer.draft, expanded: transcript.expandedIds(), stick, page, subagentsExpanded });
   composer.onInput(save);
 
   const applyChrome = () => {
     root.dataset.page = page;
     root.classList.toggle('page-home', page === 'home');
     root.classList.toggle('page-chat', page === 'chat');
-    thread.hidden = page !== 'chat';
+    const child = shell?.subagents.find((item) => item.id === selectedSubagentId);
+    if (selectedSubagentId && !child) selectedSubagentId = null;
+    thread.hidden = page !== 'chat' || Boolean(selectedSubagentId && child);
+    childDetail.hidden = page !== 'chat' || !selectedSubagentId || !child;
     dock.hidden = page !== 'chat';
     history.element.hidden = page !== 'home';
   };
@@ -150,6 +165,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
     history.render(shell, copy);
     settings.render(shell, copy);
     composer.render(shell, copy);
+    subagentPanel.render(shell, copy, subagentsExpanded);
     usageSummary.textContent = usageText(shell.usage, shell.backend === 'acp' ? 'Token Usage: 非対応 / Unsupported' : 'Token Usage: 未取得 / Not reported');
     const usage = shell.usage;
     usageDetail.textContent = usage ? [
@@ -161,6 +177,11 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
     ].join('\n') : 'No token estimate or cost estimate.';
     const messages = log.list();
     transcript.render(messages, shell, copy);
+    const child = shell.subagents.find((item) => item.id === selectedSubagentId);
+    if (selectedSubagentId && child) renderSubagentDetail(dom, childDetail, child, messages, copy, shell.locale, () => {
+      selectedSubagentId = null;
+      paint();
+    });
     const last = [...messages].reverse().find((message) => message.role === 'user');
     composer.notePrompt(last?.text ?? '');
     jump.querySelector('.btn-label')!.textContent = copy.latest;

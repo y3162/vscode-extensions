@@ -50,6 +50,24 @@ test('message diffs send only changed rows and file stats come from a diff', () 
   });
 });
 
+test('parent wait text requires an explicit live backend wait event', () => {
+  const turns = [{ id: 'turn-1', startedAt: 10, status: 'running' as const, waitMs: 0, mode: 'agent' as const, model: 'gpt', intent: 'chat' as const }];
+  const children = [
+    { id: 'a', parentTurnId: 'turn-1', name: 'A', status: 'running' as const, background: true as const },
+    { id: 'b', parentTurnId: 'turn-1', name: 'B', status: 'unknown' as const, background: 'unknown' as const },
+  ];
+  const runningOnly = shellFor({ busy: true, status: 'running', turns, subagents: children });
+  assert.equal(runningOnly.statusText, 'Running…');
+  assert.equal(runningOnly.subagentWaiting, null);
+  const waiting = shellFor({ busy: true, status: 'running', turns, subagents: children, subagentWaiting: { parentTurnId: 'turn-1', startedAt: 20 } });
+  assert.equal(waiting.statusText, 'Waiting for subagents');
+  assert.equal(waiting.presence, 'waiting');
+  assert.deepEqual(waiting.subagentWaiting, { startedAt: 20, count: 2 });
+  assert.equal(shellFor({ busy: false, status: 'idle', turns, subagents: children, subagentWaiting: { parentTurnId: 'turn-1', startedAt: 20 } }).subagentWaiting, null,
+    'a stale persisted wait is hidden after the parent turn ends');
+  assert.equal(shellFor({ busy: true, status: 'running', turns, subagents: children, subagentWaiting: { parentTurnId: 'turn-1', startedAt: 20 } }, 'ja').statusText, '複数のサブエージェントの完了を待機中');
+});
+
 test('message projection omits empty collections and planning can display the last saved plan', () => {
   const projected = toViewMessage({
     id: 'empty-meta', role: 'tool', text: '', meta: { type: 'files', files: [], todos: [] },

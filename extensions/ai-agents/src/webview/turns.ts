@@ -165,6 +165,7 @@ export function buildTurns(messages: readonly ViewMessage[], busy: boolean, pend
   const groups = new Map<string, ViewMessage[]>();
   let current = '';
   for (const message of messages) {
+    if (message.subagentId) continue;
     if (message.role === 'user') current = message.id;
     const key = message.turnId ?? current;
     if (!groups.has(key)) { groups.set(key, []); order.push(key); }

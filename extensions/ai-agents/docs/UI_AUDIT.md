@@ -1,39 +1,39 @@
-# 0.10.0 UI audit (2026-10-17)
+# 0.10.0 UI監査（2026-10-17）
 
-## Comparison scope
+## 比較範囲
 
-The current task's video binary was not available to the audit agent. The comparison below uses the behavior explicitly described in the request, not a claim that the video was replayed. Earlier UI_GAP_ANALYSIS.md describes 0.4.0 and is historical evidence.
+今回の依頼で参照する動画ファイルは監査時に利用できませんでした。以下は依頼文に明記された動作仕様との比較であり、動画を再生して確認したという意味ではありません。以前のUI_GAP_ANALYSIS.mdは0.4.0当時の状態を記録したものです。
 
-| Requested Cursor IDE behavior | Current extension at audit HEAD |
+| Cursor IDEに求められる動作 | 監査時のHEADにおける拡張機能の状態 |
 | --- | --- |
-| Agent / Plan / Debug / Multitask / Ask | Backend capability-driven modes; no cosmetic Debug/Multitask labels added. |
-| Model hierarchy, search, descriptions, Fast | Webview ModelMenu already supports root parameter controls, nested model selection, aliases/search, descriptions and capability-provided toggles. Narrow widths drill into one menu. Model categories not supplied by backend are not invented. |
-| Central new-chat Composer | New-chat action opens chat; Composer stays in bottom dock with empty-state hint above. Central placement remains a UI gap. |
-| First-send transition to conversation | Current new-chat action enters chat before first send; sending populates transcript in the same view. |
-| Running progress / bottom Composer | Tool/status logs and running state exist, Stop and queue are available. “Planning next moves” is a progress event, not sufficient to complete an extension Plan. |
-| New Agent editor tab | No WebviewPanel added in this reliability pass. Shared-session editor surface remains follow-up scope. |
+| Agent / Plan / Debug / Multitask / Ask | BackendのCapabilitiesに基づいてモードを表示します。Debug/Multitaskの見せかけのラベルは追加していません。 |
+| モデル階層、検索、説明、Fast | WebviewのModelMenuは、最上位のパラメーター操作、階層型モデル選択、別名・検索、説明、Capabilitiesが提供する切り替え項目に対応済みです。狭い幅ではメニューを1階層ずつ表示します。Backendが返さないモデル分類は作りません。 |
+| 新規チャットの中央Composer | 新規チャット操作でChatを開き、Composerは下部に固定します。空の状態では上にヒントを表示します。Composerを中央に置く点は未対応です。 |
+| 最初の送信後の会話表示 | 現在は最初の送信前にChatへ移動し、送信後は同じ画面の履歴に内容を表示します。 |
+| 実行中の進捗と下部Composer | ツール・状態ログと実行状態があり、Stopとキューを利用できます。「次の手順を計画中」という進捗イベントだけでは、拡張機能のPlanを完了扱いにしません。 |
+| 新しいAgentエディタータブ | 今回の信頼性改修ではWebviewPanelを追加していません。複数画面で共有するセッション表示は今後の対象です。 |
 
-## Fixed and reproduced with DOM regression tests
+## DOM回帰テストで再現・修正した問題
 
-- A sent draft was cleared only in the textarea. `setState` still contained the pre-send text, so recreating the Webview could resurrect an already submitted prompt. Composer now notifies the persistence callback after send/queue and ArrowUp recall.
-- Empty/new conversation rendering never reset the prior prompt used by ArrowUp. The prior conversation's prompt could be recalled. Empty history now explicitly clears it.
-- Model catalog cache and outstanding request IDs were scoped only by provider/workspace when receiving a reply. A backend/session switch with the same provider and workspace could reuse stale options. Identity changes now clear the cache, close the menu and invalidate outstanding request IDs.
+- 送信後、入力欄だけが空になり、`setState`には送信前の文章が残っていました。そのためWebviewを作り直すと送信済みプロンプトが復活する可能性がありました。現在は送信・キュー登録・ArrowUpによる再呼び出しの後、Composerが保存コールバックを呼びます。
+- 新規または空の会話を表示しても、ArrowUpで呼び出す前回プロンプトがリセットされていませんでした。以前の会話のプロンプトを再利用できてしまうため、空の履歴では明示的に消去します。
+- モデルカタログのキャッシュと未完了リクエストIDを、返信時にProviderとworkspaceだけで判定していました。同じProviderとworkspaceのままBackendやセッションを切り替えると、古い選択肢を再利用する可能性がありました。現在は識別情報が変わるとキャッシュを消去し、メニューを閉じ、未完了リクエストIDを無効にします。
 
-Files: `src/webview/app.ts`, `src/webview/composer.ts`, `test/webview/ui.test.ts`.
+変更ファイル: `src/webview/app.ts`、`src/webview/composer.ts`、`test/webview/ui.test.ts`。
 
-The existing draft is still Webview-scoped (preserved when navigating history); this pass does not introduce per-conversation attachment/draft persistence.
+下書きは引き続きWebview単位で保持し、履歴を移動しても維持します。今回の変更では、会話ごとの添付ファイルや下書きの永続化は追加していません。
 
-## Verification evidence and limits
+## 検証結果と制限
 
-- `npx tsx --test test/webview/ui.test.ts`: 25/25 pass, including the two new tests covering the three defects above. Happy DOM assertions are not visual pixel/layout verification.
-- `npm run test:integration`: pass in the installed VS Code Extension Development Host. The suite verifies Webview ready/probe, SDK subprocess answers/follow-up, Stop, queue, history/provider switch, model application, file links and terminal attach/detach. These use fixture backends, not live provider inference.
-- Added opt-in `AI_AGENTS_GUI_MOCK_HOLD=1 npm run test:integration`: disposable fixture workspace and profile are held for native UI review until `ui-done` is created. This mode launches no paid inference. An Extension Host assertion writes `GUI clipboard 日本語 😀` through the real copy handler, verifies the OS clipboard, and restores its previous content. This passed (`/private/tmp/ai-agents-gui-audit.log`, `GUI_MOCK_READY`).
-- Native CUA attempt did not reach the held Extension Host: `com.microsoft.VSCode` was ambiguous between installed and `.vscode-test` app bundles; selecting the installed full path bound an unrelated empty VS Code window, whose Window menu exposed only itself. Selecting the test app path timed out. Do not count this as successful GUI verification.
-- Therefore native click-driven send/copy/model/restore and exact 300px/390px Dark/Light checks remain **unverified in this pass**. Existing DOM tests contain narrow-width menu and terminal/Plan structural assertions but cannot establish real clipping, contrast or pointer behavior. No screenshots of the unrelated window are presented as extension evidence.
+- `npx tsx --test test/webview/ui.test.ts`: 25/25件成功。上記3つの問題を対象とした新規テスト2件を含みます。Happy DOMによる検証は、実際の画素やレイアウトの目視確認ではありません。
+- `npm run test:integration`: インストール済みVS Code Extension Development Hostで成功しました。Webviewのready/probe、SDK subprocessの回答と追加送信、Stop、キュー、履歴とProvider切替、モデル適用、ファイルリンク、ターミナルの接続・解除を検証します。実Providerの推論ではなくfixture用Backendを使用します。
+- 任意で有効にできる`AI_AGENTS_GUI_MOCK_HOLD=1 npm run test:integration`を追加しました。破棄可能なfixture用workspaceとprofileを、`ui-done`が作成されるまでネイティブUI確認用に保持します。このモードでは有料推論を起動しません。Extension Hostの検査では、実際のコピー処理を通じて`GUI clipboard 日本語 😀`をOSクリップボードへ書き込み、内容を照合してから元の内容に戻しました。この確認は成功しました（`/private/tmp/ai-agents-gui-audit.log`、`GUI_MOCK_READY`）。
+- Native CUA操作では対象のExtension Hostに到達できませんでした。`com.microsoft.VSCode`がインストール済みアプリと`.vscode-test`のアプリバンドルを指す可能性があり、インストール済みアプリのフルパスを選ぶと拡張機能とは無関係な空のVS Codeウィンドウに接続されました。そのウィンドウのWindowメニューには自分自身しか表示されませんでした。テスト用アプリのパスを選んだ場合はタイムアウトしました。GUI検証成功として数えません。
+- そのため、ネイティブ操作による送信・コピー・モデル選択・復元と、正確に300px/390pxで表示したDark/Lightテーマの確認は、**今回未検証**です。既存DOMテストでは狭幅メニューやターミナル・Planの構造を確認しますが、実際のはみ出し、コントラスト、ポインター操作は判定できません。無関係なウィンドウのスクリーンショットを拡張機能の証拠として示していません。
 
-Final normal Extension Host rerun after the controller/sidebar acknowledgment changes: pass, exit 0 (`/private/tmp/ai-agents-ui-final-integration.log`). Independent review additionally flagged asynchronous sidebar operations that must capture the target conversation before awaiting mode/model discovery; this finding was forwarded to the lead for fixes and final validation.
+Controller/Sidebarの確認応答処理を変更した後に、通常のExtension Host統合テストを再実行して成功しました（終了コード0、`/private/tmp/ai-agents-ui-final-integration.log`）。別のレビューでは、モードやモデルの情報取得を待つ前に対象会話を固定する必要がある非同期Sidebar操作も指摘されました。この指摘は修正と最終検証のため担当者へ共有されました。
 
-The final rerun after provider stabilization and the `setBuildModel` target/plan-id/revision guard also passed, exit 0 at 2026-10-17 02:34:01 UTC. The Build model picker now discards discovery results if the user changed conversations or the plan was revised/built while discovery was pending. Configure and Build acknowledgment handling was independently reviewed; target capture and deferred publication address the reported cross-conversation races. This fixture integration does not prove native pointer behavior or live model acknowledgment.
+Providerの安定化と`setBuildModel`の対象・plan-id・revision確認処理を加えた後の最終テストも、2026-10-17 02:34:01 UTCに成功しました（終了コード0）。モデル情報の取得中に会話が切り替わった場合や、Planが改訂・Buildされた場合、Build用モデル選択メニューは古い取得結果を破棄します。ConfigureとBuildの確認応答処理も独立してレビューされました。対象の固定と画面への反映を遅らせる処理で、報告された会話間競合に対処しています。このfixtureによる統合テストは、ネイティブのポインター操作や実モデルの確認応答を証明するものではありません。
 
 
 ## 最終再監査の追加（2026-10-17）

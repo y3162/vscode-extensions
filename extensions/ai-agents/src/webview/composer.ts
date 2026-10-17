@@ -50,6 +50,7 @@ export class Composer {
     private readonly post: Post,
     private readonly menu: Menu,
     private readonly onNavigate: (panel: 'settings' | 'history' | 'chat') => void,
+    subagentSlot?: HTMLElement,
   ) {
     this.banner = dom.el('div', 'banner');
     this.banner.hidden = true;
@@ -95,7 +96,7 @@ export class Composer {
     file.multiple = true;
     file.hidden = true;
     file.addEventListener('change', () => { this.addImages(file.files); file.value = ''; });
-    parent.append(this.banner, this.changes, form, this.env, file);
+    parent.append(this.banner, this.changes, ...(subagentSlot ? [subagentSlot] : []), form, this.env, file);
     this.modelMenu = new ModelMenu(dom, menu.element.parentElement ?? parent);
     this.fileInput = file;
     form.addEventListener('submit', (event) => event.preventDefault());

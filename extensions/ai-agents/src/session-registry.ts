@@ -38,7 +38,7 @@ export class SessionRegistry {
     for (const entry of this.items.values()) {
       const state = entry.controller.snapshot();
       if (entry.controller.sessionId() !== sessionId) continue;
-      if (state.pendingPermission || state.pendingPlan || state.pendingQuestion) return 'waiting';
+      if (state.pendingPermission || state.pendingPlan || state.pendingQuestion || state.subagentWaiting) return 'waiting';
       if (state.busy || state.status === 'running' || state.status === 'cancelling' || entry.controller.hasLiveChildren() || entry.controller.hasLiveTerminals()) return 'running';
       if (state.status === 'error') return 'error';
       return 'idle';

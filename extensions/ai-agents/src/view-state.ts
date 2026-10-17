@@ -119,13 +119,19 @@ function statusText(state: ChatState, locale: 'ja' | 'en', folderReady: boolean)
     'rewind-prepare': ja ? '編集した依頼を準備中…' : 'Preparing edited prompt…',
     'rewind-send': ja ? '編集した依頼を実行中…' : 'Running edited prompt…',
   } as const)[state.operationLabel] : undefined;
+  const confirmedSubagentWait = Boolean(state.busy && state.subagentWaiting && state.subagentWaiting.parentTurnId === state.turns.at(-1)?.id);
+  const waitingChildCount = confirmedSubagentWait
+    ? state.subagents.filter((item) => item.parentTurnId === state.subagentWaiting?.parentTurnId && (item.status === 'running' || item.status === 'unknown')).length : 0;
+  const waitingForChildren = confirmedSubagentWait
+    ? (ja ? waitingChildCount > 1 ? '複数のサブエージェントの完了を待機中' : 'サブエージェントの完了を待機中'
+      : waitingChildCount > 1 ? 'Waiting for subagents' : 'Waiting for subagent') : undefined;
   const base = operation ?? (waiting ? (ja ? '承認待ち' : 'Waiting for approval')
-    : state.status === 'cancelling' ? (ja ? '停止中…' : 'Stopping…')
+    : waitingForChildren ?? (state.status === 'cancelling' ? (ja ? '停止中…' : 'Stopping…')
       : state.status === 'restoring' ? (ja ? '復元中…' : 'Restoring…')
         : state.status === 'error' ? (ja ? 'エラー' : 'Error')
           : state.busy || state.status === 'running' ? (ja ? '実行中…' : 'Running…')
             : folderReady ? (ja ? '準備完了' : 'Ready')
-              : (ja ? '作業フォルダを開いてください' : 'Open a workspace folder'));
+              : (ja ? '作業フォルダを開いてください' : 'Open a workspace folder')));
   const usage = state.usage ? ` · in ${state.usage.inputTokens} / out ${state.usage.outputTokens}` : '';
   return base + usage;
 }
@@ -181,7 +187,8 @@ export function buildShell(source: ShellSource): ViewShell {
   const access = accessOf(source);
   const changes = state.changes.map((change) => presentChange(change, source.folders.map((item) => item.path)));
   const waiting = Boolean(state.pendingPermission || state.pendingPlan || state.pendingQuestion);
-  const presence: ViewShell['presence'] = waiting ? 'waiting'
+  const confirmedSubagentWait = Boolean(state.busy && state.subagentWaiting && state.subagentWaiting.parentTurnId === state.turns.at(-1)?.id);
+  const presence: ViewShell['presence'] = waiting || confirmedSubagentWait ? 'waiting'
     : state.status === 'error' ? 'error'
       : state.busy || state.status === 'running' || state.status === 'cancelling' || state.status === 'restoring' ? 'running'
         : 'idle';
@@ -246,15 +253,27 @@ export function buildShell(source: ShellSource): ViewShell {
     })),
     subagents: state.subagents.map((item): ViewSubagent => ({
       id: item.id,
+      ...(item.parentTurnId ? { parentTurnId: item.parentTurnId } : {}),
       ...(item.agentId ? { agentId: item.agentId } : {}),
       ...(item.model ? { model: item.model } : {}),
       name: item.name,
       ...(item.task ? { task: item.task } : {}),
+      ...(item.taskOmitted ? { taskOmitted: true } : {}),
       status: item.status,
       background: item.background,
+      ...(item.progress ? { progress: item.progress } : {}),
+      ...(item.startedAt !== undefined ? { startedAt: item.startedAt } : {}),
+      ...(item.endedAt !== undefined ? { endedAt: item.endedAt } : {}),
       ...(item.durationMs !== undefined ? { durationMs: item.durationMs } : {}),
       ...(item.resultPreview ? { resultPreview: item.resultPreview } : {}),
+      ...(item.error ? { error: item.error } : {}),
+      ...(item.historyOmitted ? { historyOmitted: true } : {}),
     })),
+    subagentWaiting: confirmedSubagentWait ? {
+      startedAt: state.subagentWaiting!.startedAt,
+      ...(state.subagents.filter((item) => item.parentTurnId === state.subagentWaiting!.parentTurnId && (item.status === 'running' || item.status === 'unknown')).length
+        ? { count: state.subagents.filter((item) => item.parentTurnId === state.subagentWaiting!.parentTurnId && (item.status === 'running' || item.status === 'unknown')).length } : {}),
+    } : null,
     terminals: state.terminals.map((item): ViewTerminal => ({
       processId: item.processId,
       ...(item.output ? { output: item.output } : {}),
@@ -297,6 +316,7 @@ export function toViewMessage(message: ChatMessage, canRewind = false): ViewMess
     role: message.role,
     text: message.text,
     ...(message.turnId ? { turnId: message.turnId } : {}),
+    ...(message.subagentId ? { subagentId: message.subagentId } : {}),
     ...(message.failure ? { failure: message.failure } : {}),
     ...(message.role === 'user' ? { canRewind } : {}),
     ...(message.at !== undefined ? { at: message.at } : {}),
@@ -312,12 +332,21 @@ export function toViewMessage(message: ChatMessage, canRewind = false): ViewMess
         ...(meta.imagePath ? { imagePath: meta.imagePath } : {}),
         ...(meta.subagent ? { subagent: {
           id: meta.subagent.id,
+          ...(meta.subagent.parentTurnId ? { parentTurnId: meta.subagent.parentTurnId } : {}),
+          ...(meta.subagent.agentId ? { agentId: meta.subagent.agentId } : {}),
+          ...(meta.subagent.model ? { model: meta.subagent.model } : {}),
           name: meta.subagent.name,
           ...(meta.subagent.task ? { task: meta.subagent.task } : {}),
+          ...(meta.subagent.taskOmitted ? { taskOmitted: true } : {}),
           status: meta.subagent.status,
           background: meta.subagent.background,
+          ...(meta.subagent.startedAt !== undefined ? { startedAt: meta.subagent.startedAt } : {}),
+          ...(meta.subagent.endedAt !== undefined ? { endedAt: meta.subagent.endedAt } : {}),
+          ...(meta.subagent.progress ? { progress: meta.subagent.progress } : {}),
           ...(meta.subagent.durationMs !== undefined ? { durationMs: meta.subagent.durationMs } : {}),
           ...(meta.subagent.resultPreview ? { resultPreview: meta.subagent.resultPreview } : {}),
+          ...(meta.subagent.error ? { error: meta.subagent.error } : {}),
+          ...(meta.subagent.historyOmitted ? { historyOmitted: true } : {}),
         } } : {}),
       },
     } : {}),

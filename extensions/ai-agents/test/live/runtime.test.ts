@@ -45,6 +45,12 @@ for (const backend of ['app-server', 'acp'] as const) {
       await session.run('Explicit parallel verification: launch TWO independent child agents concurrently, alpha and beta, before waiting for either. Each must run a safe shell command printing its name and a timestamp, sleep 6 seconds, then print its name and another timestamp. No file changes. Launch both, then wait for both using your supported tools and return actual results. Do not simulate tasks.', AbortSignal.timeout(200000), (update) => updates.push({ at: Date.now(), update }));
       const children = new Map(updates.flatMap(({ update }) => update.meta?.subagent ? [[update.meta.subagent.id, update.meta.subagent] as const] : []));
       console.log('RUNTIME_CHILD_STATES', backend, JSON.stringify([...children.values()].map(({ id, agentId, status, name }) => ({ id, agentId, status, name }))));
+      if (backend === 'app-server') {
+        const waitEvents = updates.flatMap(({ update }) => update.meta?.type === 'subagentWait' && update.meta.subagentWait ? [update.meta.subagentWait.waiting] : []);
+        console.log('RUNTIME_SUBAGENT_WAIT_EVENTS', JSON.stringify(waitEvents));
+        assert.ok(waitEvents.includes(true), 'the App Server must publish an explicit active wait item');
+        assert.ok(waitEvents.includes(false), 'the completed wait item must clear the parent wait state');
+      }
       assert.ok(children.size >= 2);
       const intervals = [...children.values()].filter((child) => child.status === 'completed').map((child) => ({ id: child.agentId ?? child.id, model: child.model, startedAt: child.startedAt, endedAt: child.endedAt, durationMs: child.durationMs }));
       assert.ok(intervals.length >= 2);

@@ -1,15 +1,15 @@
-# Runtime audit — AI Agents 0.10.0
+# AI Agents 0.10.0 ランタイム監査
 
 2026-10-17。対象: Cursor SDK background lease、SDK terminal logs、Terminal Panel mirror、実ランタイムの子・Plan/Build・背景実行。GUI の成否とは別の証拠である。
 
 ## 実装監査と修正
 
-- `CursorBackgroundRuntime.release()` は、自然終了して dispose 済みの executor に SDK の後続 cleanup が来た場合、同じ executor を再び dispose していた。worker disposal 後も同様。`WeakSet` で cleanup 済みの executor を記録し、実 cleanup を一度だけ行う。live executor の保持・PID と shell ID による interrupt の制限は維持する。
+- `CursorBackgroundRuntime.release()` は、自然終了してdispose済みのexecutorにSDKから後続cleanupが来た場合、同じexecutorを再びdisposeしていました。workerを破棄した後も同様でした。`WeakSet`でcleanup済みのexecutorを記録し、実際のcleanupを一度だけ行います。実行中executorの保持と、PID・shell IDに基づくinterruptの制限は維持します。
 - SDK terminal log の本文先頭に exit footer がある場合と CRLF の場合に、終了コードが欠落していた。header は両形式を許可するのに footer だけ LF と先行改行を必須にしていたため。footer も両改行形式・本文先頭に対応した。
 - Terminal Panel の mirror は新しいプロセスを起動せず、既存 process ID を購読する。Ctrl+C はその process ID の interrupt、view の close は購読解除だけ。遅れて返る list が新しい output を上書きしない回帰テストが既存である。
 - Cursor の terminal logs は `~/.cursor/projects/<workspace>/terminals` を参照し、workspace directory の絞り込みと初回 PID が worker の子孫であることの確認で所有範囲を制限する。worker 専用 data directory ではない。interrupt も native manager の shell ID と PID、または再確認した ancestry に限定する。
 
-## SDK patch の安全条件
+## SDKパッチの安全条件
 
 `scripts/cursor-runtime-patch.mjs` は SDK `1.0.37` と `dist/cjs/464.js` の SHA256 `dfda676be168412734925d3803ce712a335a16109ba1e161f437584ab92b8906` に固定する。元の cleanup expression が一箇所だけであることも要求する。version・hash 不一致は build を失敗させる。SDK のインストール元を直接変更せず build output にコピーして patch する。
 
@@ -17,18 +17,18 @@
 
 ## 実行環境
 
-- Cursor CLI: `~/.local/bin/agent`、`2026.06.26-7079533`。
+- Cursor CLIの実行ファイル: `~/.local/bin/agent`、バージョン`2026.06.26-7079533`。
 - PATH Codex: `~/.local/bin/codex`、`0.163.0`。拡張機能の default は依存の bundled CLI `0.162.1` なので区別する。
 - モデル: runtime suite は実 model list に `composer-2.5` / `gpt-6-luna` があることを確認してから使う。
 - inference は既存認証によるローカル CLI / App Server。クラウド上の agent job は作成しない。各 test は OS の temp directory 配下の `ai-agents-runtime-*` の隔離 Git workspace と session disposal による cleanup を持つ。
 
 ## テスト証拠
 
-`npx tsx --test test/providers/cursor/cursor-background-runtime.test.ts test/providers/cursor/cursor-terminals.test.ts test/core/terminal-monitor.test.ts`: **11 passed / 0 failed**。sandbox の tsx IPC `EPERM` を受け、承認された sandbox 外実行で確認した。patch の version/hash 拒否と、置換を戻すと元ソースと完全一致することも成功した。共有 Cursor directory 内の他 worker の PID は一覧に登録せず interrupt も呼ばないことを追加検証した。
+`npx tsx --test test/providers/cursor/cursor-background-runtime.test.ts test/providers/cursor/cursor-terminals.test.ts test/core/terminal-monitor.test.ts`: **11件成功 / 0件失敗**。sandbox内でtsx IPCが`EPERM`になったため、承認を得てsandbox外で確認しました。patchがversion/hashの不一致を拒否すること、置換を戻すと元ソースと完全に一致することも検証しました。共有Cursor directory内にある別workerのPIDを一覧に登録せず、interruptも呼び出さないことを追加確認しました。
 
-`npm run test:runtime`: **12 passed / 0 failed / 0 skipped**、375.44 秒。既存認証・sandbox を維持して実 CLI / App Server で実行した。
+`npm run test:runtime`: **12件成功 / 0件失敗 / 0件スキップ**、375.44秒。既存の認証とsandboxを維持し、実CLI / App Serverで実行しました。
 
-| Live case | Result |
+| ライブ検証項目 | 結果 |
 | --- | --- |
 | App Server 2 子並列 | 成功。異なる thread ID、`gpt-6-luna`、処理時間 9,771 / 10,769 ms、区間の重なりを確認 |
 | Cursor ACP 2 子並列 | 成功。異なる tool ID / agent ID、backend が返した子モデルは両方 `composer-2.5-fast`、処理時間 14,870 / 14,841 ms。親の `composer-2.5` から推定していない |

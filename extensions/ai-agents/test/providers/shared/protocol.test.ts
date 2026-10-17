@@ -6,7 +6,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { createCodexAppServerSession } from '../../../src/providers/codex-app-server.js';
 import { createCursorAcpSession } from '../../../src/providers/cursor-acp.js';
-import type { AgentUpdate } from '../../../src/types.js';
+import type { AgentUpdate, ChatMessage } from '../../../src/types.js';
 import { ChatController } from '../../../src/chat-controller.js';
 
 async function fixture(name: string) {
@@ -93,8 +93,13 @@ test('Codex App Server streams deltas, lists threads, and returns an approval de
       const child = spawned.filter((update) => update.meta?.type === 'subagent' && update.meta.subagent?.id === 'child-thread').at(-1);
       assert.equal(child?.meta?.subagent?.status, 'completed');
       assert.match(child?.meta?.subagent?.resultPreview ?? '', /child result/);
+      assert.equal(child?.meta?.subagent?.parentTurnId, 'turn-spawn');
       assert.equal(spawned.some((update) => update.role === 'assistant' && update.text.includes('child result')), false);
       assert.equal(new Set(spawned.filter((update) => update.meta?.subagent).map((update) => update.meta!.subagent!.id)).size, 1);
+      const restoredChild: ChatMessage[] = [];
+      await session.loadTranscript?.((message) => restoredChild.push(message));
+      assert.ok(restoredChild.some((message) => message.subagentId === 'child-thread' && message.tool?.kind === 'shell' && /restored child output/.test(message.text)));
+      assert.ok(restoredChild.some((message) => message.subagentId === 'child-thread' && message.final && message.text === 'Restored child result'));
       assert.equal((await session.listSessions?.())?.[0]?.title, 'Fixture');
       assert.match(await session.rateLimits?.() ?? '', /12%/);
       assert.match(await session.instructions?.() ?? '', /fixture-skill/);
@@ -112,7 +117,7 @@ test('Codex App Server streams deltas, lists threads, and returns an approval de
   } finally { await cleanup(); }
 });
 
-test('synthetic App Server activities identify two children and ignore wait calls and start-item completion', { timeout: 15000 }, async () => {
+test('synthetic App Server activities identify two children, expose explicit waits, and retain child logs', { timeout: 15000 }, async () => {
   const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
   const updates: AgentUpdate[] = [];
   const session = await createCodexAppServerSession({ provider: 'codex', cwd, model: 'fixture', storagePath: cwd, codexPath: command });
@@ -126,12 +131,30 @@ test('synthetic App Server activities identify two children and ignore wait call
     assert.match([...children.values()].find((item) => item.id === 'child-alpha')?.resultPreview ?? '', /alpha result/);
     assert.match([...children.values()].find((item) => item.id === 'child-beta')?.resultPreview ?? '', /beta result/);
     assert.equal(updates.some((item) => item.meta?.subagent?.status === 'completed' && !/result/.test(item.meta.subagent.resultPreview ?? '')), false);
-    assert.equal(updates.some((item) => item.role === 'assistant' && /alpha|beta/.test(item.text)), false);
+    assert.equal(updates.some((item) => item.role === 'assistant' && !item.subagentId && /alpha|beta/.test(item.text)), false);
+    assert.deepEqual(updates.filter((item) => item.meta?.type === 'subagentWait').map((item) => item.meta?.subagentWait?.waiting), [true, false, true, false]);
+    const childLogs = updates.filter((item) => item.subagentId);
+    assert.ok(childLogs.some((item) => item.subagentId === 'child-alpha' && item.tool?.kind === 'shell' && /alpha result/.test(item.text)));
+    assert.ok(childLogs.some((item) => item.subagentId === 'child-beta' && item.role === 'assistant' && /beta result/.test(item.text)));
     for (const id of ['child-alpha', 'child-beta']) {
       const rows = updates.filter((item) => item.meta?.subagent?.id === id);
       assert.equal(rows[0]?.meta?.subagent?.status, 'running');
     }
   } finally { unsubscribe(); await session.dispose(); await cleanup(); }
+});
+
+test('App Server restore rediscovers child thread IDs from parent history and reloads child events', { timeout: 10000 }, async () => {
+  const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
+  const session = await createCodexAppServerSession({ provider: 'codex', cwd, model: 'fixture', storagePath: cwd, codexPath: command, resumeId: 'thread-restore-child' });
+  try {
+    const replay: ChatMessage[] = [];
+    await session.loadTranscript?.((message) => replay.push(message));
+    const child = replay.find((message) => message.meta?.subagent?.id === 'child-thread');
+    assert.equal(child?.meta?.subagent?.status, 'completed');
+    assert.equal(child?.backendTurnId, 'parent-turn');
+    assert.ok(replay.some((message) => message.subagentId === 'child-thread' && message.tool?.kind === 'shell' && /restored child output/.test(message.text)));
+    assert.ok(replay.some((message) => message.subagentId === 'child-thread' && message.final && message.text === 'Restored child result'));
+  } finally { await session.dispose(); await cleanup(); }
 });
 
 test('synthetic ACP task requests enrich the existing running card', { timeout: 15000 }, async () => {

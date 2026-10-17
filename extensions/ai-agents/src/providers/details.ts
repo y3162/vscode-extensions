@@ -1,7 +1,7 @@
 import type { SDKMessage } from '@cursor/sdk';
 import type { ThreadItem } from '@openai/codex-sdk';
 import { normalizeChangeKind, previewUnifiedDiff } from '../diff-stats.js';
-import type { FileChange, TodoEntry, UpdateMeta, UsageStats } from '../types.js';
+import { redactSecrets, type FileChange, type TodoEntry, type UpdateMeta, type UsageStats } from '../types.js';
 
 export function addUsage(current: UsageStats | null, next: UsageStats): UsageStats {
   const result: UsageStats = { ...next, inputTokens: (current?.inputTokens ?? 0) + next.inputTokens, outputTokens: (current?.outputTokens ?? 0) + next.outputTokens };
@@ -151,6 +151,22 @@ export function cursorMeta(event: SDKMessage): UpdateMeta | undefined {
 
 export function lightMeta(meta: UpdateMeta | undefined): UpdateMeta | undefined {
   if (!meta) return undefined;
+  if (meta.type === 'subagent' && meta.subagent) {
+    const task = meta.subagent.task ? redactSecrets(meta.subagent.task) : undefined;
+    const resultPreview = meta.subagent.resultPreview ? redactSecrets(meta.subagent.resultPreview).slice(0, 500) : undefined;
+    const progress = meta.subagent.progress ? redactSecrets(meta.subagent.progress).slice(0, 180) : undefined;
+    const error = meta.subagent.error ? redactSecrets(meta.subagent.error).slice(0, 4000) : undefined;
+    return {
+      ...meta,
+      subagent: {
+        ...meta.subagent,
+        ...(task ? { task: task.slice(0, 12000), ...(task.length > 12000 ? { taskOmitted: true } : {}) } : {}),
+        ...(resultPreview ? { resultPreview } : {}),
+        ...(progress ? { progress } : {}),
+        ...(error ? { error } : {}),
+      },
+    };
+  }
   if (meta.type !== 'files' || !meta.files) return meta;
   return {
     ...meta,

@@ -32,7 +32,7 @@
 
 `test/integration/reliability-host.ts` は従来の「会話中に1回答あれば成功」を廃し、全3ターンのcompleted・非空final Assistantを必須化。再起動後も全3回答を検査し4ターン目を送信する。Cursorモデルもautoからcomposer-2.5へ統一。
 
-検証結果と残存リスクは [今回の検証記録](VERIFICATION.md#final-audit) を参照。最終判断は主要全経路GUIと障害・副作用の組合せ受入が未完了のため **No-Go**。中央Composer・editorタブの不在は理由に含めない。
+検証結果と残存リスクは[今回の検証記録](VERIFICATION.md#final-audit)を参照してください。主要経路すべてのGUI検証と、障害・副作用を組み合わせた受け入れが未完了のため、最終判断は**移行見送り（No-Go）**です。中央Composerやeditorタブがないことは理由に含めません。
 
 ---
 
@@ -106,9 +106,9 @@ ACPが広告したComposer 2.5のモデルIDは `composer-2.5[fast=true]`。親�
 
 文書: `CHANGELOG.md`, `docs/VERIFICATION.md`, `docs/FEATURE_MATRIX.md`, 本書およびProvider / Runtime / UIの各監査書。
 
-## 5. GUI・未対応・Go / No-Go
+## 5. GUI・未対応事項・移行可否
 
-**v1.0.0はNo-Go。** 実行経路の修復とライブ回帰は進んだが、以下が残る。
+**v1.0.0への移行は見送り（No-Go）です。** 実行経路の修復とライブ回帰は進みましたが、以下が残っています。
 
 - 操作ツールで検証用Extension Hostウィンドウを特定できず、300px / 390px・Dark / Lightの実画面とクリック操作による送信・コピー・モデル変更・復元は未検証。テスト用DOM・実Clipboard・Host結合の成功をGUI目視の代用にはしない。
 - 動画そのものとのフレーム比較は未実施。中央Composer、New Agent editor surface、会話ごとのdraft/添付保存は追加変更へ分離。
