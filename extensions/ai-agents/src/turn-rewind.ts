@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { chmod, lstat, mkdir, open, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { TurnFileSnapshot, TurnRecord } from './types.js';
+import { errorMessage, type TurnFileSnapshot, type TurnRecord } from './types.js';
 
 const maxFileBytes = 500_000;
 const maxTurnBytes = 2_000_000;
@@ -36,9 +36,57 @@ export interface TurnRewindJournal {
 }
 
 export interface FileValue { text: string | null; mode: number | null }
+type ReadWorkspaceBytes = (file: string) => Promise<Buffer>;
 
 function equalValue(left: FileValue, right: FileValue): boolean {
   return left.text === right.text && left.mode === right.mode;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function validText(value: unknown): value is string | null {
+  return value === null || typeof value === 'string' && Buffer.byteLength(value) <= maxFileBytes && !value.includes('\0');
+}
+
+function validMode(value: unknown): value is number | null {
+  return value === null || Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 0o777;
+}
+
+function validateJournal(value: unknown): asserts value is TurnRewindJournal {
+  if (!isRecord(value) || value.version !== 1 || typeof value.conversationId !== 'string' || !value.conversationId
+    || typeof value.branchId !== 'string' || !value.branchId || typeof value.cwd !== 'string' || !path.isAbsolute(value.cwd)
+    || path.resolve(value.cwd) !== value.cwd || !Array.isArray(value.files) || value.files.length > 4096) {
+    throw new Error('Invalid turn rewind journal.');
+  }
+  const paths = new Set<string>();
+  const temporaryPaths = new Set<string>();
+  let bytes = 0;
+  for (const entry of value.files) {
+    if (!isRecord(entry) || typeof entry.path !== 'string' || typeof entry.tempPath !== 'string'
+      || !validText(entry.beforeText) || !validText(entry.expectedText) || !validText(entry.backupText)
+      || !validMode(entry.beforeMode) || !validMode(entry.expectedMode) || !validMode(entry.backupMode)) {
+      throw new Error('Invalid turn rewind journal.');
+    }
+    let relative: string;
+    let tempRelative: string;
+    try {
+      relative = workspaceRelativePath(value.cwd, entry.path);
+      tempRelative = workspaceRelativePath(value.cwd, entry.tempPath);
+    } catch { throw new Error('Invalid turn rewind journal.'); }
+    const tempName = path.basename(tempRelative);
+    if (relative !== entry.path || tempRelative !== entry.tempPath || paths.has(relative) || temporaryPaths.has(tempRelative)
+      || temporaryPaths.has(relative) || paths.has(tempRelative)
+      || path.dirname(relative) !== path.dirname(tempRelative)
+      || !/^\.ai-agents-rewind-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/i.test(tempName)) {
+      throw new Error('Invalid turn rewind journal.');
+    }
+    paths.add(relative);
+    temporaryPaths.add(tempRelative);
+    bytes += Buffer.byteLength(entry.beforeText ?? '') + Buffer.byteLength(entry.expectedText ?? '') + Buffer.byteLength(entry.backupText ?? '');
+    if (bytes > maxTurnBytes * 2) throw new Error('Invalid turn rewind journal.');
+  }
 }
 
 export function workspaceRelativePath(cwd: string, rawPath: string): string {
@@ -66,13 +114,13 @@ async function checkedFilePath(root: string, relative: string): Promise<string> 
   return path.join(root, safeRelative);
 }
 
-export async function readSafeWorkspaceFile(cwd: string, relative: string): Promise<FileValue> {
+export async function readSafeWorkspaceFile(cwd: string, relative: string, read: ReadWorkspaceBytes = readFile): Promise<FileValue> {
   const root = await realpath(cwd);
   const candidate = await checkedFilePath(root, relative);
   try {
     const info = await lstat(candidate);
     if (!info.isFile() || info.isSymbolicLink() || info.size > maxFileBytes) throw new Error(`A checkpoint file is not a small regular file: ${relative}`);
-    const bytes = await readFile(candidate);
+    const bytes = await read(candidate);
     if (bytes.length > maxFileBytes) throw new Error(`A checkpoint file is not a small regular file: ${relative}`);
     if (bytes.includes(0)) throw new Error(`A checkpoint file is binary: ${relative}`);
     const text = bytes.toString('utf8');
@@ -169,7 +217,6 @@ async function setFile(cwd: string, file: Pick<RewindJournalFile, 'path' | 'temp
   }
   if (value.mode === null) throw new Error(`A restored file has no recorded mode: ${file.path}`);
   const temporary = path.resolve(root, file.tempPath);
-  if (path.dirname(temporary) !== path.dirname(candidate)) throw new Error(`Invalid transaction temporary path: ${file.path}`);
   await writeFile(temporary, value.text, { encoding: 'utf8', mode: value.mode, flag: 'wx' });
   await chmod(temporary, value.mode);
   await rename(temporary, candidate);
@@ -208,6 +255,8 @@ export async function prepareTurnRewindJournal(
 }
 
 export async function restoreTurnRewindFiles(journal: TurnRewindJournal): Promise<void> {
+  validateJournal(journal);
+  if (await realpath(journal.cwd) !== journal.cwd) throw new Error('The workspace location changed since the rewind journal was written.');
   const applied: RewindJournalFile[] = [];
   try {
     for (const file of journal.files) {
@@ -227,7 +276,7 @@ export async function restoreTurnRewindFiles(journal: TurnRewindJournal): Promis
         const backup = { text: file.backupText, mode: file.backupMode };
         if (equalValue(current, target)) await setFile(journal.cwd, file, backup);
         else if (!equalValue(current, backup)) throw new Error(`The file changed during rollback: ${file.path}`);
-      } catch (restoreError) { failures.push(restoreError instanceof Error ? restoreError.message : String(restoreError)); }
+      } catch (restoreError) { failures.push(errorMessage(restoreError)); }
     }
     if (failures.length) throw new Error(`Rewind failed and file rollback was incomplete: ${failures.join('; ')}`, { cause: error });
     throw error;
@@ -237,6 +286,8 @@ export async function restoreTurnRewindFiles(journal: TurnRewindJournal): Promis
 }
 
 export async function rollbackTurnRewindJournal(journal: TurnRewindJournal): Promise<void> {
+  validateJournal(journal);
+  if (await realpath(journal.cwd) !== journal.cwd) throw new Error('The workspace location changed since the rewind journal was written.');
   const failures: string[] = [];
   for (const file of [...journal.files].reverse()) {
     try {
@@ -244,18 +295,19 @@ export async function rollbackTurnRewindJournal(journal: TurnRewindJournal): Pro
       const backup = { text: file.backupText, mode: file.backupMode };
       const expected = { text: file.expectedText, mode: file.expectedMode };
       const target = { text: file.beforeText, mode: file.beforeMode };
-      if (equalValue(current, backup)) continue;
-      if (!equalValue(current, expected) && !equalValue(current, target)) throw new Error(`The file changed after the interrupted rewind: ${file.path}`);
-      await setFile(journal.cwd, file, backup);
-    } catch (error) { failures.push(error instanceof Error ? error.message : String(error)); }
-    await cleanupTemporary(journal.cwd, file).catch((error) => failures.push(error instanceof Error ? error.message : String(error)));
+      if (!equalValue(current, backup)) {
+        if (!equalValue(current, expected) && !equalValue(current, target)) throw new Error(`The file changed after the interrupted rewind: ${file.path}`);
+        await setFile(journal.cwd, file, backup);
+      }
+    } catch (error) { failures.push(errorMessage(error)); }
+    await cleanupTemporary(journal.cwd, file).catch((error) => failures.push(errorMessage(error)));
   }
   if (failures.length) throw new Error(failures.join('; '));
 }
 
 export async function readTurnRewindJournal(file: string): Promise<TurnRewindJournal> {
-  const value = JSON.parse(await readFile(file, 'utf8')) as TurnRewindJournal;
-  if (value.version !== 1 || typeof value.conversationId !== 'string' || typeof value.branchId !== 'string' || typeof value.cwd !== 'string' || !Array.isArray(value.files)) throw new Error('Invalid turn rewind journal.');
+  const value: unknown = JSON.parse(await readFile(file, 'utf8'));
+  validateJournal(value);
   return value;
 }
 

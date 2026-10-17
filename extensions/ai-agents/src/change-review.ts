@@ -44,7 +44,7 @@ export async function captureBaseline(cwd: string, filePath: string, store: Map<
   const resolved = path.resolve(cwd, filePath);
   if (!isInsideWorkspace(resolved, [cwd]) || store.has(resolved)) return;
   try {
-    if (!await realInside(resolved, [cwd])) {
+    if (!await isRealPathInsideWorkspace(resolved, [cwd])) {
       store.set(resolved, { path: resolved, kind: 'update' });
       return;
     }
@@ -73,13 +73,17 @@ export async function captureBaseline(cwd: string, filePath: string, store: Map<
   }
 }
 
-async function realInside(candidate: string, roots: string[]): Promise<boolean> {
+export async function isRealPathInsideWorkspace(
+  candidate: string,
+  roots: string[],
+  resolveRealpath: (file: string) => Promise<string> = realpath,
+): Promise<boolean> {
   if (!isInsideWorkspace(candidate, roots)) return false;
-  const realRoots = await Promise.all(roots.map(async (root) => realpath(root).catch(() => path.resolve(root))));
+  const realRoots = await Promise.all(roots.map(async (root) => resolveRealpath(root).catch(() => path.resolve(root))));
   let current = path.resolve(candidate);
   for (;;) {
     try {
-      return isInsideWorkspace(await realpath(current), realRoots);
+      return isInsideWorkspace(await resolveRealpath(current), realRoots);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') return false;
       const parent = path.dirname(current);
@@ -108,12 +112,13 @@ function diffPaths(diff: string): string[] {
 
 export async function revertChange(change: FileChange, roots: string[]): Promise<void> {
   const resolved = resolveWorkspacePath(change.path, roots);
-  if (!await realInside(resolved, roots)) throw new Error('ワークスペース外のファイルは変更できません。');
+  if (!await isRealPathInsideWorkspace(resolved, roots)) throw new Error('ワークスペース外のファイルは変更できません。');
   if (change.kind === 'rename') {
     if (!change.oldPath || typeof change.previousText !== 'string') throw new Error('変更前のパスと内容が無いため、この移動は復元できません。');
-    const root = roots.find((item) => isInsideWorkspace(resolved, [item]));
-    const original = resolveWorkspacePath(change.oldPath, root ? [root] : roots);
-    if (!await realInside(original, roots)) throw new Error('ワークスペース外のファイルは変更できません。');
+    // resolveWorkspacePath above only returns a path inside one of these roots.
+    const root = roots.find((item) => isInsideWorkspace(resolved, [item]))!;
+    const original = resolveWorkspacePath(change.oldPath, [root]);
+    if (!await isRealPathInsideWorkspace(original, roots)) throw new Error('ワークスペース外のファイルは変更できません。');
     // Never replace a user-created file at the original name.
     await writeFile(original, change.previousText, { encoding: 'utf8', flag: 'wx', mode: change.previousMode ?? 0o666 });
     if (change.previousMode !== undefined && change.previousMode !== null) await chmod(original, change.previousMode);
@@ -142,8 +147,8 @@ export async function revertChange(change: FileChange, roots: string[]): Promise
     return;
   }
   if (!change.diff) throw new Error('変更前の内容が無いため、このファイルは復元できません。');
-  const root = roots.find((item) => isInsideWorkspace(resolved, [item])) ?? roots[0];
-  if (!root) throw new Error('ワークスペース外のファイルは変更できません。');
+  // resolveWorkspacePath above only returns a path inside one of these roots.
+  const root = roots.find((item) => isInsideWorkspace(resolved, [item]))!;
   await gitApplyReverse(change.diff, path.resolve(root), roots);
 }
 

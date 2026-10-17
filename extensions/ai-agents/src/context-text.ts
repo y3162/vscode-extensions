@@ -88,7 +88,8 @@ export async function expandPrompt(prompt: string, cwd: string, commands: SlashC
   const blocks: string[] = [];
   const references = [...prompt.matchAll(referencePattern())];
   for (const match of references) {
-    const token = match[1] || match[2] || '';
+    // The reference pattern requires one of its two alternatives, so one capture is always present.
+    const token = match[1] ?? match[2]!;
     const target = resolveInside(cwd, token);
     if (!target || !await staysInside(cwd, target)) {
       if (token.includes('/') || token.includes(path.sep)) blocks.push(`--- Context: ${token} ---\n(missing or outside the workspace)`);

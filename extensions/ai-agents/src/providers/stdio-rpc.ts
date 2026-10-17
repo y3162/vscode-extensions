@@ -9,6 +9,18 @@ export interface SpawnSpec {
   env?: NodeJS.ProcessEnv;
 }
 
+export interface StdioLaunch {
+  command: string;
+  args: string[];
+  shell: boolean;
+}
+
+export function stdioLaunch(spec: SpawnSpec, platform: NodeJS.Platform, execPath: string): StdioLaunch {
+  const command = /\.(?:cjs|mjs|js)$/.test(spec.command) ? execPath : spec.command;
+  const args = command === execPath && command !== spec.command ? [spec.command, ...spec.args] : spec.args;
+  return { command, args, shell: platform === 'win32' && command !== execPath };
+}
+
 interface Pending {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -26,15 +38,13 @@ export class StdioJsonRpc {
   private onClose: (error: Error) => void = () => undefined;
 
   constructor(spec: SpawnSpec) {
-    const command = spec.command.endsWith('.cjs') || spec.command.endsWith('.mjs') || spec.command.endsWith('.js')
-      ? process.execPath : spec.command;
-    const args = command === process.execPath && command !== spec.command ? [spec.command, ...spec.args] : spec.args;
-    this.child = spawn(command, args, {
+    const launch = stdioLaunch(spec, process.platform, process.execPath);
+    this.child = spawn(launch.command, launch.args, {
       cwd: spec.cwd,
       env: spec.env ?? process.env,
       stdio: ['pipe', 'pipe', 'pipe'],
       windowsHide: true,
-      shell: process.platform === 'win32' && command !== process.execPath,
+      shell: launch.shell,
     });
     this.child.stderr?.setEncoding('utf8');
     this.child.stderr?.on('data', (chunk: string) => { this.stderr = `${this.stderr}${chunk}`.slice(-4000); });

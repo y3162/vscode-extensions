@@ -43,13 +43,13 @@ export function resolveThemeIcon(theme: IconThemeDocument, fileName: string, var
       fontFamily: font?.id ?? 'ai-agents-file-icons',
     };
   }
-  if (definition.iconPath) return { type: 'image', iconPath: definition.iconPath };
   return { type: 'badge' };
 }
 
 function iconId(theme: IconThemeDocument | undefined, fileName: string): string | undefined {
   if (!theme) return undefined;
-  const base = fileName.split(/[\\/]/).pop() ?? fileName;
+  const pathSegments = fileName.split(/[\\/]/);
+  const base = pathSegments[pathSegments.length - 1]!;
   const lower = base.toLowerCase();
   const named = theme.fileNames?.[base] ?? theme.fileNames?.[lower];
   if (named) return named;

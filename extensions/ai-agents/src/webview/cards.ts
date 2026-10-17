@@ -1,4 +1,4 @@
-import { isElement, isInput, type Dom } from './dom.js';
+import { isElement, type Dom } from './dom.js';
 import type { ViewShell } from '../protocol.js';
 import type { Copy } from './strings.js';
 
@@ -80,7 +80,6 @@ export function renderPending(host: HTMLElement, shell: ViewShell, dom: Dom, cop
 function answersFrom(card: HTMLElement): Record<string, string[]> {
   const answers: Record<string, string[]> = {};
   for (const input of card.querySelectorAll('input')) {
-    if (!isInput(input)) continue;
     if ((input.type === 'radio' || input.type === 'checkbox') && !input.checked) continue;
     const value = input.type === 'text' ? input.value.trim() : input.value;
     if (!value) continue;

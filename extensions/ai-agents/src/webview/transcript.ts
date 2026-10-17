@@ -6,7 +6,7 @@ import { fileIcon } from './file-icon.js';
 import { usageText } from '../usage.js';
 import { codeSources, renderMarkdown, renderStreamingText } from './markdown.js';
 import type { ViewMessage, ViewShell } from '../protocol.js';
-import { countLabel, formatDuration, type Copy, type Locale } from './strings.js';
+import { formatDuration, type Copy, type Locale } from './strings.js';
 import { buildTurns, type FileRow, type Segment, type ToolRow, type TurnModel } from './turns.js';
 import type { FileDiffLine, ToolInfo } from '../types.js';
 
@@ -94,9 +94,10 @@ export class Transcript {
       this.root.insertBefore(article, this.pending);
     }
     article.classList.toggle('done', turn.done);
-    const usageHost = article.querySelector('.turn-usage');
+    const usageHost = article.querySelector('.turn-usage') as HTMLElement;
     const usage = shellUsage(this.shell, turn.id);
-    if (usageHost) { usageHost.textContent = usage ? usageText(usage) : ''; (usageHost as HTMLElement).hidden = !usage; }
+    usageHost.textContent = usage ? usageText(usage) : '';
+    usageHost.hidden = !usage;
     const user = article.querySelector('.user-row');
     if (isElement(user)) this.renderUser(user, turn);
     const toggle = article.querySelector('.log-toggle');
@@ -105,9 +106,8 @@ export class Transcript {
     if (isButton(toggle)) {
       toggle.hidden = !hasLog;
       toggle.dataset.turn = turn.id;
-      const caption = toggle.querySelector('.btn-label');
       const summary = workSummary(turn, locale, copy);
-      if (caption) caption.textContent = summary;
+      toggle.querySelector('.btn-label')!.textContent = summary;
       toggle.setAttribute('aria-label', summary);
       const open = this.logOpen(turn);
       toggle.setAttribute('aria-expanded', String(open && hasLog));
@@ -172,7 +172,11 @@ export class Transcript {
       const previous = this.userState.get(host);
       if (turn.user && previous && previous.id === turn.user.id && previous.text === turn.user.text
         && previous.attachments === turn.user.attachments && previous.at === turn.user.at
-        && previous.canRewind === turn.user.canRewind && previous.rewindReason === turn.user.rewindReason) return;
+        && previous.canRewind === turn.user.canRewind && previous.rewindReason === turn.user.rewindReason) {
+        const edit = host.querySelector<HTMLButtonElement>('.edit-user');
+        if (edit) edit.disabled = Boolean(this.shell?.busy) || turn.user.canRewind !== true;
+        return;
+      }
       this.renderedUsers.add(host);
       if (turn.user) this.userState.set(host, turn.user);
     } else this.userState.delete(host);
@@ -333,7 +337,6 @@ export class Transcript {
         for (const tool of segment.tools) group.append(this.toolRow(tool, copy));
         return group;
       }
-      default: return this.dom.el('div');
     }
   }
 
@@ -393,7 +396,7 @@ export class Transcript {
     const row = this.dom.el('div', `tool-row-item ${tool.status === 'error' ? 'is-error' : tool.status === 'running' ? 'is-running' : 'is-done'}`);
     if (tool.kind === 'shell' && tool.target) {
       row.classList.add('shell-tool');
-      const command = tool.target || tool.name;
+      const command = tool.target;
       const open = this.openDetails.has(tool.id);
       const button = this.dom.el('button', 'tool-line shell-tool-heading');
       button.type = 'button';
@@ -567,9 +570,8 @@ export class Transcript {
     const button = this.copying.get(requestId); if (!button) return;
     this.copying.delete(requestId); button.disabled = false;
     button.title = ok ? this.labels?.copied ?? 'Copied' : this.shell?.locale === 'ja' ? 'コピーに失敗しました' : 'Copy failed';
-    const icon = button.querySelector('.codicon');
-    if (icon) icon.className = `codicon codicon-${ok ? 'check' : 'error'}`;
-    const label = button.querySelector('.btn-label'); if (label) label.textContent = button.title;
+    button.querySelector('.codicon')!.className = `codicon codicon-${ok ? 'check' : 'error'}`;
+    button.querySelector('.btn-label')!.textContent = button.title;
     button.setAttribute('aria-label', button.title);
   }
 
@@ -646,7 +648,8 @@ function previewLines(lines: readonly FileDiffLine[], expanded: boolean): readon
 }
 
 function fileLanguage(name: string): string {
-  const base = name.split(/[\\/]/).pop() ?? name;
+  const parts = name.split(/[\\/]/);
+  const base = parts[parts.length - 1]!;
   const dot = base.lastIndexOf('.');
   if (dot <= 0 || dot === base.length - 1) return 'file';
   return base.slice(dot + 1).toLowerCase();
@@ -658,12 +661,6 @@ function workSummary(turn: TurnModel, locale: Locale, copy: Copy): string {
   const elapsed = turn.startedAt !== undefined && turn.endedAt !== undefined
     ? Math.max(0, turn.endedAt - turn.startedAt - (turn.waitMs ?? 0)) : 0;
   return elapsed > 0 ? `${copy.worked} ${formatDuration(elapsed)}` : copy.worked;
-}
-
-function toolSummary(tools: ToolRow[], locale: Locale): string {
-  const counts = new Map<ToolInfo['kind'], number>();
-  for (const tool of tools) counts.set(tool.kind, (counts.get(tool.kind) ?? 0) + 1);
-  return [...counts].filter(([, count]) => count > 0).map(([kind, count]) => countLabel(locale, kind, count)).join(' · ');
 }
 
 function shellCaption(command: string): string {
@@ -694,4 +691,4 @@ function toolIcon(kind: ToolInfo['kind']): string {
   }
 }
 
-function shellUsage(shell: ViewShell | null, id: string) { return shell?.timings.find((turn) => turn.id === id)?.usage; }
+function shellUsage(shell: ViewShell | null, id: string) { return shell?.timings?.find((turn) => turn.id === id)?.usage; }

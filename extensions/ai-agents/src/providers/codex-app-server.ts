@@ -413,7 +413,8 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
     }
     if (text) {
       const status = typeof item.status === 'string' ? item.status : 'completed';
-      const name = type.includes('command') ? 'shell' : type || 'tool';
+      // Command executions return through the dedicated branch above.
+      const name = type || 'tool';
       emit({ id, role: 'tool', text: `${type || 'tool'}: ${text}`, tool: describedTool(name, text, status) });
     }
   };
@@ -544,7 +545,8 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
   });
 
   const identify = (title: string) => {
-    if (!threadId) return;
+    // The session is not exposed until initialization validates a non-empty id;
+    // activated forks are likewise checked before replacing it.
     options.onIdentity?.({ id: threadId, title, updatedAt: new Date().toISOString(), provider: 'codex', cwd: options.cwd });
   };
 
@@ -613,9 +615,8 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
         resolve: () => { signal.removeEventListener('abort', abort); resolve(); },
         reject: (error) => { signal.removeEventListener('abort', abort); reject(error); },
       };
-      const raced = finished.get(id);
-      if (raced === null) waiter.resolve();
-      else if (raced) waiter.reject(raced);
+      // RPC notifications run on this event loop, so completion cannot interleave
+      // between the initial `finished` check and installing this waiter.
     });
   }
 
@@ -845,7 +846,10 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
           changes = (changes ?? []).filter((change) => !moved.includes(path.resolve(options.cwd, change.path)));
           changes.push({ ...file, ...(previous !== undefined ? { previousText: previous } : {}) });
         }
-        if (baselines) emitBackground({ id: `workspace-changes:${turnId}`, role: 'tool', text: 'diff updated', meta: { type: 'files', files: changes ?? [] } });
+        if (baselines) {
+          // GitBaselines.changes() always resolves to a FileChange array.
+          emitBackground({ id: `workspace-changes:${turnId}`, role: 'tool', text: 'diff updated', meta: { type: 'files', files: changes! } });
+        }
         if (!disposed && !rpc.isClosed) await refreshTerminals().catch(terminalError);
         emitLive.current = undefined;
         schedulePoll();

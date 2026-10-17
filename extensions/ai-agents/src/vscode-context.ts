@@ -7,7 +7,7 @@ import { parseFrontmatter, type SlashCommand } from './context-text.js';
 import { isInsideWorkspace } from './change-review.js';
 
 const skip = new Set(['node_modules', '.git', 'dist', 'out', 'build', '.next', 'coverage']);
-let slashCache: { at: number; cwd: string; commands: SlashCommand[] } | undefined;
+let slashCache: { at: number; cwd: string; userHome: string; commands: SlashCommand[] } | undefined;
 const terminalCommands: string[] = [];
 
 export function watchTerminals(subscriptions: vscode.Disposable[]): void {
@@ -93,9 +93,9 @@ async function commandsFrom(root: string, scope: string): Promise<SlashCommand[]
   return commands;
 }
 
-export async function workspaceCommands(cwd: string): Promise<SlashCommand[]> {
+export async function workspaceCommands(cwd: string, userHome = homedir()): Promise<SlashCommand[]> {
   const now = Date.now();
-  if (slashCache && slashCache.cwd === cwd && now - slashCache.at < 30_000) return slashCache.commands;
+  if (slashCache && slashCache.cwd === cwd && slashCache.userHome === userHome && now - slashCache.at < 30_000) return slashCache.commands;
   const builtins: SlashCommand[] = [
     { name: 'clear', title: 'clear', description: 'Start a new chat', kind: 'builtin' },
     { name: 'compact', title: 'compact', description: 'Compact the context', kind: 'builtin' },
@@ -104,10 +104,10 @@ export async function workspaceCommands(cwd: string): Promise<SlashCommand[]> {
     { name: 'diff', title: 'diff', description: 'Attach git diff', kind: 'builtin' },
     { name: 'terminal', title: 'terminal', description: 'Attach recent terminal commands', kind: 'builtin' },
   ];
-  const discovered = [...await commandsFrom(cwd, 'workspace'), ...await commandsFrom(homedir(), 'user')];
+  const discovered = [...await commandsFrom(cwd, 'workspace'), ...await commandsFrom(userHome, 'user')];
   const unique = new Map<string, SlashCommand>();
   for (const command of [...builtins, ...discovered]) if (!unique.has(command.name)) unique.set(command.name, command);
-  slashCache = { at: now, cwd, commands: [...unique.values()] };
+  slashCache = { at: now, cwd, userHome, commands: [...unique.values()] };
   return slashCache.commands;
 }
 
@@ -158,7 +158,7 @@ async function exists(file: string): Promise<boolean> {
   return stat(file).then((info) => info.isFile() || info.isDirectory()).catch(() => false);
 }
 
-export async function instructionSummary(cwd: string): Promise<string> {
+export async function instructionSummary(cwd: string, userHome = homedir()): Promise<string> {
   const lines: string[] = [];
   for (const name of ['AGENTS.md', 'CLAUDE.md', '.cursorrules']) {
     if (await exists(path.join(cwd, name))) lines.push(name);
@@ -166,10 +166,10 @@ export async function instructionSummary(cwd: string): Promise<string> {
   const rules = path.join(cwd, '.cursor', 'rules');
   const ruleFiles = await readdir(rules).catch(() => []);
   if (ruleFiles.length) lines.push(`.cursor/rules: ${ruleFiles.slice(0, 30).join(', ')}`);
-  const commands = await workspaceCommands(cwd);
+  const commands = await workspaceCommands(cwd, userHome);
   const skills = commands.filter((command) => command.kind === 'skill').map((command) => command.name);
   if (skills.length) lines.push(`Skills: ${skills.join(', ')}`);
-  for (const file of [path.join(cwd, '.cursor', 'mcp.json'), path.join(homedir(), '.cursor', 'mcp.json')]) {
+  for (const file of [path.join(cwd, '.cursor', 'mcp.json'), path.join(userHome, '.cursor', 'mcp.json')]) {
     const names = await readFile(file, 'utf8').then((source) => {
       const parsed = JSON.parse(source) as { mcpServers?: Record<string, unknown> };
       return Object.keys(parsed.mcpServers ?? {});

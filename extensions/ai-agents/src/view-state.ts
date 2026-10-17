@@ -123,7 +123,7 @@ function statusText(state: ChatState, locale: 'ja' | 'en', folderReady: boolean)
     : state.status === 'cancelling' ? (ja ? '停止中…' : 'Stopping…')
       : state.status === 'restoring' ? (ja ? '復元中…' : 'Restoring…')
         : state.status === 'error' ? (ja ? 'エラー' : 'Error')
-          : state.busy ? (ja ? '実行中…' : 'Running…')
+          : state.busy || state.status === 'running' ? (ja ? '実行中…' : 'Running…')
             : folderReady ? (ja ? '準備完了' : 'Ready')
               : (ja ? '作業フォルダを開いてください' : 'Open a workspace folder'));
   const usage = state.usage ? ` · in ${state.usage.inputTokens} / out ${state.usage.outputTokens}` : '';
@@ -233,7 +233,7 @@ export function buildShell(source: ShellSource): ViewShell {
       images: item.extras?.images?.length ?? 0,
     })),
     changes,
-    planView: presentPlan(state, source.showBuildModel !== false && capabilities.buildModel !== 'unsupported'),
+    planView: presentPlan(state, source.showBuildModel !== false),
     timings: state.turns.map((turn): ViewTurnTiming => ({
       id: turn.id,
       startedAt: turn.startedAt,

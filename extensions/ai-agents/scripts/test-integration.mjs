@@ -16,7 +16,7 @@ if (evidence) {
 const fixture = await mkdtemp(join(tmpdir(), 'ai-agents-integration-'));
 const profile = await mkdtemp(join(tmpdir(), 'ai-agents-test-profile-'));
 const testBundle = join(root, 'dist', 'integration.js');
-await build({ entryPoints: [join(root, 'test', 'integration.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: testBundle, external: ['vscode'] });
+await build({ entryPoints: [join(root, 'test', 'integration', 'extension-host.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: testBundle, external: ['vscode'] });
 await cp(join(root, 'test', 'fixtures', 'mock-codex.cjs'), join(fixture, 'mock-codex.cjs'));
 await cp(join(root, 'test', 'fixtures', 'mock-app-server.cjs'), join(fixture, 'mock-app-server.cjs'));
 await cp(join(root, 'test', 'fixtures', 'synthetic-runtime.cjs'), join(fixture, 'synthetic-runtime.cjs'));

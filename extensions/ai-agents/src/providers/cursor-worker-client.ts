@@ -35,8 +35,9 @@ export async function createCursorWorker(options: SessionOptions): Promise<Agent
     if (message.identity) { identity = message.identity.id; options.onIdentity?.(message.identity); return; }
     if (message.backgroundUpdate) { for (const listener of backgroundListeners) listener(message.backgroundUpdate); return; }
     if (message.update) { updates?.(message.update); return; }
-    const wait = message.id === undefined ? undefined : pending.get(message.id);
-    if (!wait || message.id === undefined) return;
+    if (message.id === undefined) return;
+    const wait = pending.get(message.id);
+    if (!wait) return;
     pending.delete(message.id);
     if (message.error) wait.reject(Object.assign(new Error(message.error.message), message.error));
     else wait.resolve(message.value);
@@ -49,6 +50,7 @@ export async function createCursorWorker(options: SessionOptions): Promise<Agent
       child.send({ id, method, args }, (error) => { if (error) { pending.delete(id); reject(error); } });
     });
   };
+  const interruptTerminal = async (processId: string) => { await request('interruptTerminal', processId); };
   const abortInit = () => child.kill();
   options.signal?.throwIfAborted();
   options.signal?.addEventListener('abort', abortInit, { once: true });
@@ -64,8 +66,8 @@ export async function createCursorWorker(options: SessionOptions): Promise<Agent
     get sessionId() { return identity; },
     subscribeBackgroundUpdates(emit) { backgroundListeners.add(emit); return () => backgroundListeners.delete(emit); },
     async listBackgroundTerminals() { return await request('terminals') as import('../types.js').TerminalRecord[]; },
-    async interruptBackgroundTerminal(processId) { await request('interruptTerminal', processId); },
-    async terminateBackgroundTerminal(processId) { await request('interruptTerminal', processId); },
+    interruptBackgroundTerminal: interruptTerminal,
+    terminateBackgroundTerminal: interruptTerminal,
     get closed() { return closed; },
     async setModel(selection) { await request('setModel', selection); },
     async setMode(mode) { await request('setMode', mode); },

@@ -42,7 +42,7 @@ function inputLine(input: unknown, keys: string[]): number | undefined {
 function pathFromName(name: string): string | undefined {
   const match = /^(?:read|open)\s+(.+)$/i.exec(name.trim());
   if (!match) return undefined;
-  const candidate = pathAndRange(match[1] ?? '').path;
+  const candidate = pathAndRange(match[1]!).path;
   if (!candidate || /^(?:the\s+)?files?$/i.test(candidate)) return undefined;
   return candidate;
 }

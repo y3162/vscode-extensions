@@ -2,6 +2,7 @@ export type Provider = 'codex' | 'cursor';
 export type Backend = 'sdk' | 'acp' | 'app-server';
 export type AgentMode = 'agent' | 'plan' | 'ask';
 export type ModelApplyMode = 'next-send' | 'new-session' | 'unsupported';
+export type SupportedModelApplyMode = Exclude<ModelApplyMode, 'unsupported'>;
 export type ModelParameterRole = 'effort' | 'context' | 'fast' | 'other';
 export type ModelParameterPresentation = 'menu' | 'toggle';
 export type ConnectionStatus =

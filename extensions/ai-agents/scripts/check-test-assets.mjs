@@ -1,7 +1,7 @@
 // Fails when generated evidence, raw captures, or likely secrets are tracked.
 // Small synthetic JSON may be added to jsonAllowlist with a reason. The list is empty.
 import { execFileSync } from 'node:child_process';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
 const repo = path.resolve(import.meta.dirname, '../../..');
@@ -11,7 +11,7 @@ const failures = [];
 const files = [
   ...execFileSync('git', ['ls-files', '-z'], { cwd: repo }).toString().split('\0'),
   ...execFileSync('git', ['ls-files', '-z', '--others', '--exclude-standard'], { cwd: repo }).toString().split('\0'),
-].filter(Boolean);
+].filter((file) => file && existsSync(path.join(repo, file)));
 
 const banned = [
   { pattern: /(?:^|\/)test\/fixtures\/real\//, reason: 'raw captured fixtures are not tracked' },

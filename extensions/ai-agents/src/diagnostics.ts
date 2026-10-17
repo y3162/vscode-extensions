@@ -11,6 +11,33 @@ export interface DiagnosticCheck {
   output: string;
 }
 
+export interface CursorDiagnosticEnvironment {
+  platform: NodeJS.Platform;
+  arch: string;
+  nodeVersion: string;
+  execPath: string;
+  entry: string | undefined;
+  homeDirectory: string;
+  resolveSdkManifest(packageName: string): string;
+  existsSync(file: string): boolean;
+  statMode(file: string): number;
+}
+
+function systemCursorDiagnosticEnvironment(): CursorDiagnosticEnvironment {
+  const require = createRequire(__filename);
+  return {
+    platform: process.platform,
+    arch: process.arch,
+    nodeVersion: process.versions.node,
+    execPath: process.execPath,
+    entry: process.argv[1],
+    homeDirectory: os.homedir(),
+    resolveSdkManifest: (packageName) => require.resolve(packageName),
+    existsSync,
+    statMode: (file) => statSync(file).mode,
+  };
+}
+
 export function runProcess(command: string, args: string[], cwd?: string, timeoutMs = 8000): Promise<DiagnosticCheck> {
   const label = [command, ...args].join(' ');
   return new Promise((resolve) => {
@@ -39,15 +66,15 @@ export function runProcess(command: string, args: string[], cwd?: string, timeou
   });
 }
 
-export function cursorRuntimeDiagnostics(cwd: string): DiagnosticCheck[] {
-  const checks: DiagnosticCheck[] = [{ label: 'Extension Host', ok: true, output: `${process.platform}/${process.arch} Node ${process.versions.node}\n${process.execPath}\nentry: ${process.argv[1] ?? '(none)'}` }];
+export function cursorRuntimeDiagnostics(cwd: string, environment = systemCursorDiagnosticEnvironment()): DiagnosticCheck[] {
+  const checks: DiagnosticCheck[] = [{ label: 'Extension Host', ok: true, output: `${environment.platform}/${environment.arch} Node ${environment.nodeVersion}\n${environment.execPath}\nentry: ${environment.entry ?? '(none)'}` }];
   try {
-    const require = createRequire(__filename);
-    const manifest = require.resolve(`@cursor/sdk-${process.platform}-${process.arch}/package.json`);
-    const binary = path.join(path.dirname(manifest), 'bin', process.platform === 'win32' ? 'cursorsandbox.exe' : 'cursorsandbox');
-    const ok = existsSync(binary) && (process.platform === 'win32' || Boolean(statSync(binary).mode & 0o111));
+    const packageName = `@cursor/sdk-${environment.platform}-${environment.arch}/package.json`;
+    const manifest = environment.resolveSdkManifest(packageName);
+    const binary = path.join(path.dirname(manifest), 'bin', environment.platform === 'win32' ? 'cursorsandbox.exe' : 'cursorsandbox');
+    const ok = environment.existsSync(binary) && (environment.platform === 'win32' || Boolean(environment.statMode(binary) & 0o111));
     checks.push({ label: 'Cursor sandbox helper', ok, output: binary });
-  } catch { checks.push({ label: 'Cursor sandbox helper', ok: false, output: `Missing @cursor/sdk-${process.platform}-${process.arch}. Reinstall the matching platform VSIX; sandbox remains enabled.` }); }
-  for (const file of [path.join(os.homedir(), '.cursor', 'sandbox.json'), path.join(cwd, '.cursor', 'sandbox.json')]) checks.push({ label: 'Sandbox policy', ok: true, output: `${file}: ${existsSync(file) ? 'present (not modified)' : 'absent'}` });
+  } catch { checks.push({ label: 'Cursor sandbox helper', ok: false, output: `Missing @cursor/sdk-${environment.platform}-${environment.arch}. Reinstall the matching platform VSIX; sandbox remains enabled.` }); }
+  for (const file of [path.join(environment.homeDirectory, '.cursor', 'sandbox.json'), path.join(cwd, '.cursor', 'sandbox.json')]) checks.push({ label: 'Sandbox policy', ok: true, output: `${file}: ${environment.existsSync(file) ? 'present (not modified)' : 'absent'}` });
   return checks;
 }

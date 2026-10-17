@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import type { Stats } from 'node:fs';
 import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { lineChangeCounts, previewTextDiff } from './diff-stats.js';
@@ -7,13 +8,20 @@ import type { FileChange } from './types.js';
 
 const maxSnapshot = 500_000;
 
-export async function readWorkspaceText(cwd: string, filePath: string): Promise<string | null | undefined> {
+export interface WorkspaceFileSystem {
+  lstat(file: string): Promise<Stats>;
+  readFile(file: string): Promise<Buffer>;
+}
+
+const workspaceFiles: WorkspaceFileSystem = { lstat, readFile };
+
+export async function readWorkspaceText(cwd: string, filePath: string, files: WorkspaceFileSystem = workspaceFiles): Promise<string | null | undefined> {
   const resolved = path.resolve(cwd, filePath);
   if (!isInsideWorkspace(resolved, [cwd])) return undefined;
   try {
-    const info = await lstat(resolved);
+    const info = await files.lstat(resolved);
     if (!info.isFile() || info.size > maxSnapshot) return undefined;
-    const bytes = await readFile(resolved);
+    const bytes = await files.readFile(resolved);
     if (bytes.length > maxSnapshot || bytes.includes(0)) return undefined;
     const text = bytes.toString('utf8');
     return Buffer.from(text, 'utf8').equals(bytes) ? text : undefined;
@@ -29,11 +37,13 @@ export interface GitBaselines {
   changes(): Promise<FileChange[]>;
 }
 
-async function readWorkspaceMode(cwd: string, filePath: string): Promise<number | null | undefined> {
+export type GitRunner = (cwd: string, args: string[]) => Promise<string | undefined>;
+
+async function readWorkspaceMode(cwd: string, filePath: string, files: WorkspaceFileSystem): Promise<number | null | undefined> {
   const resolved = path.resolve(cwd, filePath);
   if (!isInsideWorkspace(resolved, [cwd])) return undefined;
   try {
-    const info = await lstat(resolved);
+    const info = await files.lstat(resolved);
     if (!info.isFile()) return undefined;
     return info.mode & 0o777;
   } catch (error) {
@@ -54,15 +64,19 @@ function statusEntries(status: string): Array<{ name: string; oldPath?: string; 
   return entries;
 }
 
-export async function captureGitBaselines(cwd: string): Promise<GitBaselines | undefined> {
-  const status = await git(cwd, ['status', '--porcelain', '-z', '--untracked-files=all']);
+export async function captureGitBaselines(
+  cwd: string,
+  runGit: GitRunner = git,
+  files: WorkspaceFileSystem = workspaceFiles,
+): Promise<GitBaselines | undefined> {
+  const status = await runGit(cwd, ['status', '--porcelain', '-z', '--untracked-files=all']);
   if (status === undefined) return undefined;
-  const revision = (await git(cwd, ['rev-parse', '--verify', 'HEAD']))?.trim();
+  const revision = (await runGit(cwd, ['rev-parse', '--verify', 'HEAD']))?.trim();
   const dirty = new Map<string, string | null | undefined>();
   const dirtyModes = new Map<string, number | null | undefined>();
   for (const { name } of statusEntries(status)) {
-    dirty.set(name, await readWorkspaceText(cwd, name));
-    dirtyModes.set(name, await readWorkspaceMode(cwd, name));
+    dirty.set(name, await readWorkspaceText(cwd, name, files));
+    dirtyModes.set(name, await readWorkspaceMode(cwd, name, files));
   }
   const baselines: GitBaselines = {
     async lookup(filePath: string) {
@@ -70,10 +84,9 @@ export async function captureGitBaselines(cwd: string): Promise<GitBaselines | u
       if (!isInsideWorkspace(resolved, [cwd])) return undefined;
       const relative = path.relative(cwd, resolved);
       if (dirty.has(relative)) return dirty.get(relative);
-      if (dirty.has(filePath)) return dirty.get(filePath);
       // An absent Git object does not prove the file was absent: it could be ignored.
       // Keep such files non-restorable rather than deleting pre-existing user content.
-      const text = revision ? await git(cwd, ['show', `${revision}:${relative.split(path.sep).join('/')}`]) : undefined;
+      const text = revision ? await runGit(cwd, ['show', `${revision}:${relative.split(path.sep).join('/')}`]) : undefined;
       return text !== undefined && Buffer.byteLength(text, 'utf8') <= maxSnapshot && !text.includes('\0') ? text : undefined;
     },
     async lookupMode(filePath: string) {
@@ -81,9 +94,8 @@ export async function captureGitBaselines(cwd: string): Promise<GitBaselines | u
       if (!isInsideWorkspace(resolved, [cwd])) return undefined;
       const relative = path.relative(cwd, resolved);
       if (dirtyModes.has(relative)) return dirtyModes.get(relative);
-      if (dirtyModes.has(filePath)) return dirtyModes.get(filePath);
       if (!revision) return undefined;
-      const row = await git(cwd, ['ls-tree', '-z', revision, '--', relative.split(path.sep).join('/')]);
+      const row = await runGit(cwd, ['ls-tree', '-z', revision, '--', relative.split(path.sep).join('/')]);
       const first = row?.replace(/\0.*$/s, '');
       const [metadata, listedPath] = first?.split('\t') ?? [];
       const mode = metadata?.split(' ')[0];
@@ -91,7 +103,7 @@ export async function captureGitBaselines(cwd: string): Promise<GitBaselines | u
       return Number.parseInt(mode, 8) & 0o777;
     },
     async changes() {
-      const status = await git(cwd, ['status', '--porcelain', '-z', '--untracked-files=all']);
+      const status = await runGit(cwd, ['status', '--porcelain', '-z', '--untracked-files=all']);
       if (status === undefined) return [];
       const current = new Map(statusEntries(status).map((entry) => [entry.name, entry]));
       const changes: FileChange[] = [];
@@ -99,9 +111,9 @@ export async function captureGitBaselines(cwd: string): Promise<GitBaselines | u
         const entry = current.get(name);
         const baselinePath = dirty.has(name) ? name : entry?.oldPath ?? name;
         const before = entry?.untracked && !dirty.has(name) ? null : await baselines.lookup(baselinePath);
-        const after = await readWorkspaceText(cwd, name);
+        const after = await readWorkspaceText(cwd, name, files);
         const beforeMode = entry?.untracked && !dirtyModes.has(name) ? null : await baselines.lookupMode(dirtyModes.has(name) ? name : entry?.oldPath ?? name);
-        const afterMode = await readWorkspaceMode(cwd, name);
+        const afterMode = await readWorkspaceMode(cwd, name, files);
         const renamed = Boolean(entry?.oldPath && !dirty.has(name));
         if (after !== undefined && before === after && beforeMode === afterMode && !renamed) continue;
         if (before === undefined && !entry?.untracked && after !== undefined) continue;

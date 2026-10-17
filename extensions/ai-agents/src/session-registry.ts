@@ -76,7 +76,7 @@ export class SessionRegistry {
         updatedAt: known?.updatedAt || new Date().toISOString(),
         provider: state.selection.provider,
         cwd: state.selection.cwd,
-        ...(activity ? { activity } : {}),
+        activity: activity!,
       });
     }
     return rows;

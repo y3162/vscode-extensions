@@ -39,10 +39,9 @@ export function renderPlanView(host: HTMLElement, shell: ViewShell, dom: Dom, co
     model.addEventListener('click', () => onPickModel(model));
     actions.append(model);
   }
-  const build = dom.button('build', plan.phase === 'ready' && plan.history.length ? copy.build : copy.build);
+  const build = dom.button('build', copy.build);
   build.disabled = !plan.canBuild;
   build.addEventListener('click', () => {
-    if (!plan.canBuild) return;
     build.disabled = true;
     post({ type: 'buildPlan', planId: plan.id, revision: plan.revision, modelId: plan.buildModelId, modelParams: plan.buildParams, label: plan.buildModelLabel });
   });
