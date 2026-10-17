@@ -109,27 +109,114 @@ a { color: var(--vscode-textLink-foreground); }
 .tool-summary, .note, .session-time, .stats, .tool-target, .menu-note, .empty-copy { color: var(--vscode-descriptionForeground); }
 .tool-line { width: 100%; min-width: 0; }
 .file-row, .shell-tool { display: block; width: 100%; min-width: 0; overflow: hidden; border: 1px solid var(--vscode-panel-border, transparent); border-radius: .6em; color: var(--vscode-foreground); }
+.file-group { display: flex; flex-direction: column; gap: .45em; }
+.file-row {
+  border: 1px solid var(--vscode-widget-border, color-mix(in srgb, var(--vscode-foreground) 18%, transparent));
+  border-radius: .5em;
+  background: var(--vscode-editor-background, var(--vscode-sideBar-background));
+}
 .shell-tool-heading { min-height: 2.2em; padding: .35em .55em; }
 .shell-tool-heading > .codicon:first-child, .shell-prompt { color: var(--vscode-descriptionForeground); flex: 0 0 auto; }
 .shell-command-line { display: flex; align-items: baseline; gap: .65em; min-width: 0; padding: .35em .65em; border-top: 1px solid var(--vscode-panel-border, transparent); font-family: var(--vscode-editor-font-family, monospace); white-space: pre-wrap; overflow-wrap: anywhere; }
 .shell-command-line code { color: var(--vscode-terminal-ansiBrightBlue, var(--vscode-textLink-foreground)); background: transparent; padding: 0; border: 0; border-radius: 0; }
 .shell-command-output { max-height: 15em; overflow: auto; padding: .4em .65em; border-top: 1px solid var(--vscode-panel-border, transparent); color: var(--vscode-descriptionForeground); }
 .shell-tool > .ghost { margin: 0 .4em .25em; }
-.file-header { min-width: 0; min-height: 1.8em; padding: .18em .5em; }
+.file-header {
+  min-width: 0; min-height: 1.85em; padding: .28em .55em; gap: .4em;
+  background: color-mix(in srgb, var(--vscode-foreground) 5%, var(--vscode-editor-background, var(--vscode-sideBar-background)));
+}
+.file-row:has(.file-inline-diff) .file-header {
+  border-bottom: 1px solid var(--vscode-widget-border, color-mix(in srgb, var(--vscode-foreground) 12%, transparent));
+}
 .file-header > .codicon { color: var(--vscode-descriptionForeground); flex: 0 0 auto; }
+.file-header .file-link { color: var(--vscode-foreground); font-weight: 500; padding: 0; }
+.file-header .file-icon { width: 16px; height: 16px; font-size: 16px; line-height: 1; background: transparent; border-radius: 0; }
 .file-link { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.file-header .stats { display: flex; gap: .4em; margin-left: auto; flex: 0 0 auto; }
+.file-header .file-badge {
+  width: auto; min-width: 1.8em; height: 1.55em; padding: 0 .32em;
+  font-size: .75em; font-weight: 700; letter-spacing: .03em; line-height: 1; border-radius: .28em;
+  background: color-mix(in srgb, var(--vscode-foreground) 12%, transparent);
+  color: var(--vscode-foreground);
+}
+.file-header .file-badge[data-lang="ts"],
+.file-header .file-badge[data-lang="tsx"],
+.file-header .file-badge[data-lang="mts"],
+.file-header .file-badge[data-lang="cts"] {
+  color: var(--vscode-symbolIcon-classForeground, var(--vscode-textLink-foreground));
+  background: color-mix(in srgb, var(--vscode-symbolIcon-classForeground, var(--vscode-textLink-foreground)) 18%, transparent);
+}
+.file-header .file-badge[data-lang="js"],
+.file-header .file-badge[data-lang="jsx"],
+.file-header .file-badge[data-lang="mjs"],
+.file-header .file-badge[data-lang="cjs"] {
+  color: var(--vscode-symbolIcon-variableForeground, var(--vscode-textLink-foreground));
+  background: color-mix(in srgb, var(--vscode-symbolIcon-variableForeground, var(--vscode-textLink-foreground)) 18%, transparent);
+}
+.file-header .file-badge[data-lang="md"],
+.file-header .file-badge[data-lang="mdx"] {
+  color: var(--vscode-symbolIcon-stringForeground, var(--vscode-charts-purple, var(--vscode-textLink-foreground)));
+  background: color-mix(in srgb, var(--vscode-symbolIcon-stringForeground, var(--vscode-charts-purple, var(--vscode-textLink-foreground))) 18%, transparent);
+}
+.file-header .file-badge[data-lang="json"],
+.file-header .file-badge[data-lang="jsonc"] {
+  color: var(--vscode-symbolIcon-numberForeground, var(--vscode-charts-yellow, var(--vscode-foreground)));
+  background: color-mix(in srgb, var(--vscode-symbolIcon-numberForeground, var(--vscode-charts-yellow, var(--vscode-foreground))) 18%, transparent);
+}
+.file-header .file-badge[data-lang="css"],
+.file-header .file-badge[data-lang="scss"] {
+  color: var(--vscode-symbolIcon-colorForeground, var(--vscode-charts-blue, var(--vscode-textLink-foreground)));
+  background: color-mix(in srgb, var(--vscode-symbolIcon-colorForeground, var(--vscode-charts-blue, var(--vscode-textLink-foreground))) 18%, transparent);
+}
+.file-header .file-badge[data-lang="py"],
+.file-header .file-badge[data-lang="go"],
+.file-header .file-badge[data-lang="rs"] {
+  color: var(--vscode-symbolIcon-methodForeground, var(--vscode-textLink-foreground));
+  background: color-mix(in srgb, var(--vscode-symbolIcon-methodForeground, var(--vscode-textLink-foreground)) 18%, transparent);
+}
+.file-header .file-badge[data-lang="yml"],
+.file-header .file-badge[data-lang="yaml"] {
+  color: var(--vscode-symbolIcon-constantForeground, var(--vscode-charts-orange, var(--vscode-foreground)));
+  background: color-mix(in srgb, var(--vscode-symbolIcon-constantForeground, var(--vscode-charts-orange, var(--vscode-foreground))) 18%, transparent);
+}
+.file-header .stats {
+  display: flex; gap: .35em; margin-left: auto; flex: 0 0 auto;
+  font-size: .85em; font-weight: 600; font-variant-numeric: tabular-nums;
+}
 .stats-add { color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950); }
 .stats-remove { color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149); }
-.file-inline-diff { max-height: 12em; overflow: auto; border-top: 1px solid var(--vscode-panel-border, transparent); font-family: var(--vscode-editor-font-family, monospace); font-size: .9em; }
-.diff-preview-line { display: grid; grid-template-columns: 2.4em 1.3em minmax(0, 1fr); min-height: 1.35em; line-height: 1.35; white-space: pre; background: transparent; }
-.diff-preview-line.add { background: var(--vscode-diffEditor-insertedLineBackground, rgba(46, 160, 67, .18)); }
-.diff-preview-line.remove { background: var(--vscode-diffEditor-removedLineBackground, rgba(248, 81, 73, .15)); }
-.diff-preview-number { padding-right: .35em; color: var(--vscode-descriptionForeground); text-align: right; user-select: none; }
-.diff-preview-sign { color: var(--vscode-descriptionForeground); text-align: center; user-select: none; }
-.diff-preview-text { overflow: hidden; text-overflow: ellipsis; background: transparent; }
-.diff-preview-more { grid-column: 1 / -1; padding: .1em .5em; color: var(--vscode-descriptionForeground); font-family: var(--vscode-font-family); white-space: normal; }
-.diff-preview-line .diff-preview-more { font-style: italic; }
+.file-inline-diff {
+  overflow-x: hidden;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: .85em;
+  line-height: 1.45;
+}
+.file-inline-diff.is-expanded { max-height: 12em; overflow-y: auto; }
+.diff-preview-line { display: grid; grid-template-columns: 2.75em 1.15em minmax(0, 1fr); align-items: center; line-height: 1.45; white-space: pre; background: transparent; }
+.diff-preview-line.add { background: var(--vscode-diffEditor-insertedLineBackground, color-mix(in srgb, var(--vscode-gitDecoration-addedResourceForeground, #3fb950) 22%, transparent)); }
+.diff-preview-line.remove { background: var(--vscode-diffEditor-removedLineBackground, color-mix(in srgb, var(--vscode-gitDecoration-deletedResourceForeground, #f85149) 22%, transparent)); }
+.diff-preview-line.more, .diff-preview-line.eof {
+  background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent);
+  min-height: 1.5em;
+}
+.diff-preview-number {
+  padding-right: .45em;
+  color: color-mix(in srgb, var(--vscode-foreground) 42%, transparent);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+.diff-preview-sign { text-align: center; user-select: none; }
+.diff-preview-sign.add { color: var(--vscode-gitDecoration-addedResourceForeground, #3fb950); }
+.diff-preview-sign.remove { color: var(--vscode-gitDecoration-deletedResourceForeground, #f85149); }
+.diff-preview-text { overflow: hidden; text-overflow: ellipsis; white-space: pre; background: transparent; font-family: inherit; padding: 0; }
+.diff-preview-more { grid-column: 1 / -1; padding: .15em .55em; color: var(--vscode-descriptionForeground); font-family: var(--vscode-font-family); font-style: normal; white-space: normal; text-align: center; }
+.file-row > .diff-preview-toggle {
+  width: 100%;
+  justify-content: center;
+  border-top: 1px solid var(--vscode-widget-border, color-mix(in srgb, var(--vscode-foreground) 12%, transparent));
+  border-radius: 0;
+  color: var(--vscode-descriptionForeground);
+}
 .tool-line .codicon:last-child { margin-left: auto; }
 .tool-name, .tool-target, .session-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-target { flex: 1; }
@@ -284,13 +371,18 @@ textarea {
 [hidden] { display: none !important; }
 .vscode-high-contrast .composer-card, .vscode-high-contrast .bubble, .vscode-high-contrast .card, .vscode-high-contrast .panel,
 .vscode-high-contrast .session-card, .vscode-high-contrast .title-pill, .vscode-high-contrast .provider, .vscode-high-contrast .back, .vscode-high-contrast .header-btn,
+.vscode-high-contrast .file-row,
 .vscode-high-contrast-light .composer-card, .vscode-high-contrast-light .bubble, .vscode-high-contrast-light .card, .vscode-high-contrast-light .panel,
 .vscode-high-contrast-light .session-card, .vscode-high-contrast-light .title-pill, .vscode-high-contrast-light .provider, .vscode-high-contrast-light .back, .vscode-high-contrast-light .header-btn,
+.vscode-high-contrast-light .file-row,
 .vscode-high-contrast .menu, .vscode-high-contrast-light .menu {
   border-color: var(--vscode-contrastBorder, CanvasText);
 }
 @media (forced-colors: active) {
-  .composer-card, .bubble, .card, .menu, .send, .jump, .session-card, .title-pill, .provider, .back, .header-btn { border: 1px solid CanvasText; }
+  .composer-card, .bubble, .card, .menu, .send, .jump, .session-card, .title-pill, .provider, .back, .header-btn, .file-row { border: 1px solid CanvasText; }
+  .diff-preview-line.add, .diff-preview-line.remove, .diff-preview-line.more, .diff-preview-line.eof { background: transparent; }
+  .diff-preview-sign.add { color: LinkText; }
+  .diff-preview-sign.remove { color: CanvasText; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

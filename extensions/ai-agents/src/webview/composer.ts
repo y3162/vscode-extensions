@@ -3,6 +3,7 @@ import type { ModelCatalogMessage, ViewChange, ViewShell } from '../protocol.js'
 import type { ImageAttachment, ModelParameter } from '../types.js';
 import type { Post } from './cards.js';
 import type { Dom } from './dom.js';
+import { fileIcon } from './file-icon.js';
 import { ModelMenu, type Menu, type ModelMenuItem, type ModelMenuPage } from './popover.js';
 import type { Copy } from './strings.js';
 
@@ -646,26 +647,6 @@ export class Composer {
       backend: shell.backend, network: shell.network, webSearch: shell.webSearch, ...extra,
     });
   }
-}
-
-function fileIcon(dom: Dom, change: ViewChange): HTMLElement {
-  const icon = change.icon;
-  if (icon?.type === 'image' && icon.src) {
-    const image = dom.el('img', 'file-icon');
-    image.alt = '';
-    image.src = icon.src;
-    return image;
-  }
-  if (icon?.type === 'font' && icon.fontCharacter) {
-    const escaped = /^\\([0-9a-f]{1,6})\s?$/i.exec(icon.fontCharacter);
-    const point = escaped ? Number.parseInt(escaped[1]!, 16) : undefined;
-    if (point !== undefined && (point > 0x10ffff || point >= 0xd800 && point <= 0xdfff)) return dom.el('span', 'file-badge', change.name.slice(0, 2).toUpperCase());
-    const span = dom.el('span', 'file-icon font-icon', point === undefined ? icon.fontCharacter : String.fromCodePoint(point));
-    if (icon.fontFamily) span.style.fontFamily = icon.fontFamily;
-    if (icon.fontColor) span.style.color = icon.fontColor;
-    return span;
-  }
-  return dom.el('span', 'file-badge', icon?.badge || change.name.slice(0, 2).toUpperCase());
 }
 
 export function caretToken(value: string, caret: number): CaretToken | undefined {
