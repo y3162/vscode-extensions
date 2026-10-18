@@ -204,7 +204,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     }
     if (this.historyPaused || this.suppressedHistories.has(id) || !vscode.workspace.getConfiguration('ai-agents').get<boolean>('history.enabled', true)) return;
     const safe = structuredClone(state);
-    safe.queue = []; safe.pendingPermission = null; safe.pendingPlan = null; safe.pendingQuestion = null; safe.autoApprove = false;
+    safe.pendingPermission = null; safe.pendingPlan = null; safe.pendingQuestion = null; safe.autoApprove = false;
     this.history.schedule({ version: 1, id, sessionId: controller.sessionId() ?? this.history.get(id)?.sessionId, updatedAt: new Date().toISOString(), controls: this.controllerControls.get(controller)!, state: safe });
   }
 
@@ -420,13 +420,14 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
         if (message.type === 'send' || message.type === 'enqueue') {
           const prompt = 'prompt' in message && typeof message.prompt === 'string' ? message.prompt : '';
           if (prompt.length > 100000) throw new Error('依頼は100,000文字以内で入力してください。');
-          const images = sanitizeImages('images' in message ? message.images : undefined);
+          const imagesSpecified = 'images' in message;
+          const images = sanitizeImages(imagesSpecified ? message.images : undefined);
           const attachments = 'attachments' in message && Array.isArray(message.attachments)
             ? message.attachments.flatMap((item) => typeof item === 'string' && item.trim() ? [item.trim().slice(0, 200)] : []).slice(0, 20)
             : [];
           if (!prompt.trim() && !images.length) return;
           this.requireWorkspace(selection.cwd);
-          await this.deliver(prompt, images, message.type === 'enqueue', attachments);
+          await this.deliver(prompt, images, message.type === 'enqueue', attachments, imagesSpecified);
         }
         return;
       }
@@ -766,7 +767,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     return ja ? 'ターミナル' : 'Terminal';
   }
 
-  private async deliver(prompt: string, images: ImageAttachment[], forceQueue: boolean, attachments: string[] = []): Promise<void> {
+  private async deliver(prompt: string, images: ImageAttachment[], forceQueue: boolean, attachments: string[] = [], imagesSpecified = false): Promise<void> {
     const target = this.controller;
     const initial = target.snapshot().selection;
     const initialSession = target.sessionId();
@@ -796,7 +797,12 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     const current = target.snapshot().selection;
     if (current.provider !== initial.provider || current.cwd !== initial.cwd || (initialSession && target.sessionId() !== initialSession)) throw new Error('送信準備中に会話の設定が変更されました。内容を確認して再送してください。');
     const retry = this.retryDraft?.controller === target && this.retryDraft.text === prompt ? this.retryDraft : undefined;
-    const extras = { ...(retry ? { retryOf: retry.id } : {}), displayText: prompt, ...(images.length ? { images } : {}), ...(attachments.length ? { attachments } : {}) };
+    const extras = {
+      ...(retry ? { retryOf: retry.id } : {}),
+      displayText: prompt,
+      ...(imagesSpecified || images.length ? { images } : {}),
+      ...(attachments.length ? { attachments } : {}),
+    };
     const running = this.registry.entries().filter((entry) => entry.controller.snapshot().busy);
     const limit = vscode.workspace.getConfiguration('ai-agents').get<number>('maxBackgroundSessions', 3);
     if (!target.snapshot().busy && running.length >= limit) {
@@ -823,7 +829,9 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     const original = retry ? target.retryInput(retry.id) : undefined;
     if (retry && !original && target.snapshot().messages.find((message) => message.id === retry.id)?.attachments?.length && !images.length && !attachments.length) throw new Error('添付を再指定してから再送してください。元の添付は保存されていません。');
     if (this.retryDraft?.controller === target) this.retryDraft = undefined;
-    await target.send(original?.prompt ?? expanded, original ? { ...original.extras, ...extras, images: images.length ? images : original.extras?.images } : extras, { mode, selection: state.selection, intent: inferIntent(mode, state.plan) });
+    const retryExtras = original ? { ...original.extras, ...extras } : extras;
+    if (original && !imagesSpecified && original.extras?.images?.length) retryExtras.images = original.extras.images;
+    await target.send(original?.prompt ?? expanded, retryExtras, { mode, selection: state.selection, intent: inferIntent(mode, state.plan) });
     this.output.appendLine(`[${provider}/${backend}] ${target.snapshot().status}`);
   }
 

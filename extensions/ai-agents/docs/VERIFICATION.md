@@ -1,3 +1,169 @@
+# 2026-10-18 最終検証（CI修復・Backend・GUI・テスト整理）
+
+この節は2026-10-18に現在の作業ツリーで行った検証記録です。下にある過去の記録は当時の結果として保持し、この節の数値・実測範囲を最新のものとして扱います。対象バージョンは引き続き`0.10.0`です。Commit、Push、Releaseは行っていません。
+
+## CIと自動検証
+
+直近のGitHub Actions run [39081060726](https://github.com/y3162/vscode-extensions/actions/runs/39081060726) は修正前のHEADを対象にしており、Linuxでモデルカタログ用Codexプロセスがinitialize要求を読む前に終了すると、`spawn`完了を待たずにstdinへ書き込んで`write EPIPE`になっていました。起動完了と起動失敗を区別し、stdin切断を未処理例外にせず、未完了RPCを拒否して破棄する処理を`src/providers/models.ts`へ追加しました。エラー通知はプロセス終了・通信切断の意味を伝え、失敗したBackendを起動済みとして保持しません。合成子プロセスの回帰テストは、OS依存のエラー文言を期待値に使いません。
+
+| 環境・コマンド | 結果 |
+| --- | --- |
+| macOS arm64、Node 26.7.0: `npm run check`, `npm test`, `npm run test:coverage`, `npm run test:hygiene`, `npm run build`, `npm run package` | すべて成功。Unit **812/812**、Hygiene 428ファイル。VSIXはローカル生成のみ |
+| macOS arm64、Node 22.23.3: `npm run check`, `npm test`, `npm run test:coverage` | すべて成功。Unit **812/812** |
+| VS Code 1.142.0 Extension Host（Host Node 24.21.0）: `npm run test:integration` | 成功。モックBackendを使ったHost操作フロー |
+| `npm run test:protocol`, `npm run test:live`, `npm run test:tools`, `npm run test:runtime` | それぞれ2/2、6/6、5/5、12/12成功。実Backendの範囲は下記と[AUDIT_RUNTIME.md](AUDIT_RUNTIME.md)を参照 |
+| Coverage | Lines/Statements **99.74%** (12612/12644)、Branches **98.97%** (9179/9274)、Functions **99.89%** (968/969)。本番コードの除外なし |
+| Linux / GitHub Actions | ローカルにDocker、Podman、actがなく、修正後のLinux実行は未実施。Pushしない指示のため新しいGitHub Actions runもなく、Actions本体の成功は未確認 |
+
+Coverageは以前の報告値からわずかに下がっており、100%ではありません。未到達の分岐を除外したり防御処理を削除したりして数値を合わせていません。
+
+## Backend実測と制限
+
+| 経路 | 今回確認したこと | 未保証・未確認 |
+| --- | --- | --- |
+| Cursor SDK | 実モデル3ターン、Stop後の再送・Resume、ファイルツール、Plan→改訂→同一会話Build、TaskのRunning→Completed、親の返答後も続く背景Terminal | Backendが親の明示Wait・子専用履歴・子Stopを公開しない。Codex App Server相当のTerminal一覧なし |
+| Cursor ACP | 実モデル3ターンとResume。Backend final本文・Controller表示・再生本文の一致。2子の公開開始/終了区間とコマンド出力が重なった回を実測（Composer 2.5 fast、約6秒のコマンド重複）。Plan→改訂→Build | 以前の約200秒タイムアウトは今回再現なしだが反復保証ではない。親の明示Wait、子専用履歴、子Stop、背景Terminalは公開されていない |
+| Codex SDK | GPT-6-Lunaの3ターン、Stop後の再送・Resume、ツールによるファイル編集 | 公開Plan mode、子イベント/子履歴、App Server背景Terminal、子Stopは非対応 |
+| Codex App Server | GPT-6-Lunaの3ターン・Resume、子2件の実thread IDと約9.4秒の並列区間、親Wait `[true,false,true,false]`、Plan→改訂→Build、背景Terminal自然終了/厳密なprocessId停止 | 子単位Interruptの受理は停止完了を意味しなかった。初期stdoutは1回の非TTY実測では実行中の公開イベントに届いたが、常に届く保証はない。Terminal初期一覧にも出ない場合がある |
+
+子Stopは対象の子だけがCancelledになったと実証できないため、UIに公開しません。親Stop後に子がRunningのまま残る場合も、子をCompleted/Cancelledに推測変換しません。Runtime試験で実測したコマンド区間・Waitイベント・終了状態の詳細は[AUDIT_RUNTIME.md](AUDIT_RUNTIME.md)にあります。
+
+## 実GUIとE2Eの範囲
+
+使い捨てワークスペース上のExtension Development Hostで、Codex App Serverの親がWaitingを明示し、Composer直上の一覧にRunningの子2件が出ることを確認しました。子Aの詳細を開き、完了・経過時間・開始/終了出力・exit codeを見て親へ戻りました。子の実行継続自体は後続のRuntime検証でも確認しています。一方、親へ戻った後の子Bの完了出力と保存済み詳細をGUIで再確認できず、子詳細・親会話間の全往復は受入完了としていません。検証はDark、約300px幅の1環境だけです。
+
+以下は今回、実GUI操作としては未実施です。DOM/Hostテストの成功を実GUI結果には数えません。
+
+- 300/390px × Dark/Light/High Contrastの全マトリクス、状態更新後の折りたたみ、draftと正確なscroll復元
+- 日本語IMEの変換中Enter、実Clipboard画像、画像Queue/Retry/Session切替、実行中Reloadの手操作
+- 4経路すべてのGUI受入、Prompt Rewindの最初/中間/最後ターンと未コミット変更保護を含む全ライブ行程
+- 通信切断直後・Build異常終了・Rewind競合・Retry二重変更など全障害/副作用組み合わせ
+
+今回のライブ試験では4経路の基本会話/Resume、編集ツール、該当BackendのPlan/Build、背景プロセスと子状態を確認しました。`test:tools`と隔離した一時Git workspaceで、追跡ファイル`note.txt`の編集・復元、およびACP/App Serverの許可/拒否パスを確認しています。これらは削除・複数ファイル編集・通信障害との組み合わせや全機能GUI受入を意味しません。実GUI、DOM、Host Integration、Backendライブの証拠は互いに区別してください。
+
+## テスト構成と今回の判定
+
+テストは`core`、`providers`、`sidebar`、`webview`の責務別の名前へ整理しました。`roundXX`、`residual`、汎用的なcoverage/gaps等の開発段階依存名を排し、`session-*`、`plan-*`、`terminal-*`、`composer-*`、`transcript-*`等の対象機能が分かる名前にしています。最初の移動時に誤って複製された同一テスト本体44件を削除し、無意味な重複実行をなくしました。サイドバーの背景送信で重複した1ケースは、Controller identity確認を保つ1つのシナリオへ統合しました。Webview 42、Sidebar 29、Provider index 24のケースを責務別ファイルへ分け、95テスト呼び出しを維持しています。再帰的なtest/coverage runnerとnpm scriptsは維持しました。CI回帰、ACP status逆行、並列区間、final一致、初期Terminal stdout対応の回帰を追加しています。
+
+**今回の作業は部分完了です。** コード修正、Node 22/26のmacOSテスト、Host/Backend検証、テスト整理は完了しました。Linuxと修正後GitHub Actions、GUIの全幅/全テーマと手操作、全Prompt Rewind行程が未確認のため、ユーザー受入条件全体を完了とは判定しません。v1.0.0のリリース判定とは別です。
+
+## 2026-10-18 追加受入（残存課題の確認）
+
+- Ubuntu 24.04 ARM64 Lima VM、Node 22.23.3でクリーンな`npm ci`（223 packages）後、`npm run check`と`npm test`が成功。UnitはEPIPE回帰を加えて813/813件。CoverageはLines/Statements 99.77%、Branches 98.96%、Functions 99.89%、62 executable modulesのinventory確認も成功。Linuxのsource mapではcoverage pathがレポート位置相対になるため、テストハーネスのinventory照合をリポジトリ相対suffixで正規化した。
+- 同VMで`npm run test:hygiene`（429 files）と`npm run build`、Linux VSIX package成功。Xvfb Integrationは初回に`libasound.so.2`不足で起動できなかったため、Ubuntu公式の`libasound2t64`導入後にVS Code 1.142.0上で全Host Integration成功。
+- macOS 26.6.2 arm64、Node 26.7.0の最新CoverageはLines/Statements 99.77%、Branches 98.97%、Functions 99.89%。Coverage gapは主にsubagentの省略可能なmetadata表示、Codex App Serverの例外/任意イベント、oversize/circular payload防御分岐。除外コメントや本番分岐削除は行っていない。
+- 実Codex App Server GPT-6-Lunaと隔離Git workspaceでPrompt Rewind Test A〜E（最後・中間・最初のUser turn、開始前からある未コミット変更、分岐後のbackend transcript）を実行し、会話分岐とファイル内容が一致することを確認。テストワークスペース以外は変更していない。障害注入の個別競合ケースはunit testで検証し、全てを実backendで発生させたわけではない。
+- macOSのExtension Development Host通常Integrationは全ケース成功。追加のゲート付きmock App Server IntegrationではA完了後も親WaitingとB Runningが保たれ、B完了後に親が完了することをassertした。実GUIの手操作はDarkテーマのmock App Serverに限り、Composer直上の親Waitingと子2件のRunningを確認し、子A詳細の経過時間表示まで開いた。全6テーマ/幅条件は未完了。実IMEでは`日本語`の変換確定Enterで送信されないことを確認したが、確定後Enter、Shift+Enter、複数行、画像Clipboard/Retry、Reload中の状態保持は未確認。
+- Cursor ACPの子並列試験は最大3回を実施。全試行で親の最終応答が完了し、タイムアウトは再現しなかった。重複区間は2回で明確に確認、3回目はタイムスタンプのずれを含むため、常時並列の保証とは扱わない。Codex App ServerのBackground Terminal自然終了/出力/明示停止はライブ再確認したが、全出力順序・Reload後再接続条件は未確認。
+
+GitHub Actions本体はこの変更を実行していない。Pushは行っていない。**v1.0.0は現時点でNo-Go**。全体のユーザー受入完了および最終Go判定には、公式Actions成功とGUI全幅/全テーマ、画像貼付/Retry、実行中Reloadの実機確認が残る。
+
+# 2026-10-18 macOS最終QA追記
+
+この追記は今回の最終QA要求に対する最新の実施記録です。既存の履歴は当時の確認結果として保持します。今回の作業はmacOSのみで実施し、Linux Runner、VM、コンテナ、Xvfbは使用していません。既存の未コミット変更を保持し、Commit / Push / Releaseは行っていません。
+
+## 実GUI受入
+
+今回、隔離したVS Code profile・拡張機能領域・ワークスペースを指定してExtension Development Hostを起動しようとしましたが、起動ログから共有状態ストア`~/.vscode-shared/sharedStorage/state.vscdb`が隔離profileの外に解決されることが分かりました。CUAで見えたのは通常のVS Codeウィンドウで、対象Extension Development Hostではありませんでした。画面への入力や既存ウィンドウの操作はせず、起動したプロセスを終了し、一時領域を削除しました。厳密な分離を確認できなかったため、その環境ではGUI受入を続行していません。既存ユーザーデータの変更を意図した操作はありません。
+
+| サイドバーCSS幅 | テーマ | 既存の実GUI記録 | 当時確認した表示 | 今回の再確認 |
+| ---: | --- | --- | --- | --- |
+| 300px | Dark | 実Extension Development Host。Retina画像600pxからCSS幅を測定 | 回答、コード、折りたたみUsage、Composer。300pxでCopy成功表示が縦に長く折り返す問題を記録 | 起動隔離できず未実施 |
+| 300px | Light Modern | 実Extension Development Host。Retina画像600px | 同じ基本レイアウトと操作性 | 起動隔離できず未実施 |
+| 300px | Dark High Contrast | 実Extension Development Host。Retina画像600px | 同じ基本レイアウトと操作性。HC枠線確認 | 起動隔離できず未実施 |
+| 390px | Dark | 実Extension Development Host。Retina画像780px | 同じ基本レイアウトと操作性 | 起動隔離できず未実施 |
+| 390px | Light Modern | 実Extension Development Host。Retina画像780px | 同じ基本レイアウトと操作性 | 起動隔離できず未実施 |
+| 390px | Dark High Contrast | 実Extension Development Host。Retina画像780px | 同じ基本レイアウトと操作性。HC枠線確認 | 起動隔離できず未実施 |
+
+この6条件の過去結果と保存画像の記録は、下の「コピー・実画面の確認範囲（GUI再試行後）」節にあります。今回は新しいGUI結果を加えていません。過去の表示確認は回答／コード／Usage／Composerの基本操作であり、全ての要求項目（Subagent Detail、Diff、Plan、Build、Terminal、History、Error）を6条件それぞれで巡回した証拠ではありません。以前記録した300pxのCopy feedback折返しについては、現行Webviewが成功時にアイコンとhidden label/titleを使うコードですが、今回のネイティブ再確認はできていません。
+
+今回の`test:integration`ではMock Backendと決定的な子イベントを使い、子A Completed / 子B Runningの間も親のWaitingが保たれ、B完了後にWaitingが解除されることをExtension Host上で検証しました。これはHost Integrationであり、今回の実GUIまたは実Backendでの受入結果ではありません。長い子名、子3件以上、全詳細往復、状態更新時の折りたたみ・親scroll・下書き保持の実GUI確認は未完了です。
+
+## IME、画像、Composer
+
+| 項目 | 今回の結果 | 証拠の種類 |
+| --- | --- | --- |
+| macOS日本語IMEの変換確定Enter | 以前の実GUI記録では送信されないことを確認。今回再実施なし | 過去の実OS操作 |
+| 候補選択、`compositionend`直後のEnter | 候補選択後の実機個別記録なし。即時Enter抑止を確認 | `compositionend`後の抑止は合成DOM Unit test |
+| 変換確定後のEnter | 実OS IMEでは未確認。合成DOMでは送信 | DOM / Unit test。実IMEの確定後入力ではない |
+| Shift+Enter、複数行 | 改行と送信本文を確認 | DOM / Unit test。実IMEとの組合せは未確認 |
+| モデル・モード変更、会話切替中の変換 | 未実施 | 実IME・実GUI操作なし |
+| 途中入力・下書き復元 | 以前の実GUIで貼り付けた日本語下書きのWebview再作成後復元を確認。添付画像の分離復元は合成状態で確認 | 実GUIのWebview再作成記録 + DOM / Unit test |
+| 送信後の欄クリア | 合成状態で確認 | DOM / Unit test |
+| macOS Clipboardからの画像貼付 | 未実施 | OS Clipboardを操作していない |
+| 画像1枚・複数枚、削除、画像のみ、テキスト併用 | 合成入力で経路を検証 | DOM / Controller Unit test。実Backend送信ではない |
+| Queue、会話切替、失敗後Retry、画像参照失敗 | 合成データで回帰を検証 | Unit test。実GUI・実画像・実Backendではない |
+
+Composer修正では、会話識別子ごとの添付下書き保存、古いFileReader応答の隔離、保存画像の検証と再添付案内を追加しました。Retry時は明示的に空画像配列が指定された場合に元画像を補完しないため、削除済み画像が勝手に戻ることを避けます。これらは決定的な合成テストで確認しました。画像のみのController送信経路もMockで確認しましたが、画像対応Backendへの実転送、失敗後の実画像Retry、Clipboard動作は未確認です。
+
+## Reload・履歴・Terminal
+
+`Developer: Reload Window`をExtension Development Hostで実行していないため、次の実GUIシナリオはすべて未実施です。
+
+| Reload直前の状態 | 実GUI結果 | 今回確認できた範囲 |
+| --- | --- | --- |
+| 通常推論中 | 未実施 | 復元時に保存済みRunning turnをUnknownへ移し、終了時刻を推測しない修正をUnitで確認。実Backend再接続・完了照会は未確認 |
+| 子2件Running / 親Waiting | 今回未実施。過去記録は子完了後にReloadしCompletedを復元 | 保存済みRunning childと親TurnをUnknownへ移すロジックをUnit範囲で確認。実行再接続・親再開は未確認 |
+| Background Terminal実行中 | 未実施 | 以前、同一processIdへの表示接続と停止は確認。実Reload後のprocessId再接続、stdout/stderr、重複出力、exit codeは未確認 |
+| Plan作成中 | 未実施 | 保存済みplanning/revisingをUnknownに保ち、下書きを保持する修正をUnit範囲で確認 |
+| Build実行中 | 未実施 | 保存済みbuildingをUnknownにし、Build再実行を無効にする修正をUnit / DOM testで確認 |
+| 未送信Queueあり | 未実施 | HistoryStoreの合成履歴へQueue本文と画像を保存・復元し、自動送信せず明示操作を待つことをUnitで確認 |
+| Composer下書きあり | Extension Host再起動後は未実施 | Webview再作成後の通常テキスト保持は過去GUI記録、画像付き下書きはDOM testで確認 |
+
+Reloadを挟む会話本文・Backend Session ID・Usage・Tool履歴・ファイル変更・子詳細の実GUI前後比較は行っていません。古いSessionからのイベントが新Sessionへ混入しないこと、実Terminalへの再接続、CloseとStopの違い、標準出力の保持、Reload後の終了コードは受入未完了です。Terminalの標準出力を推測生成したり、Reload後に同じコマンドを再実行したりしていません。
+
+## Backendと時刻計測
+
+この最終QAターンでは、過去に行った実Backend試験を無制限に繰り返さない方針に従い、新たな有料推論・実Backend Reload試験を行っていません。4経路の基本チャット、Resume、対応するPlan / Build、子処理、Waiting、Terminal、Stop、Finalについての既存実測は上記の以前の検証節および[AUDIT_RUNTIME.md](AUDIT_RUNTIME.md)に記録した履歴です。今回新たに実証した結果として数え直していません。Backendの公開APIで子単位停止の完了を保証できないため、子専用Stopは引き続き公開しません。
+
+ACP / App Serverの`startedAt`・`endedAt`はExtension Hostでイベントを観測した時刻として扱い、Backend開始・終了時刻の断定に使わないことを記録しました。`durationMs`はBackendから明示的に返された場合だけBackend値として扱い、それ以外はローカル観測の経過時間と表示します。ACP並列性の過去記録では、子コマンド出力内の実時刻とHostのイベント受信時刻を分けました。保持された実行データがない3回目の時刻不整合を特定の原因に断定していません。
+
+## macOS CI・ローカル検証
+
+`.github/workflows/ai-agents.yml`を`runs-on: macos-latest`、`actions/setup-node@v4`のNode `22.x`へ変更し、`npm ci`、check、unit、coverage、hygiene、build、Extension Host integration、packageを順に実行します。Ubuntu Runner / Xvfbはありません。GitHub公式のRunner Images一覧では、現時点で`macos-latest`はmacOS 26 arm64に割り当てられています。Runnerラベルは将来更新され得るため、実際の割当は各Actions実行ログを基準にしてください。[GitHub Actions Runner Images](https://github.com/actions/runner-images)
+
+今回のローカル実行（macOS arm64、Node 26.7.0。前のNode 22環境の記録は上記履歴を参照）は以下のとおりです。
+
+| コマンド | 結果 |
+| --- | --- |
+| `npm run check` | 成功 |
+| `npm test` | **821/821成功**、skipなし |
+| `npm run test:coverage` | 成功。Lines / Statements 99.75% (12797/12828)、Branches 98.83% (9260/9369)、Functions 99.79% (976/978) |
+| `npm run test:hygiene` | 成功、430 files |
+| `npm run build` | 成功 |
+| `npm run test:integration` | 以前の実行は1回成功したが、最新の再試行はExtension Host開始前に失敗。起動したVS Code 1.142.0が`SIGABRT`で終了し、統合試験の成功証拠ファイルは生成されなかった。今回のRunner変更後は未再実行 |
+| `npm run package` | 成功。Darwin arm64 VSIXをローカル生成、1514 files / 137.43 MiB |
+| `npm run test:protocol`, `test:live`, `test:tools`, `test:runtime` | 今回は未実行。過去記録を参照 |
+
+VSIX監査では1514ファイル、非圧縮389,151,033 byte、圧縮144,110,851 byteでした。依存パッケージ下の`test` / `tests` / `__tests__`パスは0件です。秘密情報らしいパターン、ユーザーhomeまたは使い捨てworkspace/profileを指す絶対パスは0件でした。文字列検査ではCodex / Cursorの5つのネイティブ実行ファイルに、上流ビルドworker由来の一般的な`/Users/runner/...`ソースパスが埋め込まれていました。これはこの端末のhome、テスト用の一時パス、リポジトリのパスではありません。最大の項目は同梱Codex実行バイナリ約246.6 MB、code-mode host約65.4 MB、voice host約9.99 MBです。Cursor SDKのripgrep / sandboxとCursor・Codexのネイティブ依存も残っています。実行時SDK・バイナリを削らず、依存元のテスト素材のみを`.vscodeignore`で除外しています。
+
+Coverage未到達箇所（最新計測）は次のとおりです。Coverage対象からの除外は追加していません。
+
+| モジュール | Lines | Branches | Functions | 主な未到達箇所 |
+| --- | ---: | ---: | ---: | --- |
+| `chat-controller.ts` | 98.94% | 96.66% | 100% | 892–894、934–941、974、1230 |
+| `codex-app-server.ts` | 99.47% | 97.64% | 100% | 166–167、414–416 |
+| `view-state.ts` | 100% | 95.3% | 100% | branchのみ |
+| `webview/subagents.ts` | 96.5% | 83.33% | 100% | 120、124–125、131–132 |
+| `providers/details.ts` | 100% | 97.18% | 100% | branchのみ |
+| `providers/models.ts` | 97.8% | 94.25% | 100% | 177、185–187、222 |
+| `webview/composer.ts` | 99.72% | 99.25% | 98.5% | 549–550 |
+| `webview/transcript.ts` | 100% | 99.57% | 97.14% | 85、322 |
+
+GitHub Actions本体は実行していません。Push禁止のため、macOS Runner上の公式CI成功は未確認です。ローカルのExtension Host Integration成功はActionsの成功に代わりません。
+
+### 追加起動時のクラッシュと分離策
+
+ユーザー提供の画面は正常に表示されている一方、別に起動した`Code`ウィンドウが繰り返し終了するとの報告を受けました。添付Crash ReportはPID 51996、`/Applications/Visual Studio Code.app/Contents/MacOS/Code`、VS Code 1.142.0、`SIGABRT`です。停止箇所はAppKitの`___RegisterApplication_block_invoke`から`NSApplication`初期化へ続いており、Extension HostやAI Agentsのコードが動く前です。レポートには起動引数が含まれないため、クラッシュしたプロセスが受け取ったprofile/workspace引数の適用状況まではこの記録単独で確定できません。このクラッシュを正常な画面の失敗や拡張機能のクラッシュとは扱いません。
+
+原因調査で、Integration Runnerが`VSCODE_EXECUTABLE_PATH`未指定時に`/Applications/Visual Studio Code.app`を直接spawnする既定経路を確認しました。既定を使い捨てテストprofile内へダウンロードしたVS Codeへ切り替え、`/Applications`配下の実行ファイルは起動前に拒否するよう変更しました。起動前のreceiptに実行ファイル、app bundle、workspace、user-data、extensions、shared-data、全launch argumentsを出力します。変更後の起動は行っていません。現時点では追加windowの起動障害は未解決で、Integrationは成功と扱いません。手動確認項目と停止条件は[MACOS_ACCEPTANCE_RUNBOOK.md](MACOS_ACCEPTANCE_RUNBOOK.md)にあります。
+
+この追跡中の読み取り専用CUA inventoryには、ユーザーの説明と一致して動作中の`Code`アプリが2件表示されました。どちらのwindowも選択・操作していません。macOS権限によりshellからのプロセス一覧取得は拒否されたため、現在のPIDとargvは採取できていません。`ISOLATION_PREFLIGHT`に記録されるargvはランナーの起動予定値であり、クラッシュしたPIDが実際に受け取ったargvの証拠ではありません。
+
+## v1.0.0判定
+
+**No-Go。** 6幅/テーマ条件の全操作、Subagent全遷移、IME、Clipboard画像と実Backend Retry、状態別の実Reload / Terminal再接続が未完了です。さらに最新のExtension Host Integration起動はAppKitで停止し、Runner変更後の再検証も未実施です。macOS GitHub Actionsも未実行です。Mock / DOM / Unit結果でこれらを置き換えてリリース可とは判断しません。隔離したテスト用VS Codeの起動・実GUI受入と次回Push後の公式CI成功を確認してから再判定してください。
+
 # サブエージェントのサイドバー表示（2026-10-18）
 
 この更新では、Composer直上の折りたたみ式子一覧、既存サイドバー内の子の詳細画面、親の明示的な待機状態、子イベントの保存上限、Backendごとの対応状況を記録します。以前のリリースやGUI検証の記録は変更していません。
@@ -620,3 +786,53 @@ ACP GUIの3ターン目は実Askへ変更し、ACP_GUI_ASK_FINALの要求どお�
 - 実行中turn、queue、保留中の承認／質問／plan、稼働中の子エージェントやBackground Terminalがある会話は巻き戻しを拒否する。既存の子・terminalを停止して巻き戻す処理は実装していない。
 - Retryの意味は変更していない。Plan/Todo/Usage/turn/file-change/terminal/subagent状態はローカル履歴で対象境界へ切り詰める。外部side effect、旧Backend threadの物理削除、過去分岐の完全なGCは保証しない。
 - `docs/AUDIT_0100.md`はローカルに存在しない。既存の移行見送り（No-Go）項目と区別してこの限定対応をFeature Matrixに記録する。Commit、Push、Releaseは実施していない。
+# 2026-10-18 最終検証（CI修復・Backend・GUI・テスト整理）
+
+この節は2026-10-18に現在の作業ツリーで行った検証記録です。下にある過去の記録は当時の結果として保持し、この節の数値・実測範囲を最新のものとして扱います。対象バージョンは引き続き`0.10.0`です。Commit、Push、Releaseは行っていません。
+
+## CIと自動検証
+
+直近のGitHub Actions run [39081060726](https://github.com/y3162/vscode-extensions/actions/runs/39081060726) は修正前のHEADを対象にしており、Linuxでモデルカタログ用Codexプロセスがinitialize要求を読む前に終了すると、`spawn`完了を待たずにstdinへ書き込んで`write EPIPE`になっていました。起動完了と起動失敗を区別し、stdin切断を未処理例外にせず、未完了RPCを拒否して破棄する処理を`src/providers/models.ts`へ追加しました。エラー通知はプロセス終了・通信切断の意味を伝え、失敗したBackendを起動済みとして保持しません。合成子プロセスの回帰テストは、OS依存のエラー文言を期待値に使いません。
+
+| 環境・コマンド | 結果 |
+| --- | --- |
+| macOS arm64、Node 26.7.0: `npm run check`, `npm test`, `npm run test:coverage`, `npm run test:hygiene`, `npm run build`, `npm run package` | すべて成功。Unit **812/812**、Hygiene 428ファイル。VSIXはローカル生成のみ |
+| macOS arm64、Node 22.23.3: `npm run check`, `npm test`, `npm run test:coverage` | すべて成功。Unit **812/812** |
+| VS Code 1.142.0 Extension Host（Host Node 24.21.0）: `npm run test:integration` | 成功。モックBackendを使ったHost操作フロー |
+| `npm run test:protocol`, `npm run test:live`, `npm run test:tools`, `npm run test:runtime` | それぞれ2/2、6/6、5/5、12/12成功。実Backendの範囲は下記と[AUDIT_RUNTIME.md](AUDIT_RUNTIME.md)を参照 |
+| Coverage | Lines/Statements **99.74%** (12612/12644)、Branches **98.97%** (9179/9274)、Functions **99.89%** (968/969)。本番コードの除外なし |
+| Linux / GitHub Actions | ローカルにDocker、Podman、actがなく、修正後のLinux実行は未実施。Pushしない指示のため新しいGitHub Actions runもなく、Actions本体の成功は未確認 |
+
+Coverageは以前の報告値からわずかに下がっており、100%ではありません。未到達の分岐を除外したり防御処理を削除したりして数値を合わせていません。
+
+## Backend実測と制限
+
+| 経路 | 今回確認したこと | 未保証・未確認 |
+| --- | --- | --- |
+| Cursor SDK | 実モデル3ターン、Stop後の再送・Resume、ファイルツール、Plan→改訂→同一会話Build、TaskのRunning→Completed、親の返答後も続く背景Terminal | Backendが親の明示Wait・子専用履歴・子Stopを公開しない。Codex App Server相当のTerminal一覧なし |
+| Cursor ACP | 実モデル3ターンとResume。Backend final本文・Controller表示・再生本文の一致。2子の公開開始/終了区間とコマンド出力が重なった回を実測（Composer 2.5 fast、約6秒のコマンド重複）。Plan→改訂→Build | 以前の約200秒タイムアウトは今回再現なしだが反復保証ではない。親の明示Wait、子専用履歴、子Stop、背景Terminalは公開されていない |
+| Codex SDK | GPT-6-Lunaの3ターン、Stop後の再送・Resume、ツールによるファイル編集 | 公開Plan mode、子イベント/子履歴、App Server背景Terminal、子Stopは非対応 |
+| Codex App Server | GPT-6-Lunaの3ターン・Resume、子2件の実thread IDと約9.4秒の並列区間、親Wait `[true,false,true,false]`、Plan→改訂→Build、背景Terminal自然終了/厳密なprocessId停止 | 子単位Interruptの受理は停止完了を意味しなかった。初期stdoutは1回の非TTY実測では実行中の公開イベントに届いたが、常に届く保証はない。Terminal初期一覧にも出ない場合がある |
+
+子Stopは対象の子だけがCancelledになったと実証できないため、UIに公開しません。親Stop後に子がRunningのまま残る場合も、子をCompleted/Cancelledに推測変換しません。Runtime試験で実測したコマンド区間・Waitイベント・終了状態の詳細は[AUDIT_RUNTIME.md](AUDIT_RUNTIME.md)にあります。
+
+## 実GUIとE2Eの範囲
+
+使い捨てワークスペース上のExtension Development Hostで、Codex App Serverの親がWaitingを明示し、Composer直上の一覧にRunningの子2件が出ることを確認しました。子Aの詳細を開き、完了・経過時間・開始/終了出力・exit codeを見て親へ戻りました。子の実行継続自体は後続のRuntime検証でも確認しています。一方、親へ戻った後の子Bの完了出力と保存済み詳細をGUIで再確認できず、子詳細・親会話間の全往復は受入完了としていません。検証はDark、約300px幅の1環境だけです。
+
+以下は今回、実GUI操作としては未実施です。DOM/Hostテストの成功を実GUI結果には数えません。
+
+- 300/390px × Dark/Light/High Contrastの全マトリクス、状態更新後の折りたたみ、draftと正確なscroll復元
+- 日本語IMEの変換中Enter、実Clipboard画像、画像Queue/Retry/Session切替、実行中Reloadの手操作
+- 4経路すべてのGUI受入、Prompt Rewindの最初/中間/最後ターンと未コミット変更保護を含む全ライブ行程
+- 通信切断直後・Build異常終了・Rewind競合・Retry二重変更など全障害/副作用組み合わせ
+
+今回のライブ試験では4経路の基本会話/Resume、編集ツール、該当BackendのPlan/Build、背景プロセスと子状態を確認しました。`test:tools`と隔離した一時Git workspaceで、追跡ファイル`note.txt`の編集・復元、およびACP/App Serverの許可/拒否パスを確認しています。これらは削除・複数ファイル編集・通信障害との組み合わせや全機能GUI受入を意味しません。実GUI、DOM、Host Integration、Backendライブの証拠は互いに区別してください。
+
+## テスト構成と今回の判定
+
+テストは`core`、`providers`、`sidebar`、`webview`の責務別の名前へ整理しました。`roundXX`、`residual`、汎用的なcoverage/gaps等の開発段階依存名を排し、`session-*`、`plan-*`、`terminal-*`、`composer-*`、`transcript-*`等の対象機能が分かる名前にしています。最初の移動時に誤って複製された同一テスト本体44件を削除し、無意味な重複実行をなくしました。サイドバーの背景送信で重複した1ケースは、Controller identity確認を保つ1つのシナリオへ統合しました。Webview 42、Sidebar 29、Provider index 24のケースを責務別ファイルへ分け、95テスト呼び出しを維持しています。再帰的なtest/coverage runnerとnpm scriptsは維持しました。CI回帰、ACP status逆行、並列区間、final一致、初期Terminal stdout対応の回帰を追加しています。
+
+**今回の作業は部分完了です。** コード修正、Node 22/26のmacOSテスト、Host/Backend検証、テスト整理は完了しました。Linuxと修正後GitHub Actions、GUIの全幅/全テーマと手操作、全Prompt Rewind行程が未確認のため、ユーザー受入条件全体を完了とは判定しません。v1.0.0のリリース判定とは別です。
+
+# サブエージェントのサイドバー表示（2026-10-18）

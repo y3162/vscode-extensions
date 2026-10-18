@@ -1,3 +1,11 @@
+# 2026-10-18 実測追補
+
+現在のbounded live runでは、Codex App Serverの親Wait通知`[true,false,true,false]`と別thread IDを持つ子2件の約9.4秒の実行重複を確認しました。Cursor ACPでも別task/tool IDの2件がCompletedとなり、公開区間とshell marker時刻が約6秒重複しました（`composer-2.5-fast`）。これはその回の実測であり、過去の約200秒timeoutが再現しないことや全てのプロンプトで並列実行されることの保証ではありません。
+
+Cursor ACPアダプターはBackendが実際に提供した`rawOutput` / result本文がある場合に限り、秘密情報をマスクして最大500文字のresult previewを保持します。公開子履歴ストリームを新設したものではなく、Backendが返さない内容は表示しません。遅延したrunning通知でCompleted/Error/Cancelledを戻さない単調な終端状態回帰も追加しました。
+
+Extension Development HostのDark・約300px実GUIでは親Waitingと子2行、子A詳細、親への復帰を操作しました。子Bの結果詳細をGUIで確認できず、幅/テーマ全組合せ・draft・正確なscroll・IMEなどの受入は未完了です。DOM/Hostテストは実GUIの証拠とは区別します。詳細な結果は[VERIFICATION.md](VERIFICATION.md)を参照してください。
+
 # サブエージェントの状態とサイドバー詳細
 
 Chatビューでは、子エージェントを既存のサイドバー内に表示します。折りたたみ式パネルはComposerのすぐ上に配置します。表示中の会話だけを対象とし、Backend IDで記録を重複排除します。展開状態と行一覧のスクロール位置を保ち、実行中の子、または同じ親ターンに実行中の子がいる子だけを一覧に表示します。そのターンの子がすべて終了すると、要約は会話履歴に残り、そこから子の詳細を開けます。
@@ -32,3 +40,12 @@ App Serverでは復元時に親の保存済みthread履歴から子を再検出�
 ## 検証
 
 決定的なテストでは、親の明示的な待機状態の遷移、並列子ID、子専用イベントの振り分け、子の完了・失敗・キャンセル・不明状態、通知の重複や順序入れ替わり、App Server復元、履歴の上限と秘匿情報のマスク、親ターンの巻き戻し制限、子単位の停止が未確認の場合にStopを隠すこと、一覧の折りたたみと重複排除、親と詳細画面の移動、Composer下書きと親のスクロール位置の保持を検証します。プロトコルfixtureは合成イベントです。ライブBackendとGUIの結果および制限は[VERIFICATION.md](VERIFICATION.md)を参照してください。
+# 2026-10-18 実測追補
+
+現在のbounded live runでは、Codex App Serverの親Wait通知`[true,false,true,false]`と別thread IDを持つ子2件の約9.4秒の実行重複を確認しました。Cursor ACPでも別task/tool IDの2件がCompletedとなり、公開区間とshell marker時刻が約6秒重複しました（`composer-2.5-fast`）。これはその回の実測であり、過去の約200秒timeoutが再現しないことや全てのプロンプトで並列実行されることの保証ではありません。
+
+Cursor ACPアダプターはBackendが実際に提供した`rawOutput` / result本文がある場合に限り、秘密情報をマスクして最大500文字のresult previewを保持します。公開子履歴ストリームを新設したものではなく、Backendが返さない内容は表示しません。遅延したrunning通知でCompleted/Error/Cancelledを戻さない単調な終端状態回帰も追加しました。
+
+Extension Development HostのDark・約300px実GUIでは親Waitingと子2行、子A詳細、親への復帰を操作しました。子Bの結果詳細をGUIで確認できず、幅/テーマ全組合せ・draft・正確なscroll・IMEなどの受入は未完了です。DOM/Hostテストは実GUIの証拠とは区別します。詳細な結果は[VERIFICATION.md](VERIFICATION.md)を参照してください。
+
+# サブエージェント表示と状態管理

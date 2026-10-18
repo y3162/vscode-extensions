@@ -105,8 +105,8 @@ export class Transcript {
     article.classList.toggle('done', turn.done);
     const usageHost = article.querySelector('.turn-usage') as HTMLElement;
     const usage = shellUsage(this.shell, turn.id);
-    usageHost.textContent = usage ? usageText(usage) : '';
-    usageHost.hidden = !usage;
+    usageHost.textContent = [usage ? usageText(usage) : '', turn.status === 'unknown' ? copy.turnUnknown : ''].filter(Boolean).join(' · ');
+    usageHost.hidden = !usage && turn.status !== 'unknown';
     const user = article.querySelector('.user-row');
     if (isElement(user)) this.renderUser(user, turn);
     const toggle = article.querySelector('.log-toggle');
@@ -669,6 +669,7 @@ function fileLanguage(name: string): string {
 }
 
 function workSummary(turn: TurnModel, locale: Locale, copy: Copy): string {
+  if (turn.status === 'unknown') return copy.turnUnknown;
   const running = turn.log.flatMap((segment) => segment.type === 'tools' ? segment.tools : []).find((tool) => tool.status === 'running');
   if (!turn.done) return running ? `${running.name}…` : copy.working;
   const elapsed = turn.startedAt !== undefined && turn.endedAt !== undefined

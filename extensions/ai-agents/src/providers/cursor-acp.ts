@@ -8,6 +8,7 @@ import { StdioJsonRpc } from './stdio-rpc.js';
 import { classifyTool, toolStatus } from '../tool-kind.js';
 import { readLocation } from './read-location.js';
 import { extensionVersion } from '../version.js';
+import { redactSecrets } from '../types.js';
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' ? value as Record<string, unknown> : {};
@@ -367,7 +368,18 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
     const name = typeof subagentType === 'string' ? subagentType
       : typeof record(subagentType).custom === 'string' ? String(record(subagentType).custom) : description;
     const background = typeof body.isBackground === 'boolean' ? body.isBackground : previous?.background ?? 'unknown';
-    const status = taskStatus(body);
+    const rawOutput = record(body.rawOutput);
+    const resultPreview = textOf(body.result ?? body.output ?? rawOutput.result ?? rawOutput.output ?? rawOutput.content ?? body.rawOutput ?? body.content);
+    const reportedStatus = taskStatus(body);
+    const terminalStatuses = ['completed', 'error', 'cancelled'] as const;
+    const previousIsTerminal = previous && terminalStatuses.includes(previous.status as typeof terminalStatuses[number]);
+    // ACP can deliver a delayed task progress notification after the tool result.
+    // Keep the first terminal state authoritative so a stale `running` update
+    // cannot resurrect a finished child in the UI.
+    const status = previousIsTerminal ? previous.status : reportedStatus;
+    // ACP task updates expose durationMs but no start/end timestamps here.
+    // startedAt/endedAt are Extension Host observation times for the first
+    // running/terminal update, not Backend execution timestamps.
     const subagent: SubagentRecord = {
       ...previous, id, name, background,
       status: status === 'unknown' ? previous?.status ?? status : status,
@@ -375,8 +387,9 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       ...(typeof body.model === 'string' ? { model: body.model } : {}),
       ...(typeof body.prompt === 'string' ? { task: body.prompt } : {}),
       ...(typeof body.durationMs === 'number' ? { durationMs: body.durationMs } : {}),
+      ...(resultPreview ? { resultPreview: redactSecrets(resultPreview).slice(0, 500) } : {}),
       ...(status === 'running' && !previous?.startedAt ? { startedAt: Date.now() } : {}),
-      ...(['completed', 'error', 'cancelled'].includes(status) ? { endedAt: Date.now() } : {}),
+      ...(terminalStatuses.includes(status as typeof terminalStatuses[number]) ? { endedAt: previous?.endedAt ?? Date.now() } : {}),
     };
     tasks.set(id, subagent);
     emitUpdate({

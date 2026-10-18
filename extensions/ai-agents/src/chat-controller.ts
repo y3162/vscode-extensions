@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { realpath } from 'node:fs/promises';
 import { refreshChangeStats } from './change-tracker.js';
+import { sanitizeImages } from './images.js';
 import { sameModelParams } from './model-settings.js';
 import { applyPlanTodos, beginPlanning, buildPrompt, cloneSelection, commitDraft, finishBuild, inferIntent, planningFailed, requestBuild, setBuildSelection, stageDraft } from './plan-state.js';
 import { upsertSession } from './session-index.js';
@@ -16,7 +17,7 @@ import {
 import {
   emptyPlanState, errorMessage, redactSecrets, type AgentInteractions, type AgentMode, type AgentSession, type AgentUpdate, type ChatMessage,
   type ChatState, type ConnectionStatus, type FileChange, type PermissionDecision, type PermissionRequest, type PlanRequest, type PlanState,
-  type QuestionRequest, type Selection, type SendExtras, type SessionSummary, type TerminalRecord, type TurnFileSnapshot, type TurnOptions, type TurnRecord,
+  type QuestionRequest, type QueuedPrompt, type Selection, type SendExtras, type SessionSummary, type TerminalRecord, type TurnFileSnapshot, type TurnOptions, type TurnRecord,
 } from './types.js';
 
 type SessionFactory = (selection: Selection, context?: { signal?: AbortSignal; resumeId?: string }) => Promise<AgentSession>;
@@ -43,6 +44,35 @@ export interface RewindPreview {
 interface PermissionWait { request: PermissionRequest; token: string; resolve: (decision: PermissionDecision) => void }
 interface PlanWait { request: PlanRequest; token: string; resolve: (decision: 'accepted' | 'rejected') => void }
 interface QuestionWait { request: QuestionRequest; token: string; resolve: (answers: Record<string, string[]>) => void }
+
+function restoreQueue(value: unknown): { items: QueuedPrompt[]; dropped: number; imagesDropped: boolean } {
+  if (!Array.isArray(value)) return { items: [], dropped: 0, imagesDropped: false };
+  const items: QueuedPrompt[] = [];
+  let dropped = 0;
+  let imagesDropped = false;
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) { dropped += 1; continue; }
+    const record = raw as Record<string, unknown>;
+    if (typeof record.id !== 'string' || typeof record.text !== 'string' || record.text.length > 100000) { dropped += 1; continue; }
+    let extras: SendExtras | undefined;
+    if (record.extras !== undefined) {
+      if (!record.extras || typeof record.extras !== 'object' || Array.isArray(record.extras)) { dropped += 1; continue; }
+      const rawExtras = record.extras as Record<string, unknown>;
+      const next: SendExtras = {};
+      if (typeof rawExtras.retryOf === 'string') next.retryOf = rawExtras.retryOf.slice(0, 200);
+      if (typeof rawExtras.displayText === 'string') next.displayText = rawExtras.displayText.slice(0, 100000);
+      if (Array.isArray(rawExtras.attachments)) next.attachments = rawExtras.attachments.filter((item): item is string => typeof item === 'string').slice(0, 20).map((item) => item.slice(0, 200));
+      if (Object.hasOwn(rawExtras, 'images')) {
+        try { next.images = sanitizeImages(rawExtras.images); }
+        catch { dropped += 1; imagesDropped = true; continue; }
+      }
+      if (Object.keys(next).length) extras = next;
+    }
+    if (!record.text.trim() && !extras?.images?.length) { dropped += 1; continue; }
+    items.push({ id: record.id.slice(0, 200), text: record.text, ...(extras ? { extras } : {}) });
+  }
+  return { items, dropped, imagesDropped };
+}
 
 export class ChatController {
   private session?: AgentSession;
@@ -240,7 +270,10 @@ export class ChatController {
   restoreSnapshot(saved: ChatState, id?: string): void {
     if (this.rewinding) return;
     const sessions = this.state.sessions;
-    Object.assign(this.state, structuredClone(saved), { busy: false, queue: [], pendingPermission: null, pendingPlan: null, pendingQuestion: null, autoApprove: false, sessions });
+    const restoredQueue = restoreQueue(saved.queue);
+    Object.assign(this.state, structuredClone(saved), { busy: false, queue: restoredQueue.items, pendingPermission: null, pendingPlan: null, pendingQuestion: null, autoApprove: false, sessions });
+    // Restored queue items remain visible for explicit user action; they are never replayed automatically.
+    this.autoDrain = false;
     this.state.messages = this.state.messages.map((message) => this.sanitizeSubagentMessage(message));
     for (const child of this.state.subagents) {
       const task = child.task ? redactSecrets(child.task) : undefined;
@@ -258,13 +291,23 @@ export class ChatController {
     this.state.subagentWaiting = undefined;
     this.restored = true;
     this.state.status = 'idle';
-    for (const turn of this.state.turns) if (turn.status === 'running') { turn.status = 'cancelled'; turn.endedAt = Date.now(); }
+    for (const turn of this.state.turns) if (turn.status === 'running') {
+      turn.status = 'unknown';
+      delete turn.endedAt;
+    }
     for (const child of this.state.subagents) if (child.status === 'running') child.status = 'unknown';
     for (const terminal of this.state.terminals) {
       if (!terminal.status || !/complete|exit|done|terminat|kill|dead|fail|cancel|abort|succeed/i.test(terminal.status)) terminal.status = 'unknown';
     }
-    if (this.state.plan.phase === 'planning' || this.state.plan.phase === 'revising') this.state.plan = planningFailed(this.state.plan);
-    if (this.state.plan.phase === 'building') this.state.plan = finishBuild(this.state.plan, 'cancelled');
+    if (restoredQueue.dropped) this.state.messages.push({
+      id: randomUUID(), role: 'status', at: Date.now(),
+      text: restoredQueue.imagesDropped
+        ? '履歴内の画像Queueを安全に復元できなかったため除外しました。画像を再添付してください。 / A queued request with an unavailable image was not restored. Reattach the image before sending.'
+        : '履歴内の未送信Queueを安全に復元できなかったため除外しました。 / Some unsent queued requests could not be restored safely.',
+    });
+    if (this.state.plan.phase === 'planning' || this.state.plan.phase === 'revising' || this.state.plan.phase === 'building') {
+      this.state.plan = { ...this.state.plan, phase: 'unknown' };
+    }
     this.publish();
   }
 
@@ -1186,10 +1229,21 @@ export class ChatController {
               const id = message.subagentId
                 ? `${turn.id}:child:${message.subagentId}:${message.backendId}`
                 : `${turn.id}:${message.backendId}`;
+              if (message.role === 'assistant' && message.final && !message.subagentId && turn.status === 'unknown') {
+                // A final from this exact backend turn resolves the unknown status,
+                // but transcript replay time is not the backend's completion time.
+                turn.status = 'completed';
+                delete turn.endedAt;
+                turn.finalMessageId = id;
+              }
               const local = byId.get(id);
               if (local) {
                 // A terminal backend snapshot can complete a saved prefix without discarding local metadata.
-                if (turn.status === 'completed' && message.text.startsWith(local.text) && message.text.length > local.text.length) byId.set(id, { ...local, text: message.text });
+                if (message.role === 'assistant' && message.final && !message.subagentId) {
+                  byId.set(id, { ...local, text: message.text, final: true });
+                } else if (turn.status === 'completed' && message.text.startsWith(local.text) && message.text.length > local.text.length) {
+                  byId.set(id, { ...local, text: message.text });
+                }
               } else {
             const recovered = this.sanitizeSubagentMessage({ ...message, id, turnId: turn.userMessageId ?? turn.id });
                 this.absorb(recovered); byId.set(id, recovered);

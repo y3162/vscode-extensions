@@ -1,6 +1,6 @@
 import type {
   Backend, ChatMessage, ConnectionStatus, ImageAttachment, PermissionRequest, PlanPhase, PlanRequest, PlanSource, Provider, QuestionRequest,
-  FileDiffLine, SessionSummary, SubagentBackground, ToolInfo, UsageStats,
+  FileDiffLine, SessionSummary, SubagentBackground, ToolInfo, TurnRecord, UsageStats,
 } from './types.js';
 
 export interface ViewChoice {
@@ -90,7 +90,7 @@ export interface ViewTurnTiming {
   startedAt: number;
   endedAt?: number;
   waitMs: number;
-  status: 'running' | 'completed' | 'cancelled' | 'failed';
+  status: TurnRecord['status'];
   intent: string;
   finalMessageId?: string;
   usage?: UsageStats;

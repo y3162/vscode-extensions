@@ -1,3 +1,25 @@
+# 2026-10-18 追補（CI・テスト構成・実Backend）
+
+この追補は2026-10-18の現在の作業ツリーに対する結果です。下の2026-10-17再監査は過去の基準として保持します。現在のHEADは`f874bed99437f5035b43bb5b1cdd072844938038`、branchは`main`、開始時のgit statusはcleanでした。最終時点では今回の変更が未コミットです。versionは`0.10.0`のままで、Commit、Push、Releaseは行っていません。
+
+## Codexモデルカタログの起動失敗
+
+LinuxでCodexのモデル一覧取得テストが`write EPIPE`になるGitHub Actions失敗を調査しました。モデル取得プロセスは`spawn()`直後にinitialize RPCをstdinへ書き込んでおり、子がOS上で起動完了する前に終了すると、macOS/Linuxの終了イベント順序差によってstdin書き込みが先行していました。`src/providers/models.ts`でchildの`spawn`完了を待ってから書くようにし、起動失敗、stdin EPIPE、stdout/stderr終端、終了時にRPCをrejectしてpendingを消去します。実在しないプロセスを起動済みとして残さず、既に終了した子への誤ったkillも避けます。合成プロセス回帰ではOS固有エラー文言を期待せず、ユーザー通知、後始末、セッション状態を検証します。
+
+Node 26.7.0 macOSで`check`, unit 812/812, coverage, hygiene, build, packageに成功。Node 22.23.3 macOSでも`check`, unit 812/812, coverageに成功しました。Host Integrationと実Backend各suiteも成功しています。Linux runnerは利用できず、Push禁止のため修正後のGitHub Actions runは存在しません。修正前のActions run 39081060726の失敗原因は特定しましたが、Actions本体の成功は未確認です。
+
+## テスト整理
+
+開発round/residual/coverage/gapsを含む命名を対象責務が分かるファイル名へ整理しました。Core、Provider、Sidebar、Webviewのテストは既存の大分類を維持し、広すぎたWebview 42件、Sidebar 29件、Provider index 24件を責務で分けました。再帰探索方式、npm scripts、coverage対象は維持しました。誤って重複した同一test body 44件を除去し、背景送信における同一仕様の1ケースをController identityの検証を含むケースへ統合しました。最終812件は全件通過しています。CoverageはLines/Statements 99.74%、Branches 98.97%、Functions 99.89%で、100%には届いていません。
+
+## 実Backend・GUIの更新
+
+今回の実測は[VERIFICATION.md](VERIFICATION.md)と[AUDIT_RUNTIME.md](AUDIT_RUNTIME.md)に記録しました。4経路の基本チャットとResume、対象3経路のPlan/改訂/Build、ファイルツールを実行しました。App Server子2件の重複区間と明示Wait、Cursor ACP子2件の一回の重複実行、背景Terminal出力・停止を確認しました。子専用Stopは停止完了が保証されないため非公開です。ACPの最終本文一致は今回のライブ検証で再確認しました。
+
+実GUIではExtension Development HostのDark・約300px環境で、親WaitingとRunningの子2件、子Aの詳細・親へ戻る操作を確認しました。子Bの詳細結果、390pxやLight/High Contrast、IME、Clipboard画像、GUI Reloadなどは未確認です。DOM/Host/Liveテスト結果で実GUIの不足を補った扱いにはしません。
+
+したがって今回のCI/コード/単体・Live検証は良好ですが、Linux/Actions本体と全GUI・全Prompt Rewind受入は未完了です。**今回の作業は部分完了**であり、v1.0.0移行可否を新たに判定する記録ではありません。
+
 # 最終再監査（2026-10-17、今回の依頼）
 
 この節の判定を優先する。下の「実装監査・改修」は開始前から存在した過去の作業記録であり、その「開始時clean」「今回ライブ成功」は本再監査の開始状態を意味しない。当時の実行ログはローカル保存であり、テストスイートの入力ではない。
@@ -121,3 +143,26 @@ ACPが広告したComposer 2.5のモデルIDは `composer-2.5[fast=true]`。親�
 成果物: `dist/ai-agents-darwin-arm64.vsix`。変更は未コミット。最終 `git diff --check` 成功。
 
 最終再監査の結果確定: check/build/通常結合/package成功、単体156/156、protocol2/2、live6/6、tools5/5、4経路Host再起動成功。runtimeは11/12成功・ACP並列子1件timeout。実GUIは幅/テーマ・Copy・3経路2turn・CursorSDK Stop再送・AppServer Plan/Build/2子/背景接続/手動Reloadを確認。ACP GUIは追加調査を検証記録に記載。全条件Goにはしていない。
+# 2026-10-18 追補（CI・テスト構成・実Backend）
+
+この追補は2026-10-18の現在の作業ツリーに対する結果です。下の2026-10-17再監査は過去の基準として保持します。現在のHEADは`f874bed99437f5035b43bb5b1cdd072844938038`、branchは`main`、開始時のgit statusはcleanでした。最終時点では今回の変更が未コミットです。versionは`0.10.0`のままで、Commit、Push、Releaseは行っていません。
+
+## Codexモデルカタログの起動失敗
+
+LinuxでCodexのモデル一覧取得テストが`write EPIPE`になるGitHub Actions失敗を調査しました。モデル取得プロセスは`spawn()`直後にinitialize RPCをstdinへ書き込んでおり、子がOS上で起動完了する前に終了すると、macOS/Linuxの終了イベント順序差によってstdin書き込みが先行していました。`src/providers/models.ts`でchildの`spawn`完了を待ってから書くようにし、起動失敗、stdin EPIPE、stdout/stderr終端、終了時にRPCをrejectしてpendingを消去します。実在しないプロセスを起動済みとして残さず、既に終了した子への誤ったkillも避けます。合成プロセス回帰ではOS固有エラー文言を期待せず、ユーザー通知、後始末、セッション状態を検証します。
+
+Node 26.7.0 macOSで`check`, unit 812/812, coverage, hygiene, build, packageに成功。Node 22.23.3 macOSでも`check`, unit 812/812, coverageに成功しました。Host Integrationと実Backend各suiteも成功しています。Linux runnerは利用できず、Push禁止のため修正後のGitHub Actions runは存在しません。修正前のActions run 39081060726の失敗原因は特定しましたが、Actions本体の成功は未確認です。
+
+## テスト整理
+
+開発round/residual/coverage/gapsを含む命名を対象責務が分かるファイル名へ整理しました。Core、Provider、Sidebar、Webviewのテストは既存の大分類を維持し、広すぎたWebview 42件、Sidebar 29件、Provider index 24件を責務で分けました。再帰探索方式、npm scripts、coverage対象は維持しました。誤って重複した同一test body 44件を除去し、背景送信における同一仕様の1ケースをController identityの検証を含むケースへ統合しました。最終812件は全件通過しています。CoverageはLines/Statements 99.74%、Branches 98.97%、Functions 99.89%で、100%には届いていません。
+
+## 実Backend・GUIの更新
+
+今回の実測は[VERIFICATION.md](VERIFICATION.md)と[AUDIT_RUNTIME.md](AUDIT_RUNTIME.md)に記録しました。4経路の基本チャットとResume、対象3経路のPlan/改訂/Build、ファイルツールを実行しました。App Server子2件の重複区間と明示Wait、Cursor ACP子2件の一回の重複実行、背景Terminal出力・停止を確認しました。子専用Stopは停止完了が保証されないため非公開です。ACPの最終本文一致は今回のライブ検証で再確認しました。
+
+実GUIではExtension Development HostのDark・約300px環境で、親WaitingとRunningの子2件、子Aの詳細・親へ戻る操作を確認しました。子Bの詳細結果、390pxやLight/High Contrast、IME、Clipboard画像、GUI Reloadなどは未確認です。DOM/Host/Liveテスト結果で実GUIの不足を補った扱いにはしません。
+
+したがって今回のCI/コード/単体・Live検証は良好ですが、Linux/Actions本体と全GUI・全Prompt Rewind受入は未完了です。**今回の作業は部分完了**であり、v1.0.0移行可否を新たに判定する記録ではありません。
+
+# 最終再監査（2026-10-17、今回の依頼）

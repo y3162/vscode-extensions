@@ -433,6 +433,9 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
           (item.kind === 'completed' && (previous.status === 'error' || previous.status === 'cancelled'))
           || (finished && (incoming === 'running' || incoming === 'unknown'))
         ) ? previous.status : incoming;
+        // These notifications carry state, not event timestamps. Store local
+        // Extension Host observation times for the UI; do not treat them as
+        // Backend start/end times or as concurrency proof.
         updateChild(child, {
           status,
           ...(typeof item.agentPath === 'string' ? { name: item.agentPath } : {}),

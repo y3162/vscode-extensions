@@ -10,14 +10,24 @@ import type { Copy } from './strings.js';
 interface Chip { label: string; text: string }
 interface ImageChip { mimeType: string; data: string; name?: string }
 interface CaretToken { kind: 'file' | 'slash'; query: string; start: number }
+export interface ComposerAttachmentDraft { images: ImageChip[]; chips: Chip[] }
 
 const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+const maxImageBytes = 5_000_000;
+const maxImageBase64Length = Math.ceil(maxImageBytes / 3) * 4;
+
+function validImageData(mimeType: unknown, data: unknown): mimeType is string {
+  return typeof mimeType === 'string' && imageTypes.has(mimeType)
+    && typeof data === 'string' && data.length > 0 && data.length <= maxImageBase64Length
+    && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data);
+}
 
 export class Composer {
   private readonly input: HTMLTextAreaElement;
   private readonly chips: Chip[] = [];
   private readonly images: ImageChip[] = [];
   private readonly chipRow: HTMLElement;
+  private readonly imageError: HTMLElement;
   private readonly queueRow: HTMLElement;
   private readonly suggest: HTMLElement;
   private readonly banner: HTMLElement;
@@ -33,8 +43,12 @@ export class Composer {
   private catalog: ModelCatalogMessage | null = null;
   private catalogRequest = 0;
   private seenIdentity = '';
+  private readonly attachmentDrafts = new Map<string, ComposerAttachmentDraft>();
+  private readonly invalidImageDrafts = new Set<string>();
+  private imageReadGeneration = 0;
   private buildMenu = false;
   private composing = false;
+  private compositionEndedAt = 0;
   private suggestRequest = 0;
   private suggestItems: { label: string; description?: string; token: string }[] = [];
   private suggestIndex = 0;
@@ -58,6 +72,9 @@ export class Composer {
     this.changes.hidden = true;
     const form = dom.el('form', 'composer-card');
     this.chipRow = dom.el('div', 'chips');
+    this.imageError = dom.el('p', 'composer-error');
+    this.imageError.hidden = true;
+    this.imageError.setAttribute('role', 'alert');
     this.queueRow = dom.el('div', 'queue');
     this.suggest = dom.el('div', 'suggest');
     this.suggest.hidden = true;
@@ -87,7 +104,7 @@ export class Composer {
     this.send.addEventListener('click', () => this.submit());
     right.append(this.attach, this.stop, this.send);
     row.append(left, right);
-    form.append(this.chipRow, this.queueRow, this.suggest, label, this.input, row);
+    form.append(this.chipRow, this.imageError, this.queueRow, this.suggest, label, this.input, row);
     this.env = dom.button('env', 'Local', 'vm');
     this.env.addEventListener('click', () => this.openEnvironment());
     const file = dom.el('input');
@@ -101,7 +118,7 @@ export class Composer {
     this.fileInput = file;
     form.addEventListener('submit', (event) => event.preventDefault());
     this.input.addEventListener('compositionstart', () => { this.composing = true; });
-    this.input.addEventListener('compositionend', () => { this.composing = false; });
+    this.input.addEventListener('compositionend', () => { this.composing = false; this.compositionEndedAt = Date.now(); });
     this.input.addEventListener('input', () => { this.retryId = undefined; this.resize(); this.queueSuggest(); });
     this.input.addEventListener('keydown', (event) => this.onKey(event));
     this.input.addEventListener('paste', (event) => {
@@ -119,6 +136,26 @@ export class Composer {
 
   get draft(): string { return this.input.value; }
   set draft(value: string) { this.retryId = undefined; this.clearSuggestions(); this.input.value = value; this.resize(); }
+  restoreAttachmentDrafts(drafts: Record<string, ComposerAttachmentDraft> | undefined): void {
+    this.attachmentDrafts.clear();
+    this.invalidImageDrafts.clear();
+    for (const [identity, draft] of Object.entries(drafts ?? {})) {
+      if (!draft || !Array.isArray(draft.images) || !Array.isArray(draft.chips)) continue;
+      if (draft.images.some((image) => !image || !validImageData(image.mimeType, image.data))) this.invalidImageDrafts.add(identity);
+      this.attachmentDrafts.set(identity, {
+        images: draft.images.filter((image) => image && validImageData(image.mimeType, image.data)).slice(0, 4).map((image) => ({ ...image })),
+        chips: draft.chips.filter((chip) => chip && typeof chip.label === 'string' && typeof chip.text === 'string').map((chip) => ({ ...chip })),
+      });
+    }
+  }
+  persistedAttachmentDrafts(): Record<string, ComposerAttachmentDraft> {
+    const drafts = new Map(this.attachmentDrafts);
+    if (this.seenIdentity) drafts.set(this.seenIdentity, this.captureAttachmentDraft());
+    return Object.fromEntries([...drafts].map(([identity, draft]) => [identity, {
+      images: draft.images.map((image) => ({ ...image })),
+      chips: draft.chips.map((chip) => ({ ...chip })),
+    }]));
+  }
   editDraft(text: string, retryId?: string): void {
     this.draft = text;
     this.retryId = retryId;
@@ -135,6 +172,7 @@ export class Composer {
     const names = new Set(images.map((image) => image.name || 'image'));
     this.chips.push(...attachments.filter((label) => !names.has(label)).map((label) => ({ label, text: '' })));
     this.renderChips();
+    this.changed();
   }
 
   focus(): void { this.input.focus(); }
@@ -199,16 +237,24 @@ export class Composer {
     this.model.setAttribute('aria-haspopup', adjustable ? 'menu' : 'false');
     this.model.disabled = shell.busy;
     const identity = `${shell.provider}\0${shell.cwd}\0${shell.conversationId ?? ''}\0${shell.sessionId ?? ''}\0${shell.backend}`;
-    if (this.seenIdentity && this.seenIdentity !== identity) {
+    const identityChanged = this.seenIdentity !== identity;
+    const hadIdentity = Boolean(this.seenIdentity);
+    if (identityChanged) {
+      if (this.seenIdentity) this.attachmentDrafts.set(this.seenIdentity, this.captureAttachmentDraft());
+      this.restoreAttachmentDraft(this.attachmentDrafts.get(identity), identity);
+      this.imageReadGeneration += 1;
       this.retryId = undefined;
-      this.closeMenus();
-      this.clearSuggestions();
-      this.catalog = null;
-      // Host replies carry a request ID, but not the session/backend identity.
-      // Invalidate outstanding requests before accepting a catalog for the new view.
-      this.catalogRequest += 1;
+      if (this.seenIdentity) {
+        this.closeMenus();
+        this.clearSuggestions();
+        this.catalog = null;
+        // Host replies carry a request ID, but not the session/backend identity.
+        // Invalidate outstanding requests before accepting a catalog for the new view.
+        this.catalogRequest += 1;
+      }
     }
     this.seenIdentity = identity;
+    if (identityChanged && hadIdentity) this.changed();
     if ((shell.busy || !adjustable) && this.modelMenu.isOpen) this.modelMenu.close(false);
     this.attach.title = copy.attach;
     this.attach.setAttribute('aria-label', copy.attach);
@@ -372,7 +418,12 @@ export class Composer {
       preview.alt = image.name || 'image';
       preview.src = `data:${image.mimeType};base64,${image.data}`;
       const remove = this.dom.button('icon-btn', 'x', 'close');
-      remove.addEventListener('click', () => { this.retryId = undefined; this.images.splice(index, 1); this.renderChips(); });
+      remove.addEventListener('click', () => {
+        this.retryId = undefined;
+        this.images.splice(index, 1);
+        this.renderChips();
+        this.changed();
+      });
       row.append(preview, remove);
       this.chipRow.append(row);
     });
@@ -390,8 +441,10 @@ export class Composer {
     });
     if (prompt.trim()) this.historyPrompt = prompt;
     this.input.value = '';
+    this.imageReadGeneration += 1;
     this.images.length = 0;
     this.chips.length = 0;
+    this.clearImageError();
     this.clearSuggestions();
     this.renderChips();
     this.resize();
@@ -401,6 +454,11 @@ export class Composer {
   private onKey(event: KeyboardEvent): void {
     if (this.composing || event.isComposing || event.keyCode === 229) return;
     if (event.key === 'Enter' && !event.shiftKey) {
+      if (Date.now() - this.compositionEndedAt < 100) {
+        this.compositionEndedAt = 0;
+        event.preventDefault();
+        return;
+      }
       event.preventDefault();
       this.submit();
       return;
@@ -469,16 +527,51 @@ export class Composer {
 
   private addImages(files: FileList | File[] | null): void {
     this.retryId = undefined;
+    const generation = this.imageReadGeneration;
+    const identity = this.seenIdentity;
+    this.clearImageError();
     for (const file of [...(files ?? [])]) {
-      if (!imageTypes.has(file.type === 'image/jpg' ? 'image/jpeg' : file.type) || file.size > 5_000_000 || this.images.length >= 4) continue;
+      const mimeType = file.type === 'image/jpg' ? 'image/jpeg' : file.type;
+      if (!imageTypes.has(mimeType) || file.size > maxImageBytes || this.images.length >= 4) continue;
       const reader = new FileReader();
       reader.onload = () => {
-        const source = String(reader.result || '');
-        this.images.push({ mimeType: file.type === 'image/jpg' ? 'image/jpeg' : file.type, data: source.slice(source.indexOf(',') + 1), name: file.name });
+        if (generation !== this.imageReadGeneration || identity !== this.seenIdentity) return;
+        const source = typeof reader.result === 'string' ? reader.result : '';
+        const separator = source.indexOf(',');
+        const data = separator >= 0 ? source.slice(separator + 1) : '';
+        if (!data) { this.showImageError(); return; }
+        if (!validImageData(mimeType, data)) { this.showImageError(); return; }
+        this.images.push({ mimeType, data, name: file.name });
         this.renderChips();
+        this.changed();
+      };
+      reader.onerror = () => {
+        if (generation === this.imageReadGeneration && identity === this.seenIdentity) this.showImageError();
       };
       reader.readAsDataURL(file);
     }
+  }
+
+  private captureAttachmentDraft(): ComposerAttachmentDraft {
+    return { images: this.images.map((image) => ({ ...image })), chips: this.chips.map((chip) => ({ ...chip })) };
+  }
+
+  private restoreAttachmentDraft(draft: ComposerAttachmentDraft | undefined, identity = this.seenIdentity): void {
+    this.images.splice(0, this.images.length, ...(draft?.images.map((image) => ({ ...image })) ?? []));
+    this.chips.splice(0, this.chips.length, ...(draft?.chips.map((chip) => ({ ...chip })) ?? []));
+    this.clearImageError();
+    if (this.invalidImageDrafts.delete(identity)) this.showImageError();
+    this.renderChips();
+  }
+
+  private showImageError(): void {
+    this.imageError.textContent = this.copy?.imageReadError ?? 'Could not read the image. Attach it again.';
+    this.imageError.hidden = false;
+  }
+
+  private clearImageError(): void {
+    this.imageError.hidden = true;
+    this.imageError.textContent = '';
   }
 
   private openAttach(anchor: HTMLElement): void {

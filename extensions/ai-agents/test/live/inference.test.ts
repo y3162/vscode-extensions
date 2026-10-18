@@ -95,6 +95,7 @@ test('Cursor ACP live inference', { skip: !on('AI_AGENTS_LIVE_ACP_TEST'), timeou
 test('Cursor ACP: all three controller final answers match backend assistant text', { skip: !on('AI_AGENTS_LIVE_ACP_TEST'), timeout: 240000 }, async () => {
   const { cwd, cleanup } = await temporary();
   let observed: AgentUpdate[] = [];
+  const observedFinals: string[] = [];
   const selection: Selection = { provider: 'cursor', cwd, model: 'composer-2.5' };
   const controller = new ChatController(selection, async () => {
     const session = await createSession({ ...selection, backend: 'acp', storagePath: cwd, agentPath: which('agent'), sandbox: 'enabled', mode: 'ask', interactions });
@@ -114,10 +115,23 @@ test('Cursor ACP: all three controller final answers match backend assistant tex
       const backendFinal = observed.filter((update) => update.role === 'assistant' && update.final).at(-1);
       assert.ok(backendFinal, 'ACP must explicitly deliver final assistant text');
       assert.ok(backendFinal.text.trim());
+      const streamed = new Map(observed.filter((update) => update.role === 'assistant').map((update) => [update.id, update]));
+      assert.equal([...streamed.values()].at(-1)?.text, backendFinal.text, 'the final ACP text must match the completed assistant stream');
       assert.equal(answer?.text, backendFinal.text);
       assert.match(answer.text, new RegExp(token));
+      observedFinals.push(backendFinal.text);
     }
     assert.equal(controller.snapshot().turns.length, 3);
+    const resumeId = controller.sessionId();
+    assert.ok(resumeId);
+    await controller.dispose();
+    const restored = await createSession({ ...selection, backend: 'acp', storagePath: cwd, agentPath: which('agent'), sandbox: 'enabled', mode: 'ask', interactions, resumeId });
+    try {
+      const replay: import('../../src/types.js').ChatMessage[] = [];
+      await restored.loadTranscript?.((message) => replay.push(message));
+      assert.deepEqual(replay.filter((message) => message.role === 'assistant' && message.final).map((message) => message.text), observedFinals,
+        'ACP resume must preserve each exact backend final without duplicate or missing assistant text');
+    } finally { await restored.dispose(); }
   } finally { await controller.dispose(); await cleanup(); }
 });
 

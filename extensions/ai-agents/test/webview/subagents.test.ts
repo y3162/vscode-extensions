@@ -109,6 +109,16 @@ test('child details show only captured fields and child events stay out of the p
   assert.equal(turns[0]?.log.length, 0, 'child-only tools and answers are rendered in the selected detail view');
 });
 
+test('child duration identifies Backend-reported values and Extension Host estimates', () => {
+  const reported = fixture();
+  renderSubagentDetail(reported.dom, reported.host, child('reported', 'completed'), [], strings('en'), 'en', () => {});
+  assert.equal(reported.host.querySelector('.subagent-elapsed')?.getAttribute('title'), 'Backend-reported duration');
+
+  const estimated = fixture();
+  renderSubagentDetail(estimated.dom, estimated.host, { ...child('estimated', 'completed'), durationMs: undefined }, [], strings('ja'), 'ja', () => {});
+  assert.equal(estimated.host.querySelector('.subagent-elapsed')?.getAttribute('title'), 'Extension Host内の観測時刻からの概算');
+});
+
 test('sidebar detail navigation keeps the parent scroll and draft while child updates continue', async () => {
   const { window, dom, host } = fixture();
   host.id = 'app';

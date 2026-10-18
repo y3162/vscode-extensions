@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { lstat, mkdir, mkdtemp, readFile, rm, writeFile, rename } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -47,6 +47,7 @@ test('shell changes exclude pre-existing edits and retain a content-preserving G
     await writeFile(path.join(cwd, 'note.txt'), 'head\n');
     await writeFile(path.join(cwd, 'old.txt'), 'same\n');
     await writeFile(path.join(cwd, 'binary.dat'), Buffer.from([0, 1, 2]));
+    await Promise.all(['note.txt', 'old.txt', 'binary.dat'].map((name) => chmod(path.join(cwd, name), 0o644)));
     git('add', '.'); git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'baseline');
     await writeFile(path.join(cwd, 'note.txt'), 'user\n');
     await writeFile(path.join(cwd, 'untracked.txt'), 'user\n');
@@ -77,6 +78,7 @@ test('an unborn repository keeps new files reviewable and a non-repository has n
     assert.equal(await baselines.lookupMode('added-later.txt'), undefined);
 
     await writeFile(path.join(cwd, 'added-later.txt'), 'new file\n');
+    await chmod(path.join(cwd, 'added-later.txt'), 0o644);
     assert.deepEqual(await baselines.changes(), [{
       path: 'added-later.txt', kind: 'add', previousText: null, previousMode: null,
       mode: 0o644, preview: [{ kind: 'add', line: 1, text: 'new file' }], additions: 1, deletions: 0,
@@ -101,6 +103,7 @@ test('binary baselines stay non-restorable and a new binary is listed without fa
 
     await writeFile(path.join(cwd, 'tracked.bin'), 'replacement text');
     await writeFile(path.join(cwd, 'new.bin'), Buffer.from([0x02, 0x00, 0x03]));
+    await chmod(path.join(cwd, 'new.bin'), 0o644);
     const changes = await baselines.changes();
     assert.deepEqual(changes, [{ path: 'new.bin', kind: 'add', previousText: null, previousMode: null, mode: 0o644 }]);
     assert.equal(await baselines.lookup('tracked.bin'), undefined);

@@ -116,7 +116,7 @@ function acpTasks() {
   for (const task of tasks) {
     events.push({
       method: 'session/update',
-      params: { update: { sessionUpdate: 'tool_call_update', toolCallId: task.toolCallId, status: 'completed', rawOutput: { durationMs: task.durationMs, isBackground: false } } },
+      params: { update: { sessionUpdate: 'tool_call_update', toolCallId: task.toolCallId, status: 'completed', rawOutput: { durationMs: task.durationMs, isBackground: false, result: `${task.description} child output` } } },
     });
     events.push({
       method: 'request',
@@ -129,6 +129,9 @@ function acpTasks() {
       },
     });
   }
+  // Exercise the adapter's out-of-order defense: an older progress notification
+  // must not resurrect alpha after its completed tool result was already emitted.
+  events.push({ method: 'request', params: { method: 'cursor/task', params: { toolCallId: 'tool-alpha', description: 'alpha', status: 'running' } } });
   return events;
 }
 

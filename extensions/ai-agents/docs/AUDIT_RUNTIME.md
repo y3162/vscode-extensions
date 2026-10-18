@@ -1,3 +1,20 @@
+# 2026-10-18 実ランタイム追補
+
+この記録は2026-10-18のbounded live runです。既存の2026-10-17記録は以前の実行として残し、今回の測定と混同しません。実BackendはCodex App Server 0.162.1（GPT-6-Luna）とCursor ACP（Composer 2.5 fast）、隔離した一時Git workspaceを使用しました。
+
+| シナリオ | 今回の実測 | 判定 |
+| --- | --- | --- |
+| App Server 子並列と親Wait | 別thread IDのalpha/betaが両方Completed。子区間は約9.4秒重複。親の明示`subagentWait`通知は`[true,false,true,false]` | 成功。このイベントでのみ親Waitingを判定 |
+| Cursor ACP 子並列 | 別task/tool IDのalpha/betaが両方Completed。`composer-2.5-fast`。公開task区間は重なり、独立コマンド出力は両方START `1792289366` / END `1792289372`、約6秒重複。親は4つの出力を返した | 今回は並列実行を確認。過去の約200秒timeoutは今回再現しないが反復可能性は保証しない |
+| 背景Terminal | App Serverの自然終了・出力（`LIVE_DONE`/`LIVE_STDERR`）・正確なprocessId停止・別会話表示中の所有チャット更新・一覧からの除去を確認。初期出力イベントも一回の非TTY実測では実行中に受信 | 成功した一回の実測。初期一覧欠落やリアルタイムstdoutの普遍的保証ではない |
+| Terminal Monitor | 正確なprocessのstdoutとCtrl+Cによる終了を確認 | 終了は確認。OS側SIGINT handler実行までは保証しない |
+| Plan / revision / Build | Cursor SDK、Cursor ACP、App Serverで各実行。plan中ファイル変更なし、revision 2、同一sessionでBuild変更を確認。重複Build防止も確認 | 3対応経路で成功。Codex SDK Planは非対応 |
+| 親Stop後の子 | App Server親Stop直後に2子が継続。後に一方Completed、もう一方Runningのまま。親Stopを子状態へコピーしない | 成功。子個別Stopの成功証拠にはならない |
+| Cursor SDK Task | 実TaskがRunning→Completed、`CHILD_SANDBOX_OK`を確認 | 成功した公開イベントの範囲 |
+| Cursor SDK 背景Terminal | 親応答後もprocessが継続し約120秒で自然終了。出力・追加出力・正確なprocess所有に基づくCtrl+C・session dispose cleanupを確認 | 成功。別Backendへの一般化はしない |
+
+`npm run test:runtime` は **12/12** 成功。ACP試験は公開通知と出力時刻を区別して並列と判定し、単に結果が2件存在したことだけを根拠にしていません。Backendが実際に返した子の個別Stop状態はCancelを示さないため、引き続き子Stopを公開しません。実GUIでの子B詳細、全幅/テーマ、手操作GUI受入は[VERIFICATION.md](VERIFICATION.md)に記録した未検証項目です。
+
 # AI Agents 0.10.0 ランタイム監査
 
 2026-10-17。対象: Cursor SDK background lease、SDK terminal logs、Terminal Panel mirror、実ランタイムの子・Plan/Build・背景実行。GUI の成否とは別の証拠である。
@@ -55,3 +72,29 @@ Cursor SDK の Task tool の検出と親の結果は取得できるが、ACP の
 ## 最終再監査の追加
 
 今回のruntime初回はApp Server Plan/parentStopにusage_limit_exceededがあり、途中中断したため12/12成功とは扱わない。再試験で同2ケースは成功、ACP実並列子は200秒run timeoutで失敗。最終件数は総合検証の今回節を参照する。過去の12/12記録は今回の全成功証拠ではない。ACPの並列タイムアウトは拡張機能の合成イベント成功とは区別する。
+
+## 2026-10-18 時刻計測の出所補正
+
+`cursor-acp.ts` と `codex-app-server.ts` の `startedAt` / `endedAt` は、最初のRunning通知・終了通知をExtension Hostが処理した時点の `Date.now()` です。Backendが返した子実行の開始・終了時刻ではありません。ACPの `durationMs` とApp Serverの `turn.durationMs` は、値がBackend応答に存在するときだけBackend報告値として保持します。UIで開始・終了時刻の差を使う場合は概算とし、Backend報告の経過時間とTooltipを分けました。
+
+前回のACP試験で記録した子の `date +%s` 出力（開始・終了マーカー）は、子コマンドの出力に含まれた実測値です。この値で確認した重複は並列の証拠として扱えます。一方、公開カードの `startedAt` / `endedAt` の重複だけでは並列を証明できません。秒単位のシェル時刻とミリ秒単位のHost観測時刻、Backendイベント配送の遅れを同じ実行区間として比較した場合、3回目の時刻ずれを説明できます。ただし、保存されている生イベントに各試行の全受信時刻がないため、その1回のずれの個別原因までは再現・確定できません。
+
+`test/live/runtime.test.ts` はACPの並列判定を子が返したSTART/END出力から行い、Host観測時刻は診断フィールドとして別記します。App Server分岐ではHost時刻の重複を並列判定に使いません。この追補では有料実推論を再実行していません。
+# 2026-10-18 実ランタイム追補
+
+この記録は2026-10-18のbounded live runです。既存の2026-10-17記録は以前の実行として残し、今回の測定と混同しません。実BackendはCodex App Server 0.162.1（GPT-6-Luna）とCursor ACP（Composer 2.5 fast）、隔離した一時Git workspaceを使用しました。
+
+| シナリオ | 今回の実測 | 判定 |
+| --- | --- | --- |
+| App Server 子並列と親Wait | 別thread IDのalpha/betaが両方Completed。子区間は約9.4秒重複。親の明示`subagentWait`通知は`[true,false,true,false]` | 成功。このイベントでのみ親Waitingを判定 |
+| Cursor ACP 子並列 | 別task/tool IDのalpha/betaが両方Completed。`composer-2.5-fast`。公開task区間は重なり、独立コマンド出力は両方START `1792289366` / END `1792289372`、約6秒重複。親は4つの出力を返した | 今回は並列実行を確認。過去の約200秒timeoutは今回再現しないが反復可能性は保証しない |
+| 背景Terminal | App Serverの自然終了・出力（`LIVE_DONE`/`LIVE_STDERR`）・正確なprocessId停止・別会話表示中の所有チャット更新・一覧からの除去を確認。初期出力イベントも一回の非TTY実測では実行中に受信 | 成功した一回の実測。初期一覧欠落やリアルタイムstdoutの普遍的保証ではない |
+| Terminal Monitor | 正確なprocessのstdoutとCtrl+Cによる終了を確認 | 終了は確認。OS側SIGINT handler実行までは保証しない |
+| Plan / revision / Build | Cursor SDK、Cursor ACP、App Serverで各実行。plan中ファイル変更なし、revision 2、同一sessionでBuild変更を確認。重複Build防止も確認 | 3対応経路で成功。Codex SDK Planは非対応 |
+| 親Stop後の子 | App Server親Stop直後に2子が継続。後に一方Completed、もう一方Runningのまま。親Stopを子状態へコピーしない | 成功。子個別Stopの成功証拠にはならない |
+| Cursor SDK Task | 実TaskがRunning→Completed、`CHILD_SANDBOX_OK`を確認 | 成功した公開イベントの範囲 |
+| Cursor SDK 背景Terminal | 親応答後もprocessが継続し約120秒で自然終了。出力・追加出力・正確なprocess所有に基づくCtrl+C・session dispose cleanupを確認 | 成功。別Backendへの一般化はしない |
+
+`npm run test:runtime` は **12/12** 成功。ACP試験は公開通知と出力時刻を区別して並列と判定し、単に結果が2件存在したことだけを根拠にしていません。Backendが実際に返した子の個別Stop状態はCancelを示さないため、引き続き子Stopを公開しません。実GUIでの子B詳細、全幅/テーマ、手操作GUI受入は[VERIFICATION.md](VERIFICATION.md)に記録した未検証項目です。
+
+# 2026-10-17 最終runtime再監査

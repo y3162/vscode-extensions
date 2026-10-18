@@ -95,6 +95,7 @@ test('rollback refuses a symlink temporary path and can retry without touching i
   const tempPath = path.join(cwd, tempName);
   await writeFile(outsideFile, 'outside unchanged');
   await writeFile(workspaceFile, 'after');
+  await chmod(workspaceFile, fileMode);
   await symlink(outsideFile, tempPath);
   const crafted = journal(cwd, [entry('a.txt', tempName, 'before', 'after', 'before')]);
 
@@ -154,6 +155,7 @@ test('a later missing parent rolls back files already restored earlier in the jo
   const cwd = await realpath(await mkdtemp(path.join(tmpdir(), 'ai-agents-rewind-partial-')));
   const firstFile = path.join(cwd, 'a.txt');
   await writeFile(firstFile, 'after');
+  await chmod(firstFile, fileMode);
   const crafted = journal(cwd, [
     entry('a.txt', '.ai-agents-rewind-00000000-0000-4000-8000-000000000005.tmp', 'before', 'after', 'after'),
     entry('missing/b.txt', 'missing/.ai-agents-rewind-00000000-0000-4000-8000-000000000006.tmp', 'before', 'after', 'after'),

@@ -76,7 +76,7 @@ export function presentChange(change: FileChange, roots: string[]): ViewChange {
 }
 
 function presentPlan(state: ChatState, showBuildModel: boolean): ViewPlan | null {
-  const drafting = state.plan.phase === 'planning' || state.plan.phase === 'revising';
+  const drafting = state.plan.phase === 'planning' || state.plan.phase === 'revising' || state.plan.phase === 'unknown' && Boolean(state.plan.draft);
   const visible = drafting ? state.plan.draft ?? state.plan.current : state.plan.current;
   if (!visible?.markdown) return null;
   const selection = state.plan.build?.selection ?? state.selection;

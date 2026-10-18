@@ -157,7 +157,7 @@ test('App Server restore rediscovers child thread IDs from parent history and re
   } finally { await session.dispose(); await cleanup(); }
 });
 
-test('synthetic ACP task requests enrich the existing running card', { timeout: 15000 }, async () => {
+test('synthetic ACP task requests enrich running cards without resurrecting completed children', { timeout: 15000 }, async () => {
   const { cwd, command, cleanup } = await fixture('mock-acp.cjs');
   const updates: AgentUpdate[] = [];
   const session = await createCursorAcpSession({ provider: 'cursor', cwd, model: '', storagePath: cwd, agentPath: command });
@@ -167,7 +167,11 @@ test('synthetic ACP task requests enrich the existing running card', { timeout: 
     const children = new Map(updates.flatMap((update) => update.meta?.subagent ? [[update.meta.subagent.id, update.meta.subagent] as const] : []));
     assert.equal(children.size, 2);
     assert.ok([...children.values()].every((child) => child.agentId && child.model === 'composer-2.5-fast' && child.status === 'completed' && child.durationMs && child.background === false));
+    assert.equal(children.get('tool-alpha')?.resultPreview, 'alpha child output');
+    assert.equal(children.get('tool-beta')?.resultPreview, 'beta child output');
     assert.equal(new Set(updates.filter((update) => update.meta?.subagent?.status === 'running').map((update) => update.meta!.subagent!.id)).size, 2);
+    const alphaUpdates = updates.filter((update) => update.meta?.subagent?.id === 'tool-alpha').map((update) => update.meta!.subagent!.status);
+    assert.deepEqual(alphaUpdates, ['running', 'completed', 'completed', 'completed']);
   } finally { unsubscribe(); await session.dispose(); await cleanup(); }
 });
 

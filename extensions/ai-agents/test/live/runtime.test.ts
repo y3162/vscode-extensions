@@ -39,10 +39,10 @@ for (const backend of ['app-server', 'acp'] as const) {
     const provider = backend === 'acp' ? 'cursor' : 'codex';
     const model = await preferred(provider);
     const session = await createSession(options(provider, backend, cwd, model));
-    const updates: Array<{ at: number; update: AgentUpdate }> = [];
-    const unsubscribe = session.subscribeBackgroundUpdates!((update) => updates.push({ at: Date.now(), update }));
+    const updates: Array<{ hostObservedAt: number; update: AgentUpdate }> = [];
+    const unsubscribe = session.subscribeBackgroundUpdates!((update) => updates.push({ hostObservedAt: Date.now(), update }));
     try {
-      await session.run('Explicit parallel verification: launch TWO independent child agents concurrently, alpha and beta, before waiting for either. Each must run a safe shell command printing its name and a timestamp, sleep 6 seconds, then print its name and another timestamp. No file changes. Launch both, then wait for both using your supported tools and return actual results. Do not simulate tasks.', AbortSignal.timeout(200000), (update) => updates.push({ at: Date.now(), update }));
+      await session.run('Explicit parallel verification: launch TWO independent child agents concurrently, alpha and beta, before waiting for either. Alpha must run this exact shell command: `printf "ALPHA_START:%s\\n" "$(date +%s)"; sleep 6; printf "ALPHA_END:%s\\n" "$(date +%s)"`. Beta must run this exact shell command: `printf "BETA_START:%s\\n" "$(date +%s)"; sleep 6; printf "BETA_END:%s\\n" "$(date +%s)"`. No file changes. Launch both before waiting for either. Return the four actual command output lines verbatim, labelled with the child that produced them. Do not simulate tasks or invent output.', AbortSignal.timeout(200000), (update) => updates.push({ hostObservedAt: Date.now(), update }));
       const children = new Map(updates.flatMap(({ update }) => update.meta?.subagent ? [[update.meta.subagent.id, update.meta.subagent] as const] : []));
       console.log('RUNTIME_CHILD_STATES', backend, JSON.stringify([...children.values()].map(({ id, agentId, status, name }) => ({ id, agentId, status, name }))));
       if (backend === 'app-server') {
@@ -51,12 +51,62 @@ for (const backend of ['app-server', 'acp'] as const) {
         assert.ok(waitEvents.includes(true), 'the App Server must publish an explicit active wait item');
         assert.ok(waitEvents.includes(false), 'the completed wait item must clear the parent wait state');
       }
-      assert.ok(children.size >= 2);
-      const intervals = [...children.values()].filter((child) => child.status === 'completed').map((child) => ({ id: child.agentId ?? child.id, model: child.model, startedAt: child.startedAt, endedAt: child.endedAt, durationMs: child.durationMs }));
-      assert.ok(intervals.length >= 2);
-      assert.ok(intervals.every((item) => item.startedAt && item.endedAt));
-      assert.ok(intervals.some((left, index) => intervals.slice(index + 1).some((right) => Math.max(left.startedAt!, right.startedAt!) < Math.min(left.endedAt!, right.endedAt!))));
-      console.log('RUNTIME_PARALLEL', backend, JSON.stringify(intervals));
+      if (backend === 'acp') {
+        const alpha = [...children.values()].find((child) => /^Alpha\b.*\bverification\b/i.test(child.name));
+        const beta = [...children.values()].find((child) => /^Beta\b.*\bverification\b/i.test(child.name));
+        assert.ok(alpha && beta, 'the two requested children must have distinct public task records');
+        const assistantSegments = new Map(updates.flatMap(({ update }) => update.role === 'assistant' ? [[update.id, update.text] as const] : []));
+        const returnedOutput = [...assistantSegments.values()].join('\n');
+        const publicChildren = [...children.values()].map(({ id, agentId, model, name, status, startedAt, endedAt, durationMs, resultPreview }) => ({
+          id: agentId ?? id, model, name, status,
+          extensionHostObservedStartAt: startedAt,
+          extensionHostObservedEndAt: endedAt,
+          backendReportedDurationMs: durationMs,
+          resultPreview,
+        }));
+        console.log('RUNTIME_PARALLEL_EVIDENCE', backend, JSON.stringify({ parentStatus: 'completed', model: alpha.model ?? beta.model, children: publicChildren, returnedOutput }));
+        assert.equal(alpha.status, 'completed');
+        assert.equal(beta.status, 'completed');
+        const hostObservedIntervals = {
+          alpha: alpha.startedAt !== undefined && alpha.endedAt !== undefined ? [alpha.startedAt, alpha.endedAt] : undefined,
+          beta: beta.startedAt !== undefined && beta.endedAt !== undefined ? [beta.startedAt, beta.endedAt] : undefined,
+        };
+        const alphaOutput = alpha.resultPreview ?? '';
+        const betaOutput = beta.resultPreview ?? '';
+        assert.ok(alphaOutput.includes('ALPHA_START:') && alphaOutput.includes('ALPHA_END:'), 'alpha task result must carry its command output');
+        assert.ok(betaOutput.includes('BETA_START:') && betaOutput.includes('BETA_END:'), 'beta task result must carry its command output');
+        const timestamp = (output: string, label: string) => Number(new RegExp(`${label}:(\\d+)`).exec(output)?.[1] ?? NaN);
+        const alphaStart = timestamp(alphaOutput, 'ALPHA_START');
+        const alphaEnd = timestamp(alphaOutput, 'ALPHA_END');
+        const betaStart = timestamp(betaOutput, 'BETA_START');
+        const betaEnd = timestamp(betaOutput, 'BETA_END');
+        assert.ok([alphaStart, alphaEnd, betaStart, betaEnd].every(Number.isFinite), 'the parent must return all four actual timestamped child command output lines');
+        assert.ok(alphaEnd - alphaStart >= 5 && betaEnd - betaStart >= 5, 'both returned command intervals must reflect the requested sleep');
+        const commandOverlapSeconds = Math.min(alphaEnd, betaEnd) - Math.max(alphaStart, betaStart);
+        assert.ok(commandOverlapSeconds > 0, 'the actual timestamped child commands must overlap, independent of task-tool timing');
+        for (const [name, child, start, end] of [['alpha', alpha, 'ALPHA_START', 'ALPHA_END'], ['beta', beta, 'BETA_START', 'BETA_END']] as const) {
+          if (child.resultPreview) assert.ok(child.resultPreview.includes(`${start}:`) && child.resultPreview.includes(`${end}:`), `${name} public child result must agree with its returned command output`);
+        }
+        console.log('RUNTIME_PARALLEL', backend, JSON.stringify({
+          model: alpha.model ?? beta.model,
+          extensionHostObservedIntervals: hostObservedIntervals,
+          backendCommandIntervalsUnixSeconds: { alpha: [alphaStart, alphaEnd], beta: [betaStart, betaEnd] },
+          commandOverlapSeconds,
+          returnedOutput,
+        }));
+      } else {
+        assert.ok(children.size >= 2);
+        const childStates = [...children.values()].map((child) => ({
+          id: child.agentId ?? child.id,
+          model: child.model,
+          status: child.status,
+          extensionHostObservedStartAt: child.startedAt,
+          extensionHostObservedEndAt: child.endedAt,
+          backendReportedDurationMs: child.durationMs,
+        }));
+        assert.ok(childStates.filter((child) => child.status === 'completed').length >= 2);
+        console.log('RUNTIME_PARALLEL', backend, JSON.stringify({ childStates, note: 'Extension Host observation timestamps are not evidence of Backend execution overlap.' }));
+      }
     } finally { unsubscribe(); await session.dispose(); await cleanup(); }
   });
 }

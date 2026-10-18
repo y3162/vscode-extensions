@@ -121,17 +121,43 @@ async function listCodexModels(options: ModelListOptions, signal: AbortSignal): 
   const lines = createInterface({ input: child.stdout });
   const pending = new Map<number, { resolve: (result: RpcResult) => void; reject: (error: unknown) => void }>();
   let nextId = 0;
-  let failure: unknown;
+  let failure: Error | undefined;
+  let started = false;
+  let resolveStarted!: () => void;
+  let rejectStarted!: (error: Error) => void;
+  const startup = new Promise<void>((resolve, reject) => {
+    resolveStarted = resolve;
+    rejectStarted = reject;
+  });
+  const processExitError = (code = child.exitCode, exitSignal = child.signalCode): Error =>
+    new Error(`Codexのモデル一覧取得プロセスが終了しました (${code ?? exitSignal ?? 'signal'})。`);
+  const inputError = (error: unknown): Error => {
+    const reason = error instanceof Error ? error : new Error(String(error));
+    if ((error as NodeJS.ErrnoException | null)?.code !== 'EPIPE') return reason;
+    if (child.exitCode !== null || child.signalCode !== null) return processExitError();
+    return new Error('Codexのモデル一覧取得中にプロセスとの通信が切断されました。', { cause: reason });
+  };
   const fail = (error: unknown) => {
-    failure = error;
-    for (const request of pending.values()) request.reject(error);
+    if (failure) return;
+    failure = error instanceof Error ? error : new Error(String(error));
+    if (!started) rejectStarted(failure);
+    for (const request of pending.values()) request.reject(failure);
     pending.clear();
   };
-  const aborted = () => { fail(signal.reason); child.kill(); };
+  const stopChild = () => {
+    if (!started || child.exitCode !== null || child.signalCode !== null) return;
+    try { child.kill(); } catch { /* A process can exit between the state check and kill(). */ }
+  };
+  const aborted = () => { fail(signal.reason); stopChild(); };
+  child.once('spawn', () => {
+    started = true;
+    resolveStarted();
+    if (failure || signal.aborted) stopChild();
+  });
   child.on('error', fail);
-  child.stdin.on('error', fail);
+  child.stdin.on('error', (error) => fail(inputError(error)));
   child.stderr.resume();
-  child.on('exit', (code) => fail(new Error(`Codexのモデル一覧取得プロセスが終了しました (${code ?? 'signal'})。`)));
+  child.on('exit', (code, exitSignal) => fail(processExitError(code, exitSignal)));
   lines.on('line', (line) => {
     let response: RpcResponse;
     try { response = JSON.parse(line) as RpcResponse; }
@@ -144,16 +170,33 @@ async function listCodexModels(options: ModelListOptions, signal: AbortSignal): 
     else request.resolve(response.result ?? {});
   });
   signal.addEventListener('abort', aborted, { once: true });
+  const write = (message: unknown): boolean => {
+    if (failure) return false;
+    if (!started || child.exitCode !== null || child.signalCode !== null || !child.stdin.writable || child.stdin.destroyed) {
+      fail(child.exitCode !== null || child.signalCode !== null
+        ? processExitError()
+        : new Error('Codexのモデル一覧取得中にプロセスとの通信が切断されました。'));
+      return false;
+    }
+    try {
+      child.stdin.write(`${JSON.stringify(message)}\n`);
+      return true;
+    } catch (error) {
+      fail(inputError(error));
+      return false;
+    }
+  };
   const request = (method: string, params: object) => new Promise<RpcResult>((resolve, reject) => {
     if (signal.aborted) { reject(signal.reason); return; }
     if (failure) { reject(failure); return; }
     const id = ++nextId;
     pending.set(id, { resolve, reject });
-    child.stdin.write(`${JSON.stringify({ id, method, params })}\n`);
+    write({ id, method, params });
   });
   try {
+    await startup;
     await request('initialize', { clientInfo: { name: 'ai_agents_vscode', title: 'AI Agents', version: extensionVersion } });
-    child.stdin.write(`${JSON.stringify({ method: 'initialized', params: {} })}\n`);
+    if (!write({ method: 'initialized', params: {} })) throw failure;
     const models = new Map<string, AgentModel>();
     const cursors = new Set<string>();
     let cursor: string | undefined;
@@ -172,10 +215,12 @@ async function listCodexModels(options: ModelListOptions, signal: AbortSignal): 
   } finally {
     signal.removeEventListener('abort', aborted);
     lines.close();
-    child.stdin.end();
-    child.kill();
-    if (child.exitCode === null && child.signalCode === null) {
-      const forceKill = setTimeout(() => child.kill('SIGKILL'), 1500);
+    if (child.stdin.writable && !child.stdin.destroyed) child.stdin.end();
+    stopChild();
+    if (started && child.exitCode === null && child.signalCode === null) {
+      const forceKill = setTimeout(() => {
+        try { child.kill('SIGKILL'); } catch { /* The process may have exited before the timer fired. */ }
+      }, 1500);
       forceKill.unref();
       child.once('exit', () => clearTimeout(forceKill));
     }
