@@ -58,8 +58,13 @@ test('ACP task requests use the same tool call id as the pending card', () => {
   const pending = events.filter((event) => event.params.update?.sessionUpdate === 'tool_call');
   const requests = events.filter((event) => event.method === 'request');
   assert.deepEqual(pending.map((event) => event.params.update.toolCallId), ['tool-alpha', 'tool-beta']);
-  assert.deepEqual(requests.map((event) => event.params.params.toolCallId), ['tool-alpha', 'tool-beta']);
-  assert.ok(requests.every((event) => event.params.method === 'cursor/task' && event.params.params.model === 'composer-2.5-fast' && event.params.params.agentId));
+  const taskStarts = requests.filter((event) => event.params.params.agentId);
+  assert.deepEqual(taskStarts.map((event) => event.params.params.toolCallId), ['tool-alpha', 'tool-beta']);
+  assert.ok(taskStarts.every((event) => event.params.method === 'cursor/task' && event.params.params.model === 'composer-2.5-fast'));
+  const delayedAlphaProgress = requests.at(-1);
+  assert.equal(delayedAlphaProgress?.params.method, 'cursor/task');
+  assert.equal(delayedAlphaProgress?.params.params.toolCallId, 'tool-alpha');
+  assert.equal(delayedAlphaProgress?.params.params.status, 'running');
   const pendingBeta = must(pending[1], 'pending beta');
   const requestAlpha = must(requests[0], 'task request');
   assert.ok(events.indexOf(pendingBeta) < events.indexOf(requestAlpha));

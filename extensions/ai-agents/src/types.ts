@@ -124,7 +124,7 @@ export interface TodoEntry {
   status: string;
 }
 
-export type PlanPhase = 'idle' | 'planning' | 'ready' | 'revising' | 'building' | 'implemented';
+export type PlanPhase = 'idle' | 'planning' | 'ready' | 'revising' | 'building' | 'implemented' | 'unknown';
 export type PlanSource = 'acp-create-plan' | 'sdk-createPlan' | 'app-server-plan' | 'assistant-text';
 export type TurnIntent = 'chat' | 'plan' | 'revise' | 'build';
 export type SubagentBackground = boolean | 'unknown';
@@ -171,7 +171,7 @@ export interface TurnRecord {
   id: string;
   startedAt: number;
   endedAt?: number;
-  status: 'running' | 'completed' | 'cancelled' | 'failed';
+  status: 'running' | 'completed' | 'cancelled' | 'failed' | 'unknown';
   waitMs: number;
   mode: AgentMode;
   model: string;

@@ -82,5 +82,6 @@ function phaseLabel(plan: ViewPlan, copy: Copy): string {
   if (plan.phase === 'building') return copy.planBuilding;
   if (plan.phase === 'implemented') return copy.planImplemented;
   if (plan.phase === 'ready') return copy.planReady;
+  if (plan.phase === 'unknown') return copy.planUnknown;
   return plan.source;
 }

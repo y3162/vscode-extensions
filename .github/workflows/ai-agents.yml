@@ -6,12 +6,14 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 22.x
           cache: npm
       - run: npm ci
       - run: npm run check
@@ -19,15 +21,5 @@ jobs:
       - run: npm run test:coverage
       - run: npm run test:hygiene
       - run: npm run build
-
-  integration:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: sudo apt-get update && sudo apt-get install -y xvfb
-      - run: npm ci
-      - run: xvfb-run -a npm run test:integration
+      - run: npm run test:integration
+      - run: npm run package

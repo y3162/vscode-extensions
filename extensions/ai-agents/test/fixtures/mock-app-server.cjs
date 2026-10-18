@@ -87,6 +87,48 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       pendingTurn = undefined;
       return;
     }
+    if (text === 'SUBAGENT_GUI_STAGED') {
+      const parentTurnId = 'gui-parent-turn';
+      const children = [
+        { id: 'gui-child-a', name: '/root/worker-alpha', task: 'Inspect the first independent feature and report its current execution state for the visual acceptance run.' },
+        { id: 'gui-child-b', name: '/root/worker-beta', task: 'Inspect the second independent feature and report its current execution state for the visual acceptance run.' },
+      ];
+      emit({ method: 'turn/started', params: { threadId: activeThreadId, turn: { id: parentTurnId, status: 'inProgress', items: [] } } });
+      for (const child of children) {
+        const started = { type: 'subAgentActivity', id: `start-${child.id}`, kind: 'started', agentThreadId: child.id, agentPath: child.name, prompt: child.task, model: 'gpt-6-luna' };
+        emit({ method: 'item/started', params: { threadId: activeThreadId, item: started } });
+        emit({ method: 'item/completed', params: { threadId: activeThreadId, item: started } });
+        emit({ method: 'item/started', params: { threadId: child.id, item: { type: 'commandExecution', id: `exec-${child.id}`, command: 'inspect independent task', status: 'inProgress' } } });
+        emit({ method: 'item/commandExecution/outputDelta', params: { threadId: child.id, itemId: `exec-${child.id}`, delta: `${child.name} is still running\n` } });
+      }
+      const wait = { type: 'collabAgentToolCall', id: 'wait-gui-parent', tool: 'wait', status: 'inProgress', senderThreadId: activeThreadId, receiverThreadIds: children.map((child) => child.id), agentsStates: Object.fromEntries(children.map((child) => [child.id, { status: 'running' }])) };
+      emit({ method: 'item/started', params: { threadId: activeThreadId, item: wait } });
+
+      const completed = new Set();
+      const finishChild = (child) => {
+        if (completed.has(child.id)) return;
+        completed.add(child.id);
+        emit({ method: 'item/completed', params: { threadId: child.id, item: { type: 'commandExecution', id: `exec-${child.id}`, command: 'inspect independent task', status: 'completed', aggregatedOutput: `${child.name} finished\n`, exitCode: 0 } } });
+        emit({ method: 'item/agentMessage/delta', params: { threadId: child.id, itemId: `answer-${child.id}`, delta: `${child.name} completed` } });
+        emit({ method: 'item/completed', params: { threadId: child.id, item: { type: 'agentMessage', id: `answer-${child.id}`, text: `${child.name} completed`, phase: 'final_answer' } } });
+        emit({ method: 'turn/completed', params: { threadId: child.id, turn: { id: `turn-${child.id}`, status: 'completed' } } });
+        emit({ method: 'item/completed', params: { threadId: activeThreadId, item: { type: 'subAgentActivity', id: `done-${child.id}`, kind: 'completed', agentThreadId: child.id, agentPath: child.name, model: null } } });
+      };
+      const gate = setInterval(() => {
+        for (const child of children) {
+          if (!completed.has(child.id) && fs.existsSync(path.join(process.cwd(), `${child.id}.done`))) finishChild(child);
+        }
+        if (completed.size !== children.length) return;
+        clearInterval(gate);
+        emit({ method: 'item/completed', params: { threadId: activeThreadId, item: { ...wait, status: 'completed' } } });
+        emit({ method: 'item/agentMessage/delta', params: { threadId: activeThreadId, itemId: 'answer-gui-parent', delta: 'Both independent acceptance tasks completed.' } });
+        emit({ method: 'item/completed', params: { threadId: activeThreadId, item: { type: 'agentMessage', id: 'answer-gui-parent', text: 'Both independent acceptance tasks completed.', phase: 'final_answer' } } });
+        emit({ method: 'turn/completed', params: { threadId: activeThreadId, turn: { id: parentTurnId, status: 'completed' } } });
+        emit({ id: request.id, result: { turn: { id: parentTurnId, status: 'completed' } } });
+        pendingTurn = undefined;
+      }, 50);
+      return;
+    }
     if (text === 'DELAYED_CHILD') {
       const delayed = synthetic.delayedChild();
       replay(delayed.immediate);

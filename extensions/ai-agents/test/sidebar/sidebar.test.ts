@@ -569,7 +569,7 @@ test('a failed model catalog is posted without launching the bundled CLI', async
     await harness.sidebar.handleMessage({ type: 'loadModelCatalog', requestId: 9, refresh: true });
     const catalog = view.messages.filter((message) => message.type === 'modelCatalog').at(-1);
     assert.equal(catalog?.status, 'error');
-    assert.match(String(catalog?.error), /終了しました|ENOENT/);
+    assert.match(String(catalog?.error), /Codex.*(?:終了|通信)/);
     assert.equal(harness.sidebar.controller.snapshot().messages.some((message) => message.role === 'user'), false);
   } finally {
     await close(harness);

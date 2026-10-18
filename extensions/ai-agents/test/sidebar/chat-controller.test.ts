@@ -30,6 +30,41 @@ test('image-only requests run directly, through the queue, and on an explicit re
   await controller.dispose();
 });
 
+test('restoring a conversation keeps queued image requests visible and waits for an explicit send', async () => {
+  const image = { mimeType: 'image/png', data: 'aW1hZ2U=', name: 'queued.png' };
+  const saved = new ChatController(selection, async () => ({ async run() {}, async dispose() {} }), () => {}).snapshot();
+  saved.busy = true;
+  saved.status = 'running';
+  saved.queue = [{ id: 'queued-image', text: 'inspect this image', extras: { images: [image] } }];
+
+  let runCount = 0;
+  let resumeId: string | undefined;
+  const restored = new ChatController(selection, async (_selection, context) => {
+    resumeId = context?.resumeId;
+    return { sessionId: 'backend-session', async run() { runCount += 1; }, async dispose() {} };
+  }, () => {});
+  restored.restoreSnapshot(saved, 'backend-session');
+  assert.equal(restored.snapshot().busy, false);
+  assert.equal(restored.snapshot().status, 'idle');
+  assert.deepEqual(restored.snapshot().queue, saved.queue);
+
+  await restored.openSession();
+  assert.equal(resumeId, 'backend-session');
+  assert.equal(runCount, 0, 'restoring the Backend session must not replay an unsent prompt');
+  assert.deepEqual(restored.snapshot().queue, saved.queue);
+  await restored.dispose();
+});
+
+test('restoring a queue with unavailable image bytes drops it with reattachment guidance', async () => {
+  const saved = new ChatController(selection, async () => ({ async run() {}, async dispose() {} }), () => {}).snapshot();
+  saved.queue = [{ id: 'lost-image', text: 'inspect this image', extras: { images: [{ mimeType: 'image/svg+xml', data: '<svg/>' }] } }];
+  const restored = new ChatController(selection, async () => ({ async run() {}, async dispose() {} }), () => {});
+  restored.restoreSnapshot(saved, 'backend-session');
+  assert.deepEqual(restored.snapshot().queue, []);
+  assert.ok(restored.snapshot().messages.some((message) => /reattach the image/i.test(message.text)));
+  await restored.dispose();
+});
+
 test('continues the same session and replaces item snapshots without mixing turn IDs', async () => {
   let created = 0;
   const session: AgentSession = {

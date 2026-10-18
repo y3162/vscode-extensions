@@ -1,7 +1,7 @@
 import { runReliability } from './reliability-host.js';
 import assert from 'node:assert/strict';
-import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { chmod, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
 import { execFileSync } from 'node:child_process';
 import { errorMessage } from '../../src/types.js';
@@ -25,7 +25,24 @@ export async function run(): Promise<void> {
   await config.update('codex.executablePath', mockPath, vscode.ConfigurationTarget.Global);
   const extension = vscode.extensions.getExtension<{ sidebar: AgentsSidebar }>('y3162.ai-agents');
   assert.ok(extension, 'Extension is discoverable');
+  const expectedExtensionPath = process.env.AI_AGENTS_EXPECTED_EXTENSION_PATH;
+  if (process.env.AI_AGENTS_ISOLATION_CHECK === '1') {
+    assert.equal(process.platform, 'darwin', 'isolated acceptance Host must run on macOS');
+    assert.ok(expectedExtensionPath && process.env.AI_AGENTS_EXPECTED_WORKSPACE && process.env.AI_AGENTS_EXPECTED_USER_DATA
+      && process.env.AI_AGENTS_EXPECTED_SHARED_DATA && process.env.AI_AGENTS_EXPECTED_APP_ROOT
+      && process.env.AI_AGENTS_EXPECTED_APP_BUNDLE && process.env.AI_AGENTS_ISOLATION_EVIDENCE,
+    'all isolated Host paths must be supplied before activation');
+    assert.equal(await realpath(extension.extensionPath), await realpath(expectedExtensionPath), 'extension must load from the expected development checkout');
+    assert.equal(await realpath(vscode.env.appRoot), await realpath(process.env.AI_AGENTS_EXPECTED_APP_ROOT), 'Host must use the selected VS Code app bundle');
+    const appBundle = await realpath(process.env.AI_AGENTS_EXPECTED_APP_BUNDLE);
+    const helperRelative = relative(appBundle, await realpath(process.execPath));
+    assert.ok(helperRelative !== '..' && !helperRelative.startsWith(`..${sep}`) && !isAbsolute(helperRelative), 'Extension Host process must belong to the selected VS Code app bundle');
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    assert.equal(folders.length, 1, 'isolated Host must open only the synthetic test workspace');
+    assert.equal(await realpath(folders[0]!.uri.fsPath), await realpath(process.env.AI_AGENTS_EXPECTED_WORKSPACE), 'Host must open the synthetic test workspace');
+  }
   const manifestText = await readFile(join(extension.extensionPath, 'package.json'), 'utf8');
+  const manifest = JSON.parse(manifestText) as { version: string };
   const messageKeys = [...manifestText.matchAll(/"%([^"%]+)%"/g)].map((match) => match[1]!);
   for (const name of ['package.nls.json', 'package.nls.ja.json']) {
     const translations = JSON.parse(await readFile(join(extension.extensionPath, name), 'utf8')) as Record<string, string>;
@@ -33,6 +50,39 @@ export async function run(): Promise<void> {
   }
   console.log('PASS: packaged translations supply all localized manifest strings');
   const { sidebar } = await extension.activate();
+  if (process.env.AI_AGENTS_ISOLATION_CHECK === '1') {
+    const context = (sidebar as unknown as { context: vscode.ExtensionContext }).context;
+    const userDataPath = await realpath(process.env.AI_AGENTS_EXPECTED_USER_DATA!);
+    const within = (base: string, candidate: string): boolean => {
+      const rel = relative(base, candidate);
+      return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
+    };
+    // VS Code may defer creating these directories until the first write. Materialize
+    // them inside this disposable profile, then compare canonical paths: macOS exposes
+    // /private/var as /var after resolving storage URIs.
+    await mkdir(context.globalStorageUri.fsPath, { recursive: true });
+    if (context.storageUri) await mkdir(context.storageUri.fsPath, { recursive: true });
+    const globalStoragePath = await realpath(context.globalStorageUri.fsPath);
+    const workspaceStoragePath = context.storageUri ? await realpath(context.storageUri.fsPath) : '';
+    assert.ok(within(userDataPath, globalStoragePath), `extension globalStorage must stay under isolated user-data-dir: ${globalStoragePath}`);
+    assert.ok(workspaceStoragePath && within(userDataPath, workspaceStoragePath), `extension workspaceStorage must stay under isolated user-data-dir: ${workspaceStoragePath}`);
+    const receipt = {
+      platform: process.platform,
+      architecture: process.arch,
+      vscodeNode: process.versions.node,
+      appRoot: await realpath(vscode.env.appRoot),
+      extensionPath: await realpath(extension.extensionPath),
+      version: manifest.version,
+      workspacePath: await realpath(vscode.workspace.workspaceFolders![0]!.uri.fsPath),
+      userDataPath,
+      globalStoragePath,
+      workspaceStoragePath,
+      sharedDataPath: await realpath(process.env.AI_AGENTS_EXPECTED_SHARED_DATA!),
+      extensionHostExecutable: await realpath(process.execPath),
+    };
+    await writeFile(process.env.AI_AGENTS_ISOLATION_EVIDENCE!, JSON.stringify(receipt, null, 2));
+    console.log('ISOLATION_EXTENSION_HOST_PASS', JSON.stringify(receipt));
+  }
   await vscode.commands.executeCommand('ai-agents.open');
   await until(() => sidebar.isReady());
   if (process.env.AI_AGENTS_RELIABILITY === '1') { await runReliability(sidebar, cwd); return; }
@@ -421,5 +471,49 @@ export async function run(): Promise<void> {
     console.log('GUI_MOCK_READY', cwd);
     await until(async () => { try { await readFile(join(cwd, 'ui-done')); return true; } catch { return false; } }, 1200000);
   }
+  if (process.env.AI_AGENTS_SUBAGENT_GUI_HOLD === '1') {
+    execFileSync('git', ['init', '-q'], { cwd });
+    await config.update('codex.executablePath', join(cwd, 'mock-app-server.cjs'), vscode.ConfigurationTarget.Global);
+    await sidebar.newChat();
+    await sidebar.handleMessage({ type: 'select', provider: 'codex', cwd, model: 'gpt-6-luna' });
+    await sidebar.handleMessage({ type: 'configure', backend: 'app-server', mode: 'agent', sandbox: 'workspace-write', approval: 'never' });
+    await sidebar.openPanel('chat');
+    const pending = sidebar.controller.send('SUBAGENT_GUI_STAGED');
+    console.log('SUBAGENT_GUI_READY', cwd);
+    const stagedStates = async () => {
+      await until(async () => { try { await readFile(join(cwd, 'gui-child-a.done')); return true; } catch { return false; } }, 600000);
+      await until(() => sidebar.controller.snapshot().subagents.find((child) => child.id === 'gui-child-a')?.status === 'completed', 30000);
+      let state = sidebar.controller.snapshot();
+      assert.equal(state.busy, true, 'the parent must still be running while child B is active');
+      assert.ok(state.subagentWaiting, 'the explicit parent wait must remain active');
+      assert.equal(state.subagents.find((child) => child.id === 'gui-child-b')?.status, 'running');
+      await writeFile(join(cwd, 'subagent-a-verified'), 'parent waiting; A completed; B running');
+      await until(async () => { try { await readFile(join(cwd, 'gui-child-b.done')); return true; } catch { return false; } }, 600000);
+      await pending;
+      state = sidebar.controller.snapshot();
+      assert.equal(state.subagents.find((child) => child.id === 'gui-child-b')?.status, 'completed');
+      assert.equal(state.subagentWaiting, undefined);
+    };
+    await stagedStates();
+    const state = sidebar.controller.snapshot();
+    assert.deepEqual(state.subagents.map((child) => child.status), ['completed', 'completed']);
+    assert.equal(state.subagentWaiting, undefined);
+    assert.equal(state.turns.at(-1)?.status, 'completed');
+    assert.ok(state.messages.some((message) => message.role === 'assistant' && message.final && message.text.includes('Both independent acceptance tasks completed.')));
+    if (process.env.AI_AGENTS_SUBAGENT_GUI_FINAL_HOLD === '1') {
+      console.log('SUBAGENT_GUI_FINAL_READY', cwd);
+      await until(async () => { try { await readFile(join(cwd, 'gui-final-ui.done')); return true; } catch { return false; } }, 1200000);
+    }
+    console.log('PASS: staged App Server GUI fixture kept each child status independent until its own completion gate');
+  }
   await sidebar.dispose();
+  if (process.env.AI_AGENTS_TEST_SUCCESS_EVIDENCE && process.env.AI_AGENTS_RELIABILITY !== '1') {
+    await writeFile(process.env.AI_AGENTS_TEST_SUCCESS_EVIDENCE, JSON.stringify({
+      status: 'passed',
+      platform: process.platform,
+      architecture: process.arch,
+      workspacePath: await realpath(cwd),
+      extensionVersion: manifest.version,
+    }, null, 2));
+  }
 }

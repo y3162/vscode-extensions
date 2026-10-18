@@ -88,11 +88,15 @@ registerHooks({ resolve(specifier, context, nextResolve) {
   else {
     const reportPath = path.join(temporary, 'report', 'coverage-final.json');
     const coverage = JSON.parse(await readFile(reportPath, 'utf8'));
-    const coveredFiles = new Set(Object.keys(coverage).map((file) => path.resolve(file)));
-    const missing = executableSources.filter((file) => !coveredFiles.has(path.resolve(file)));
+    const normalizeCoveragePath = (file) => file.replaceAll('\\', '/');
+    const coveredFiles = Object.keys(coverage).map(normalizeCoveragePath);
+    const missing = executableSources.filter((file) => {
+      const relative = normalizeCoveragePath(path.relative(root, file));
+      return !coveredFiles.some((covered) => covered === relative || covered.endsWith(`/${relative}`));
+    });
     if (missing.length) {
       process.stderr.write(`Executable production modules absent from coverage:\n${missing.map((file) => `- ${path.relative(root, file)}`).join('\n')}\n`);
-      process.stderr.write(`Reported files: ${[...coveredFiles].slice(0, 5).map((file) => path.relative(root, file)).join(', ')}\n`);
+      process.stderr.write(`Reported files: ${coveredFiles.slice(0, 5).join(', ')}\n`);
       process.exitCode = 1;
     } else {
       const typeOnly = sourceFiles.filter((file) => !executableSources.includes(file));

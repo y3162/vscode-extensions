@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -49,6 +49,7 @@ test('checkpoint conflicts and missing checkpoints fail closed', async () => {
     const saved = turn('t1', cwd, [{ path: 'a.txt', beforeText: 'before', afterText: 'after', beforeMode: 0o644, afterMode: 0o644 }]);
     await assert.rejects(buildTurnRewindPlan([saved], 't1', cwd), /changed after its checkpoint/);
     await writeFile(path.join(cwd, 'a.txt'), 'after');
+    await chmod(path.join(cwd, 'a.txt'), 0o644);
     const missing = { ...saved, fileCheckpoint: { status: 'unsupported' as const, files: [], reason: 'binary' } };
     await assert.rejects(buildTurnRewindPlan([missing], 't1', cwd), /binary/);
   } finally { await rm(cwd, { recursive: true, force: true }); }
@@ -187,6 +188,7 @@ test('a file edited after the plan was built fails before rewind begins', async 
   const cwd = await workspace();
   try {
     await writeFile(path.join(cwd, 'a.txt'), 'after');
+    await chmod(path.join(cwd, 'a.txt'), 0o644);
     const saved = turn('t1', cwd, [{ path: 'a.txt', beforeText: 'before', afterText: 'after', beforeMode: 0o644, afterMode: 0o644 }]);
     const plan = await buildTurnRewindPlan([saved], 't1', cwd);
     await writeFile(path.join(cwd, 'a.txt'), 'manual');

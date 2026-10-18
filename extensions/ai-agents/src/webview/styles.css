@@ -343,6 +343,7 @@ textarea {
 .tiny { padding: .1em .4em; font-size: .85em; }
 .env { margin: .25em .7em 0; color: var(--vscode-descriptionForeground); max-width: calc(100% - 1.4em); }
 .chips, .queue { display: flex; flex-wrap: wrap; gap: .3em; }
+.composer-error { margin: .25em 0; color: var(--vscode-errorForeground); font-size: .9em; }
 .chip, .queue-item {
   display: inline-flex; align-items: center; gap: .25em; max-width: 100%;
   padding: .1em .35em; border-radius: 999px; background: var(--vscode-badge-background); color: var(--vscode-badge-foreground); font-size: .85em;

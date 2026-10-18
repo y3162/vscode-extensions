@@ -42,6 +42,7 @@ export interface TurnModel {
   startedAt?: number;
   endedAt?: number;
   waitMs?: number;
+  status?: ViewTurnTiming['status'];
   done: boolean;
 }
 
@@ -157,6 +158,7 @@ export function buildTurns(messages: readonly ViewMessage[], busy: boolean, pend
       ...(timing?.startedAt !== undefined || startedAt !== undefined ? { startedAt: timing?.startedAt ?? startedAt } : {}),
       ...(timing?.endedAt !== undefined || endedAt !== undefined ? { endedAt: timing?.endedAt ?? endedAt } : {}),
       ...(timing ? { waitMs: timing.waitMs } : {}),
+      ...(timing ? { status: timing.status } : {}),
       done: false,
     });
   };

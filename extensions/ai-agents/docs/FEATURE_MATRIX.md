@@ -1,3 +1,7 @@
+# 2026-10-18 検証更新
+
+2026-10-18の現在のコード/Backend/GUI検証と、未検証範囲は[VERIFICATION.md](VERIFICATION.md)に追記した。実BackendでCodex App ServerとCursor ACPの子2件が重複実行した回を確認したが、すべての要求での並列保証ではない。Cursor ACPのresult previewはBackendが実際に返した本文がある場合のみ表示する。CI fixのGitHub Actions成功、Linux実行、GUI全テーマ・幅、全Prompt Rewind liveは未確認であり、以前の行にある「成功」は当時の証拠として読む。
+
 # 0.10.0 再監査による更新（2026-10-17）
 
 以下の表の旧版記述より、今回の [総合監査](AUDIT.md) と次の更新を優先する。

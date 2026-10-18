@@ -1,5 +1,5 @@
 import type { Post } from './cards.js';
-import { Composer } from './composer.js';
+import { Composer, type ComposerAttachmentDraft } from './composer.js';
 import { createDom } from './dom.js';
 import { Header, type Page } from './header.js';
 import { HistoryPanel } from './history.js';
@@ -11,7 +11,7 @@ import { usageText } from '../usage.js';
 import { Transcript } from './transcript.js';
 import { renderSubagentDetail, SubagentPanel } from './subagents.js';
 
-interface Persisted { draft?: string; expanded?: string[]; stick?: boolean; page?: Page; subagentsExpanded?: boolean }
+interface Persisted { draft?: string; attachmentDrafts?: Record<string, ComposerAttachmentDraft>; expanded?: string[]; stick?: boolean; page?: Page; subagentsExpanded?: boolean }
 
 class MessageLog {
   private readonly byId = new Map<string, ViewMessage>();
@@ -136,11 +136,16 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
     if (page === 'chat') composer.focus();
   };
 
+  composer.restoreAttachmentDrafts(saved?.attachmentDrafts);
   if (saved?.draft) composer.draft = saved.draft;
   if (saved?.expanded) transcript.restoreExpanded(saved.expanded);
   if (saved?.stick === false) stick = false;
 
-  const save = () => vscode.setState({ draft: composer.draft, expanded: transcript.expandedIds(), stick, page, subagentsExpanded });
+  const save = () => vscode.setState({
+    draft: composer.draft,
+    attachmentDrafts: composer.persistedAttachmentDrafts(),
+    expanded: transcript.expandedIds(), stick, page, subagentsExpanded,
+  });
   composer.onInput(save);
 
   const applyChrome = () => {

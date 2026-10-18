@@ -97,7 +97,11 @@ export function renderSubagentDetail(
   if (item.model) facts.append(dom.el('span', 'pill', item.model));
   const duration = item.durationMs ?? (item.startedAt !== undefined && item.endedAt !== undefined ? item.endedAt - item.startedAt
     : item.status === 'running' && item.startedAt !== undefined ? Date.now() - item.startedAt : undefined);
-  if (duration !== undefined && duration >= 0) facts.append(dom.el('span', 'subagent-elapsed', formatDuration(duration)));
+  if (duration !== undefined && duration >= 0) {
+    const elapsed = dom.el('span', 'subagent-elapsed', formatDuration(duration));
+    elapsed.title = item.durationMs !== undefined ? copy.subagentDurationBackend : copy.subagentDurationEstimated;
+    facts.append(elapsed);
+  }
   head.append(back, identity, facts);
   page.append(head);
   if (item.task) page.append(section(dom, copy.subagentTask, item.task, 'subagent-task'));
