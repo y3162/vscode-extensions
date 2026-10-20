@@ -120,6 +120,7 @@ export interface ViewTerminal {
   command?: string;
   status?: string;
   output?: string;
+  outputError?: string;
   exitCode?: number;
   error?: string;
 }

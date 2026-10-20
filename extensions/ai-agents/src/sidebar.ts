@@ -144,6 +144,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       return this.sessionFactory({
         ...next,
         ...controls,
+        ownerKey: this.conversationIds.get(controller),
         storagePath: path.join(this.context.globalStorageUri.fsPath, 'cursor-agents'),
         apiKey: await this.context.secrets.get(`ai-agents.${next.provider}.apiKey`),
         codexPath: vscode.workspace.getConfiguration('ai-agents').get<string>('codex.executablePath'),
@@ -364,11 +365,12 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
         if (!user || state.busy) return;
         this.retryDraft = { controller, id, text: user.text };
         const original = controller.retryInput(id);
+        const conversationKey = this.registry.entries().find((entry) => entry.controller === controller)?.key;
         const prepared: HostToWebview = {
           type: 'retryPrepared', id, text: user.text, images: original?.extras?.images ?? [],
           ...(user.attachments?.length ? { attachments: user.attachments } : {}),
           provider: state.selection.provider, cwd: state.selection.cwd,
-          conversationId: this.conversationIds.get(controller),
+          conversationId: conversationKey,
         };
         if (source) void source.webview.postMessage(prepared);
         else this.post(prepared);

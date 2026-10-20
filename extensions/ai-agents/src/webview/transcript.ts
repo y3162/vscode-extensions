@@ -46,6 +46,7 @@ export class Transcript {
     private readonly onPickModel: (anchor: HTMLElement) => void,
     private readonly onRewind: (turnId: string, editedText: string) => void,
     private readonly onOpenSubagent: (id: string) => void = () => {},
+    private readonly onTogglePlan: (expanded: boolean) => void = () => {},
   ) {
     this.planHost = dom.el('div', 'plan-slot');
     this.planHost.hidden = true;
@@ -63,7 +64,7 @@ export class Transcript {
     for (const id of ids) this.openLogs.add(id);
   }
 
-  render(messages: readonly ViewMessage[], shell: ViewShell, copy: Copy): void {
+  render(messages: readonly ViewMessage[], shell: ViewShell, copy: Copy, planExpanded = false): void {
     this.shell = shell;
     this.labels = copy;
     if (!this.planHost.parentElement) this.root.append(this.planHost, this.pending);
@@ -79,7 +80,7 @@ export class Transcript {
     for (const turn of this.turns) this.syncTurn(turn, shell.locale, copy);
     renderPending(this.pending, shell, this.dom, copy, this.post);
     if (shell.plan) renderPlanBody(this.pending, (parent, text) => renderMarkdown(parent, text, this.dom, copy.copy), shell.plan.request.overview, shell.plan.request.plan);
-    renderPlanView(this.planHost, shell, this.dom, copy, this.post, this.onPickModel);
+    renderPlanView(this.planHost, shell, this.dom, copy, this.post, this.onPickModel, planExpanded, this.onTogglePlan);
     const wait = shell.subagentWaiting;
     this.subagentWait.hidden = !wait;
     if (wait) this.subagentWait.textContent = wait.count !== undefined && wait.count > 1 ? copy.waitingSubagents : copy.waitingSubagent;

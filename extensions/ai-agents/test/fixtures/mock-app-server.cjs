@@ -62,6 +62,26 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     const writeMatch = /^write (.+) into a\.txt$/.exec(text);
     if (text === 'touch a.txt') fs.writeFileSync('a.txt', '');
     else if (writeMatch) fs.writeFileSync('a.txt', writeMatch[1]);
+    if (text === 'MANAGED_RELOAD_GATE') {
+      const turnId = 'managed-held-turn';
+      fs.appendFileSync('managed-dispatches.txt', `${turnId}\n`);
+      emit({ id: request.id, result: { turn: { id: turnId } } });
+      emit({ method: 'turn/started', params: { threadId: activeThreadId, turn: { id: turnId, status: 'inProgress' } } });
+      emit({ method: 'item/agentMessage/delta', params: { threadId: activeThreadId, itemId: 'held-answer', delta: 'before reload' } });
+      const deadline = Date.now() + 15000;
+      const timer = setInterval(() => {
+        if (!fs.existsSync('managed-release') && Date.now() < deadline) return;
+        clearInterval(timer);
+        const plan = request.params.collaborationMode?.mode === 'plan';
+        const item = { id: 'held-answer', type: plan ? 'plan' : 'agentMessage', text: plan ? 'A retained plan.' : 'Same execution completed.', phase: 'final_answer' };
+        if (!plan) fs.writeFileSync('managed-result.txt', 'once\n');
+        emit({ method: 'item/completed', params: { threadId: activeThreadId, item } });
+        emit({ method: 'thread/tokenUsage/updated', params: { threadId: activeThreadId, tokenUsage: { total: { inputTokens: 11, outputTokens: 3, totalTokens: 14 } } } });
+        emit({ method: 'turn/completed', params: { threadId: activeThreadId, turn: { id: turnId, status: 'completed' } } });
+        pendingTurn = undefined;
+      }, 25);
+      return;
+    }
     if (text === 'EARLY_TERMINAL_OUTPUT') {
       emit({ method: 'item/started', params: { threadId: 'thread-1', item: { type: 'commandExecution', id: 'early-command', command: 'python3 -u script.py', status: 'inProgress' } } });
       emit({ method: 'item/commandExecution/outputDelta', params: { threadId: 'thread-1', itemId: 'early-command', delta: 'EARLY_READY\n' } });

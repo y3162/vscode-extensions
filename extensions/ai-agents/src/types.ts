@@ -187,6 +187,8 @@ export interface TurnRecord {
 }
 
 export interface TurnOptions {
+  /** Local execution identity, preserved across transport reconnects. */
+  executionId?: string;
   intent: TurnIntent;
   mode: AgentMode;
   selection: Selection;
@@ -217,6 +219,7 @@ export interface TerminalRecord {
   command?: string;
   status?: string;
   output?: string;
+  outputError?: string;
   exitCode?: number;
   error?: string;
 }
@@ -306,6 +309,10 @@ export interface AgentInteractions {
 }
 
 export interface AgentSession {
+  /** Disconnect UI ownership without cancelling a managed execution. */
+  detach?(): Promise<void>;
+  /** Attach to an existing execution only; never submits a prompt. */
+  recoverRun?(id: string, signal: AbortSignal, emit: (update: AgentUpdate) => void, attached: () => void): Promise<boolean>;
   subscribeBackgroundUpdates?(emit: (update: AgentUpdate) => void): () => void;
   run(prompt: string, signal: AbortSignal, emit: (update: AgentUpdate) => void, extras?: SendExtras, turn?: TurnOptions): Promise<void>;
   dispose(): Promise<void>;

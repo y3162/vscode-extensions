@@ -43,7 +43,7 @@ if (!executable && process.platform === 'darwin') {
   });
 }
 const launchArgs = [fixture, '--new-window', '--disable-extensions', '--user-data-dir', userData,
-  '--extensions-dir', extensions, '--shared-data-dir', sharedData];
+  '--extensions-dir', extensions, '--shared-data-dir', sharedData, '--use-inmemory-secretstorage'];
 const vscodeTestArguments = [
   ...launchArgs,
   '--no-sandbox', '--disable-gpu-sandbox', '--disable-updates', '--skip-welcome', '--skip-release-notes',

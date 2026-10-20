@@ -1,6 +1,6 @@
+import { createGitFixture, snapshotGitFixture } from '../../support/git-fixture.js';
 import assert from 'node:assert/strict';
 
-import { execFileSync } from 'node:child_process';
 
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 
@@ -91,6 +91,11 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       } } });
       complete(id);
     }, 12);
+    else if (scenario === 'parent-stream') setTimeout(() => {
+      emit({ method: 'item/agentMessage/delta', params: { threadId: parentThread, itemId: 'parent-message', delta: 'partial parent' } });
+      emit({ method: 'item/commandExecution/outputDelta', params: { threadId: parentThread, itemId: 'parent-shell', delta: 'parent stdout' } });
+      complete(id);
+    }, 12);
     else if (scenario === 'child-notifications') setTimeout(() => {
       emit({ method: 'item/started', params: { threadId: parentThread, item: {
         id: 'child-activity', type: 'subAgentActivity', agentThreadId: 'child-known', kind: 'started',
@@ -144,7 +149,22 @@ function selectedTurn(f: Fixture, model: string): TurnOptions {
 
 interface Fixture { root: string; cwd: string; command: string; cleanup(): Promise<void> }
 
-type Scenario = 'command-present' | 'command-missing-name' | 'child-notifications' | 'generic' | 'thread-list-empty' | 'acp-todos' | 'acp-empty-todos';
+type Scenario = 'command-present' | 'command-missing-name' | 'parent-stream' | 'child-notifications' | 'generic' | 'thread-list-empty' | 'acp-todos' | 'acp-empty-todos';
+
+test('parent stream deltas stay on the parent transcript rather than inventing a child', async () => {
+  const f = await fixture('parent-stream', 'parent-stream');
+  const session = await createCodexAppServerSession(appOptions(f));
+  const updates: AgentUpdate[] = [];
+  try {
+    await session.run('stream', new AbortController().signal, (update) => updates.push(update));
+    for (const id of ['parent-message', 'parent-shell']) {
+      const update = updates.find((entry) => entry.id === id);
+      assert.ok(update, `missing ${id}`);
+      assert.equal(update.subagentId, undefined);
+      assert.equal(update.backendTurnId, 'round9-turn-1');
+    }
+  } finally { await session.dispose(); await f.cleanup(); }
+});
 
 test('App Server command updates include present output, status, and exit code fields', async () => {
   const f = await fixture('command-present', 'command-present');
@@ -261,11 +281,8 @@ test('App Server uses the shell fallback name when a command item omits its comm
 test('App Server emits a finished workspace-change update when a Git baseline exists', async () => {
   const f = await fixture('git-baseline-emission', 'generic');
   await writeFile(path.join(f.cwd, 'baseline.txt'), 'committed\n');
-  execFileSync('git', ['init', '--quiet'], { cwd: f.cwd });
-  execFileSync('git', ['config', 'user.email', 'fixture@example.test'], { cwd: f.cwd });
-  execFileSync('git', ['config', 'user.name', 'Synthetic Fixture'], { cwd: f.cwd });
-  execFileSync('git', ['add', 'baseline.txt'], { cwd: f.cwd });
-  execFileSync('git', ['commit', '-m', 'synthetic baseline', '--quiet'], { cwd: f.cwd });
+  createGitFixture(f.cwd);
+  snapshotGitFixture(f.cwd);
   const session = await createCodexAppServerSession(appOptions(f));
   const background: AgentUpdate[] = [];
   const unsubscribe = session.subscribeBackgroundUpdates!((update) => background.push(update));

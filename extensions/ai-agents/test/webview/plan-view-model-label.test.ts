@@ -50,7 +50,7 @@ function bootTranscript() {
 
 test('plan view uses its localized model label when the selected build label is empty', () => {
   const { window, root, transcript } = bootTranscript();
-  transcript.render([], shell({ planView: planView({ buildModelLabel: '' }) }), strings('en'));
+  transcript.render([], shell({ planView: planView({ buildModelLabel: '' }) }), strings('en'), true);
   assert.equal(root.querySelector('.plan-actions .pill .btn-label')?.textContent, strings('en').model);
   window.happyDOM.abort();
 });

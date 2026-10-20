@@ -37,6 +37,8 @@ npm run test:tools             # 一時ディレクトリでの実ツール・�
 npm run package               # 実行環境のOS/CPU向けVSIXを作成
 ```
 
+ローカルのVS Codeへビルドしてインストールする場合は `./install.sh` を実行します。Cursorを使う場合は `./install.sh --editor cursor` を指定してください。Node.js 22.13以降と、対象エディターのCLI（`code` または `cursor`）が必要です。
+
 `npm run test:integration` はmacOSではインストール済みのVS Codeを使用し、それ以外はテスト用VS Codeをダウンロードします。`VSCODE_EXECUTABLE_PATH` でも実行ファイルを指定できます。ユーザー設定・拡張機能と作業ファイルはテスト専用の一時ディレクトリに分離します。
 
 `test:protocol`、`test:live`、`test:tools` は通常の `npm test` では走りません。既存の `codex login` と `agent login`、Cursor SDK のログインを使います。APIキーへは切り替えません。ログインが無い場合は、Codex は `codex login`、Cursor CLI は `agent login`、Cursor SDK はサイドバーのログインを使ってください。SDK のログインと CLI のログインは別です。

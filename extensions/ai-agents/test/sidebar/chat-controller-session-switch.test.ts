@@ -241,3 +241,28 @@ test('restore, review, and mode changes keep one session and surface retry bound
   assert.equal(await decision.promise, 'allow-once');
   assert.equal(typeof paused.snapshot().turns[0]?.waitMs, 'number');
 });
+
+test('a missing terminal in a successful post-reload list remains unknown', async () => {
+  let background!: (update: AgentUpdate) => void;
+  const controller = new ChatController(selection(), async () => ({
+    sessionId: 'thread-1',
+    async run() {},
+    async listBackgroundTerminals() {
+      background({ id: 'terminals', role: 'status', text: '', meta: { type: 'terminals', terminals: [] } });
+      return [];
+    },
+    subscribeBackgroundUpdates(listener) { background = listener; return () => {}; },
+    async dispose() {},
+  }), () => {});
+  const saved = controller.snapshot();
+  saved.terminals = [{ processId: 'process-before-reload', command: 'long-running-job', status: 'running' }];
+  controller.restoreSnapshot(saved, 'thread-1');
+  assert.equal(controller.snapshot().terminals[0]?.status, 'unknown');
+
+  await controller.openSession();
+
+  assert.deepEqual(controller.snapshot().terminals, [{
+    processId: 'process-before-reload', command: 'long-running-job', status: 'unknown',
+  }]);
+  await controller.dispose();
+});

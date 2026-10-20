@@ -1,6 +1,6 @@
+import { createGitFixture, snapshotGitFixture } from '../../support/git-fixture.js';
 import assert from 'node:assert/strict';
 
-import { execFileSync } from 'node:child_process';
 
 import { writeFileSync } from 'node:fs';
 
@@ -202,13 +202,10 @@ test('Codex uses OpenAI auth fallback and handles id-less retargets and both str
 
 test('Codex forwards workspace changes to background listeners and falls back to the active turn', async (t) => {
   const cwd = await directory(t);
-  execFileSync('git', ['init'], { cwd, stdio: 'ignore' });
-  execFileSync('git', ['config', 'user.email', 'fixture@example.test'], { cwd, stdio: 'ignore' });
-  execFileSync('git', ['config', 'user.name', 'Fixture'], { cwd, stdio: 'ignore' });
+  createGitFixture(cwd);
   const file = path.join(cwd, 'tracked.txt');
   await writeFile(file, 'before\n');
-  execFileSync('git', ['add', 'tracked.txt'], { cwd, stdio: 'ignore' });
-  execFileSync('git', ['commit', '-m', 'fixture'], { cwd, stdio: 'ignore' });
+  snapshotGitFixture(cwd);
 
   const changed = codexModule({ onRun: () => { writeFileSync(file, 'after\n'); } });
   const session = await createSession({ provider: 'codex', cwd, model: '', storagePath: cwd }, loader({ codex: async () => changed.sdk }));

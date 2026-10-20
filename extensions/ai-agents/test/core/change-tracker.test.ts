@@ -1,5 +1,5 @@
+import { createGitFixture, renameGitFixture, snapshotGitFixture } from '../support/git-fixture.js';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { chmod, lstat, mkdir, mkdtemp, readFile, rm, writeFile, rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -9,16 +9,14 @@ import { revertChange } from '../../src/change-review.js';
 
 test('Git baselines preserve dirty, untracked, renamed and unusual paths without trusting ignored files', async () => {
   const cwd = await mkdtemp(path.join(tmpdir(), 'ai-agents-baseline-'));
-  const git = (...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' });
   try {
-    git('init', '-q');
+    createGitFixture(cwd);
     const names = ['日本語.txt', ' name with spaces ', 'quote"line\n.txt', 'renamed.txt', 'clean.txt'];
     for (const name of names) await writeFile(path.join(cwd, name), 'head\n');
     await writeFile(path.join(cwd, '.gitignore'), 'ignored.txt\n');
-    git('add', '.'); git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'baseline');
+    snapshotGitFixture(cwd);
     for (const name of names.slice(0, 3)) await writeFile(path.join(cwd, name), 'user edit\n');
     await rename(path.join(cwd, 'renamed.txt'), path.join(cwd, 'new name.txt'));
-    git('add', '-A');
     await writeFile(path.join(cwd, 'untracked.txt'), 'user untracked\n');
     await writeFile(path.join(cwd, 'ignored.txt'), 'user ignored\n');
     const baselines = await captureGitBaselines(cwd);
@@ -34,28 +32,27 @@ test('Git baselines preserve dirty, untracked, renamed and unusual paths without
     assert.equal(await baselines.lookup('ignored.txt'), undefined);
     assert.equal(await baselines.lookup('../outside.txt'), undefined);
     await writeFile(path.join(cwd, 'clean.txt'), 'new commit\n');
-    git('add', 'clean.txt'); git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'later');
+    snapshotGitFixture(cwd);
     assert.equal(await baselines.lookup('clean.txt'), 'head\n', 'use the revision captured before the turn');
   } finally { await rm(cwd, { recursive: true, force: true }); }
 });
 
 test('shell changes exclude pre-existing edits and retain a content-preserving Git rename', async () => {
   const cwd = await mkdtemp(path.join(tmpdir(), 'ai-agents-net-changes-'));
-  const git = (...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' });
   try {
-    git('init', '-q');
+    createGitFixture(cwd);
     await writeFile(path.join(cwd, 'note.txt'), 'head\n');
     await writeFile(path.join(cwd, 'old.txt'), 'same\n');
     await writeFile(path.join(cwd, 'binary.dat'), Buffer.from([0, 1, 2]));
     await Promise.all(['note.txt', 'old.txt', 'binary.dat'].map((name) => chmod(path.join(cwd, name), 0o644)));
-    git('add', '.'); git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'baseline');
+    snapshotGitFixture(cwd);
     await writeFile(path.join(cwd, 'note.txt'), 'user\n');
     await writeFile(path.join(cwd, 'untracked.txt'), 'user\n');
     const baselines = (await captureGitBaselines(cwd))!;
     assert.deepEqual(await baselines.changes(), []);
     assert.equal(await baselines.lookup('binary.dat'), undefined);
     await writeFile(path.join(cwd, 'note.txt'), 'agent\n');
-    git('mv', 'old.txt', 'new.txt');
+    renameGitFixture(cwd, 'old.txt', 'new.txt');
     const changes = await baselines.changes();
     assert.equal(changes.length, 2);
     assert.deepEqual(changes.find((change) => change.path === 'note.txt'), {
@@ -69,9 +66,8 @@ test('shell changes exclude pre-existing edits and retain a content-preserving G
 test('an unborn repository keeps new files reviewable and a non-repository has no Git baseline', async () => {
   const cwd = await mkdtemp(path.join(tmpdir(), 'ai-agents-unborn-baseline-'));
   const plain = await mkdtemp(path.join(tmpdir(), 'ai-agents-no-git-baseline-'));
-  const git = (...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' });
   try {
-    git('init', '-q');
+    createGitFixture(cwd);
     const baselines = await captureGitBaselines(cwd);
     assert.ok(baselines);
     assert.equal(await baselines.lookup('added-later.txt'), undefined);
@@ -92,12 +88,10 @@ test('an unborn repository keeps new files reviewable and a non-repository has n
 
 test('binary baselines stay non-restorable and a new binary is listed without fabricated text metadata', async () => {
   const cwd = await mkdtemp(path.join(tmpdir(), 'ai-agents-binary-baseline-'));
-  const git = (...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' });
   try {
-    git('init', '-q');
+    createGitFixture(cwd);
     await writeFile(path.join(cwd, 'tracked.bin'), Buffer.from([0x00, 0x01]));
-    git('add', '.');
-    git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'binary baseline');
+    snapshotGitFixture(cwd);
     const baselines = await captureGitBaselines(cwd);
     assert.ok(baselines);
 

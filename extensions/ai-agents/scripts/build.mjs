@@ -17,6 +17,7 @@ const host = {
   logLevel: 'info',
 };
 const worker = { ...host, entryPoints: ['src/providers/cursor-worker.ts'], outfile: 'dist/cursor-worker.cjs' };
+const managedWorker = { ...host, entryPoints: ['src/providers/managed-worker.ts'], outfile: 'dist/managed-worker.cjs' };
 const webview = {
   entryPoints: ['src/webview/main.ts'],
   bundle: true,
@@ -38,12 +39,12 @@ async function copyAssets() {
 }
 
 if (process.argv.includes('--watch')) {
-  const [hostContext, webviewContext, workerContext] = await Promise.all([context(host), context(webview), context(worker)]);
+  const [hostContext, webviewContext, workerContext, managedContext] = await Promise.all([context(host), context(webview), context(worker), context(managedWorker)]);
   await copyAssets();
-  await Promise.all([hostContext.watch(), webviewContext.watch(), workerContext.watch()]);
+  await Promise.all([hostContext.watch(), webviewContext.watch(), workerContext.watch(), managedContext.watch()]);
   const styles = watch('src/webview/styles.css');
   for await (const _event of styles) await copyAssets();
 } else {
-  await Promise.all([build(host), build(webview), build(worker)]);
+  await Promise.all([build(host), build(webview), build(worker), build(managedWorker)]);
   await copyAssets();
 }

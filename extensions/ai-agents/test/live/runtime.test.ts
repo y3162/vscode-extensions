@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -15,7 +14,6 @@ const enabled = process.env.AI_AGENTS_LIVE_RUNTIME === '1';
 const interactions = { requestPermission: async () => 'allow-once' as const, requestPlan: async () => 'rejected' as const, requestAnswers: async () => ({}) };
 async function workspace() {
   const cwd = await mkdtemp(path.join(tmpdir(), 'ai-agents-runtime-'));
-  execFileSync('git', ['init', '-q'], { cwd });
   return { cwd, cleanup: () => rm(cwd, { recursive: true, force: true }) };
 }
 async function until(check: () => boolean, ms = 30000) {
@@ -140,6 +138,44 @@ test('App Server: natural exit and terminate update the original chat without an
     assert.equal(controller.snapshot().terminals.length, 0);
     console.log('RUNTIME_TERMINAL', JSON.stringify({ naturalExit: true, output: true, switchedChat: true, terminatedProcessId: processId }));
   } finally { const terminals = await session?.listBackgroundTerminals?.().catch(() => []); for (const row of terminals ?? []) await session?.terminateBackgroundTerminal?.(row.processId); await controller.dispose(); await other.dispose(); await cleanup(); }
+});
+
+test('App Server: Background Terminal recovers flushed initial stdout from the live item snapshot', { skip: process.env.AI_AGENTS_LIVE_TERMINAL_TEST !== '1', timeout: 120000 }, async () => {
+  const { cwd, cleanup } = await workspace();
+  const model = await preferred('codex');
+  const session = await createSession(options('codex', 'app-server', cwd, model));
+  const updates: AgentUpdate[] = [];
+  const unsubscribe = session.subscribeBackgroundUpdates!((update) => updates.push(update));
+  let monitor: TerminalMonitor | undefined;
+  let output = '';
+  const script = 'import sys,time; print("AI_AGENTS_INITIAL_STDOUT",flush=True); print("AI_AGENTS_INITIAL_STDERR",file=sys.stderr,flush=True); time.sleep(12); print("AI_AGENTS_LATE_STDOUT",flush=True); print("AI_AGENTS_LATE_STDERR",file=sys.stderr,flush=True)';
+  const command = `python3 -u -c '${script}'`;
+  try {
+    await session.run(
+      `Run exactly one background shell process with exec_command and yield_time_ms 1000, without tty, using this command: ${command}. Return immediately with the actual process ID. Do not wait, poll, terminate, or start a second process. Do not edit files.`,
+      AbortSignal.timeout(90000),
+      (update) => updates.push(update),
+    );
+    const rows = await session.listBackgroundTerminals!();
+    assert.equal(rows.length, 1, 'the actual process must remain listed after its parent turn');
+    const terminal = rows[0]!;
+    monitor = new TerminalMonitor(session, terminal, (chunk) => { output += chunk; }, false);
+    monitor.open();
+    await until(() => output.includes('AI_AGENTS_INITIAL_STDOUT'), 5000);
+    assert.doesNotMatch(output, /Process exited/, 'the initial output must be visible while the process remains live');
+    await until(() => output.includes('AI_AGENTS_LATE_STDOUT'), 20000);
+    await until(() => output.includes('Process exited'), 20000);
+    assert.match(output, /AI_AGENTS_INITIAL_STDERR/);
+    assert.match(output, /AI_AGENTS_LATE_STDERR/);
+    assert.ok(updates.some((update) => update.tool?.kind === 'shell' && update.tool.status !== 'running' && update.tool.exitCode === 0), 'the final command item must report exit code 0');
+    console.log('RUNTIME_TERMINAL_INITIAL_OUTPUT', JSON.stringify({ backend: 'codex-app-server', model, processId: terminal.processId, itemId: terminal.itemId, initialStdout: true, lateStdout: true, stderrMarkers: true, exitCode: 0, outputBytes: Buffer.byteLength(output) }));
+  } finally {
+    monitor?.dispose();
+    unsubscribe();
+    for (const row of await session.listBackgroundTerminals?.().catch(() => []) ?? []) await session.terminateBackgroundTerminal?.(row.processId);
+    await session.dispose();
+    await cleanup();
+  }
 });
 
 test('App Server: attached terminal receives real output and Ctrl+C interrupts the original process', { skip: !enabled, timeout: 150000 }, async () => {

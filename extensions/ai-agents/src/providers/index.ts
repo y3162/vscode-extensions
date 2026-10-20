@@ -1,3 +1,4 @@
+import { createManagedSession } from './managed-session.js';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -58,6 +59,7 @@ function cursorToolPath(meta: ReturnType<typeof cursorMeta>): string | undefined
 }
 
 export async function createSession(options: SessionOptions, loaders = sdkLoaders, inProcess = false, dependencies: SessionDependencies = {}): Promise<AgentSession> {
+  if (process.platform === 'darwin' && options.ownerKey && options.provider === 'codex' && options.backend === 'app-server') return createManagedSession(options);
   if (options.provider === 'codex' && options.backend === 'app-server') return createCodexAppServerSession(options);
   if (options.provider === 'cursor' && options.backend === 'acp') return createCursorAcpSession(options);
   if (options.provider === 'cursor' && loaders === sdkLoaders && !inProcess) return createCursorWorker(options);

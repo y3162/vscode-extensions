@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { chmod, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
-import { execFileSync } from 'node:child_process';
+import { createGitFixture, snapshotGitFixture } from '../support/git-fixture.js';
 import { errorMessage } from '../../src/types.js';
 import * as vscode from 'vscode';
 import type { AgentsSidebar } from '../../src/sidebar.js';
@@ -414,7 +414,8 @@ export async function run(): Promise<void> {
   }
 
   if (process.env.AI_AGENTS_UI_HOLD === '1') {
-    execFileSync('git', ['init', '-q'], { cwd });
+    createGitFixture(cwd);
+    snapshotGitFixture(cwd);
     await config.update('codex.executablePath', '', vscode.ConfigurationTarget.Global);
     await sidebar.handleMessage({ type: 'configure', backend: 'app-server', mode: 'plan', sandbox: 'workspace-write', approval: 'never' });
     await sidebar.handleMessage({ type: 'loadModelCatalog', refresh: true, requestId: 990 });
@@ -425,7 +426,8 @@ export async function run(): Promise<void> {
     await until(async () => { try { await readFile(join(cwd, 'ui-done')); return true; } catch { return false; } }, 1200000);
   }
   if (process.env.AI_AGENTS_REWIND_UI_HOLD === '1') {
-    execFileSync('git', ['init', '-q'], { cwd });
+    createGitFixture(cwd);
+    snapshotGitFixture(cwd);
     const useMock = process.env.AI_AGENTS_REWIND_UI_MOCK === '1';
     await config.update('codex.executablePath', useMock ? join(cwd, 'mock-app-server.cjs') : '', vscode.ConfigurationTarget.Global);
     await sidebar.handleMessage({ type: 'configure', backend: 'app-server', mode: 'agent', sandbox: 'workspace-write', approval: 'never' });
@@ -472,7 +474,8 @@ export async function run(): Promise<void> {
     await until(async () => { try { await readFile(join(cwd, 'ui-done')); return true; } catch { return false; } }, 1200000);
   }
   if (process.env.AI_AGENTS_SUBAGENT_GUI_HOLD === '1') {
-    execFileSync('git', ['init', '-q'], { cwd });
+    createGitFixture(cwd);
+    snapshotGitFixture(cwd);
     await config.update('codex.executablePath', join(cwd, 'mock-app-server.cjs'), vscode.ConfigurationTarget.Global);
     await sidebar.newChat();
     await sidebar.handleMessage({ type: 'select', provider: 'codex', cwd, model: 'gpt-6-luna' });

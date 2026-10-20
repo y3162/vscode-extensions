@@ -1,5 +1,7 @@
 # AI Agents
 
+v1.0.0は現在受入途中（NO-GO）です。[変更点](RELEASE_NOTES.md)・[Backend対応表](BACKENDS.md)・[導入/更新/復旧](INSTALL.md)を参照してください。出荷確認対象はmacOS arm64のみです。
+
 VS Codeのサイドバーから、CursorとCodexの公式SDKを利用して質問やコード変更を依頼する拡張機能です。
 
 ## 使い方

@@ -277,6 +277,7 @@ export function buildShell(source: ShellSource): ViewShell {
     terminals: state.terminals.map((item): ViewTerminal => ({
       processId: item.processId,
       ...(item.output ? { output: item.output } : {}),
+      ...(item.outputError ? { outputError: item.outputError } : {}),
       ...(item.exitCode !== undefined ? { exitCode: item.exitCode } : {}),
       ...(item.error ? { error: item.error } : {}),
       ...(item.command ? { command: item.command } : {}),

@@ -264,7 +264,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     return;
   }
   if (text === 'USAGE_PARTIAL') {
-    emit({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread-1', tokenUsage: { total: { inputTokens: 'bad', outputTokens: 3 }, modelContextWindow: 'bad', last: { totalTokens: 'bad' } } } });
+    emit({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread-1', tokenUsage: { total: { inputTokens: 'bad', outputTokens: 3 }, modelContextWindow: 'bad', last: { totalTokens: 42 } } } });
     emit({ method: 'thread/tokenUsage/updated', params: { threadId: 'thread-1', tokenUsage: { inputTokens: 4, outputTokens: 'bad' } } });
     complete('partial-usage-turn');
     return;

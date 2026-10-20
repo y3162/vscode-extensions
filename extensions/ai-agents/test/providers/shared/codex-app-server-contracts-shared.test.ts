@@ -108,7 +108,7 @@ test('App Server events, approvals, and questions keep sandbox and approval deci
     const partial = partialUsage.filter((update) => update.meta?.type === 'usage').map((update) => update.meta!.usage!);
     assert.deepEqual(partial.map(({ inputTokens, outputTokens }) => [inputTokens, outputTokens]), [[0, 3], [4, 0]]);
     assert.equal(Object.hasOwn(partial[0]!, 'contextWindow'), true);
-    assert.equal(partial[0]?.contextTokens, undefined);
+    assert.equal(partial[0]?.contextTokens, undefined, 'last-request token totals must not fabricate context occupancy');
     const approvals: AgentUpdate[] = [];
     await session.run('APPROVALS', new AbortController().signal, (update) => approvals.push(update));
     const decided = JSON.parse(approvals.find((update) => update.text.startsWith('['))!.text) as { decision?: string }[];
