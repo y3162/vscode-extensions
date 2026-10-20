@@ -920,8 +920,7 @@ export class ChatController {
     let total = rows.reduce((sum, message) => sum + size(message), 0);
     let omitted = false;
     while (rows.length > 80 || total > 160000) {
-      const old = rows.shift();
-      if (!old) break;
+      const old = rows.shift()!;
       total -= size(old);
       const index = this.state.messages.findIndex((message) => message.id === old.id);
       if (index >= 0) this.state.messages.splice(index, 1);
@@ -939,8 +938,7 @@ export class ChatController {
     const size = (message: ChatMessage) => { try { return JSON.stringify(message).length; } catch { return message.text.length; } };
     let total = rows.reduce((sum, message) => sum + size(message), 0);
     while (total > 1000000) {
-      const old = rows.shift();
-      if (!old) break;
+      const old = rows.shift()!;
       total -= size(old);
       const index = this.state.messages.findIndex((message) => message.id === old.id);
       if (index >= 0) this.state.messages.splice(index, 1);
@@ -1055,7 +1053,7 @@ export class ChatController {
     if (update.meta?.type === 'plan' && update.meta.plan?.markdown) this.state.plan = stageDraft(this.state.plan, update.meta.plan);
     if (update.meta?.type === 'subagent' && update.meta.subagent) {
       const previous = this.state.subagents.find((item) => item.id === update.meta?.subagent?.id);
-      const safeSubagent = lightMeta(update.meta)?.subagent ?? update.meta.subagent;
+      const safeSubagent = lightMeta(update.meta)!.subagent!;
       const suppliedParent = safeSubagent.parentTurnId;
       const mappedParent = suppliedParent ? this.state.turns.find((turn) => turn.backendTurnId === suppliedParent)?.id : undefined;
       const parentTurnId = previous?.parentTurnId ?? this.updateTurns.get(update.id) ?? mappedParent

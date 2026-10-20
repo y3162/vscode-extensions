@@ -131,6 +131,38 @@ test('message projection preserves optional tool, attachment, and subagent metad
   });
 });
 
+test('projection retains child recovery details and omits a zero live-child count', () => {
+  const child = {
+    id: 'child', parentTurnId: 'turn-1', agentId: 'agent-1', model: 'gpt', name: 'Researcher',
+    task: 'Search files', taskOmitted: true, status: 'completed' as const, background: false as const,
+    startedAt: 1, endedAt: 2, progress: 'Done', error: 'Partial failure', historyOmitted: true,
+  };
+  const projected = toViewMessage({
+    id: 'child-message', role: 'tool', text: 'details', subagentId: 'child', meta: { type: 'subagent', subagent: child },
+  });
+  assert.equal(projected.subagentId, 'child');
+  assert.deepEqual(projected.meta?.subagent, child);
+  const turn = { id: 'turn-1', startedAt: 1, status: 'running' as const, waitMs: 0, mode: 'agent' as const, model: 'gpt', intent: 'chat' as const };
+  const waiting = shellFor({
+    busy: true, turns: [turn], subagents: [child], subagentWaiting: { parentTurnId: 'turn-1', startedAt: 3 },
+    terminals: [{ processId: 'terminal', outputError: 'Output incomplete' }],
+  }, 'ja');
+  assert.deepEqual(waiting.subagents[0], child);
+  assert.deepEqual(waiting.subagentWaiting, { startedAt: 3 });
+  assert.equal(waiting.statusText, 'サブエージェントの完了を待機中');
+  assert.equal(waiting.terminals[0]?.outputError, 'Output incomplete');
+});
+
+test('unknown planning phase shows its saved draft when present', () => {
+  const shell = shellFor({ plan: {
+    phase: 'unknown',
+    current: { id: 'current', revision: 1, markdown: 'Original', todos: [], source: 'assistant-text', createdAt: 1 },
+    draft: { id: 'draft', revision: 2, markdown: 'Recovered draft', todos: [], source: 'assistant-text', createdAt: 2 },
+    revisions: [],
+  } });
+  assert.equal(shell.planView?.markdown, 'Recovered draft');
+});
+
 test('shell projection retains saved conversation, build inputs, usage, queue, and live process state', () => {
   const usage = { inputTokens: 11, outputTokens: 7, cachedInputTokens: 3 };
   const sourceState = state({

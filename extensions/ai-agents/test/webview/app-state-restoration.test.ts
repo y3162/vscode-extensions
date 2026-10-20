@@ -87,3 +87,27 @@ test('a restored webview keeps the draft, the open log, and an unstuck thread', 
   assert.equal(jump.hidden, true);
   assert.equal(thread.scrollTop, 1000);
 });
+
+test('stale child and plan controls cannot hold the chat in an obsolete view', () => {
+  const { window, emit, document, persisted } = boot({ page: 'chat' });
+  const planView = {
+    id: 'plan', revision: 1, phase: 'ready' as const, markdown: 'Steps', todos: [], source: 'assistant-text' as const,
+    buildModelId: 'gpt', buildModelLabel: 'GPT', buildParams: [], showBuildModel: false, canBuild: true, history: [],
+  };
+  const child = { id: 'child', name: 'Explorer', status: 'running' as const, background: true as const };
+  emit(shell({ conversationId: undefined, sessionId: 'session', planView, subagents: [child] }));
+  const stalePlanButton = document.querySelector('.plan-view-toggle') as HTMLButtonElement;
+  stalePlanButton.click();
+  assert.equal((persisted() as { planViewKey?: string }).planViewKey, 'session\0plan');
+  (document.querySelector('.subagent-panel-open') as HTMLButtonElement).click();
+  assert.equal(document.querySelector('.subagent-detail-host')?.hidden, false);
+  emit(shell({ conversationId: undefined, sessionId: undefined, planView: null, subagents: [] }));
+  assert.equal(document.querySelector('.thread')?.hidden, false);
+  assert.equal(document.querySelector('.subagent-detail-host')?.hidden, true);
+  stalePlanButton.click();
+  assert.equal((persisted() as { planViewKey?: string }).planViewKey, 'session\0plan');
+  emit(shell({ conversationId: undefined, sessionId: undefined, planView }));
+  (document.querySelector('.plan-view-toggle') as HTMLButtonElement).click();
+  assert.equal((persisted() as { planViewKey?: string }).planViewKey, '/workspace\0plan');
+  window.happyDOM.abort();
+});

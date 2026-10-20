@@ -9,6 +9,8 @@ import { errorMessage, redactSecrets } from '../types.js';
 import { createCodexAppServerSession } from './codex-app-server.js';
 import type { SessionOptions } from './session-options.js';
 import type { ManagedMessage, ManagedRun, ManagedSnapshot } from './managed-protocol.js';
+import { acceptManagedRun } from './managed-run-admission.js';
+import { writeManagedMessage as write } from './managed-message-write.js';
 
 const root = process.argv[2]!;
 const socketPath = path.join(root, 'control.sock');
@@ -26,14 +28,8 @@ let retainedBytes = 0;
 const updates = new Map<string, AgentUpdate>();
 const acceptedRuns = new Set<string>();
 const interactions = new Map<number, { method: string; args: unknown; resolve(value: unknown): void }>();
-const write = (socket: Socket, message: ManagedMessage) => {
-  if (socket.destroyed) return;
-  // A stalled UI must not grow the owner's memory indefinitely.
-  if (socket.writableLength > 16 * 1024 * 1024) { socket.destroy(); return; }
-  socket.write(`${JSON.stringify(message)}\n`);
-};
 const broadcast = (message: ManagedMessage) => { if (owner) write(owner, message); };
-const snapshot = (): ManagedSnapshot => ({ identity: identity ? { ...identity, id: session?.sessionId ?? identity.id } : undefined, pid: process.pid, sessionClosed: session?.closed, rewindUnsupportedReason: session?.rewindUnsupportedReason?.(), backendTurnId: session?.latestBackendTurnId?.(), run: run ? { ...run, updates: [...updates.values()] } : undefined });
+const snapshot = (): ManagedSnapshot => ({ identity: identity ? { ...identity } : undefined, pid: process.pid, sessionClosed: session?.closed, rewindUnsupportedReason: session?.rewindUnsupportedReason?.(), backendTurnId: session?.latestBackendTurnId?.(), run: run ? { ...run, updates: [...updates.values()] } : undefined });
 async function shutdown() {
   if (stopping) return;
   stopping = true;
@@ -70,9 +66,8 @@ function interact(method: string, args: unknown): Promise<unknown> {
     broadcast({ interaction: { id, method, args } });
   });
 }
-const agentInteractions: AgentInteractions = {
+const agentInteractions: Pick<AgentInteractions, 'requestPermission' | 'requestAnswers'> = {
   requestPermission: async (args) => await interact('requestPermission', args) as Awaited<ReturnType<AgentInteractions['requestPermission']>> ?? 'deny',
-  requestPlan: async (args) => await interact('requestPlan', args) as 'accepted' | 'rejected' ?? 'rejected',
   requestAnswers: async (args) => await interact('requestAnswers', args) as Record<string, string[]> ?? {},
 };
 async function dispatch(method: string, raw: unknown): Promise<unknown> {
@@ -100,23 +95,20 @@ async function dispatch(method: string, raw: unknown): Promise<unknown> {
     const args = raw as { prompt: string; extras?: SendExtras; turn?: TurnOptions; target?: 'uncommitted' | 'base' };
     const id = args.turn?.executionId;
     if (!id) throw new Error('A stable execution id is required.');
-    if (run?.id === id) return snapshot(); // reconnect is never dispatch
-    if (run?.status === 'running') throw new Error('The original execution is still running.');
-    if (acceptedRuns.has(id)) throw new Error('This execution was already accepted; it cannot be dispatched again.');
-    if (acceptedRuns.size >= 10000) throw new Error('Execution owner reached its run limit. Close this session before starting another.');
-    acceptedRuns.add(id);
+    if (!acceptManagedRun(id, run, acceptedRuns)) return snapshot(); // reconnect is never dispatch
     updates.clear(); retainedBytes = 0;
     run = { id, status: 'running', updates: [] };
-    abort = new AbortController();
+    const runAbort = new AbortController();
+    abort = runAbort;
     const current = run;
     const execution = method === 'review'
-      ? session.review!(args.target!, (update) => remember(update), abort.signal)
-      : session.run(args.prompt, abort.signal, (update) => remember(update), args.extras, args.turn);
+      ? session.review!(args.target!, (update) => remember(update), runAbort.signal)
+      : session.run(args.prompt, runAbort.signal, (update) => remember(update), args.extras, args.turn);
     void execution.then(() => {
-      if (current.status === 'running') current.status = abort?.signal.aborted ? 'cancelled' : 'completed';
+      if (current.status === 'running') current.status = 'completed';
     }, (error: unknown) => {
       if (current.status === 'running') {
-        current.status = abort?.signal.aborted ? 'cancelled' : 'failed';
+        current.status = runAbort.signal.aborted ? 'cancelled' : 'failed';
         current.error = redactSecrets(errorMessage(error));
       }
     }).finally(() => broadcast({ settled: true }));
@@ -124,7 +116,6 @@ async function dispatch(method: string, raw: unknown): Promise<unknown> {
   }
   if (method === 'cancel') { abort?.abort(); return; }
   if (method === 'transcript') { const messages: unknown[] = []; await session.loadTranscript?.((message) => messages.push(message)); return messages; }
-  if (method === 'setModel') return session.setModel?.(raw as Parameters<NonNullable<AgentSession['setModel']>>[0]);
   if (method === 'setMode') return session.setMode?.(raw as Parameters<NonNullable<AgentSession['setMode']>>[0]);
   if (method === 'terminals') return session.listBackgroundTerminals?.();
   if (method === 'terminateTerminal') return session.terminateBackgroundTerminal?.(String(raw));
@@ -132,7 +123,11 @@ async function dispatch(method: string, raw: unknown): Promise<unknown> {
   if (method === 'steer') return session.steer?.(String(raw));
   if (method === 'fork') return session.fork?.();
   if (method === 'forkBeforeTurn') return session.forkBeforeTurn?.(String(raw));
-  if (method === 'activateFork') return session.activateFork?.(String(raw));
+  if (method === 'activateFork') {
+    session.activateFork?.(String(raw));
+    identity = { ...identity!, id: String(raw) };
+    return;
+  }
   if (method === 'compact') return session.compact?.();
   if (method === 'rateLimits') return session.rateLimits?.();
   if (method === 'listSessions') return session.listSessions?.();
@@ -155,7 +150,6 @@ const server = createServer((socket) => {
     }
   });
   function handleLine(line: string) {
-    if (line.length > 24 * 1024 * 1024) { socket.destroy(); return; }
     let message: ManagedMessage;
     try { message = JSON.parse(line) as ManagedMessage; } catch { socket.destroy(); return; }
     if (!authenticated) {

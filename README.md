@@ -30,10 +30,10 @@ Codexは既存の `codex login` を利用できます。CursorはSDK用の認証
 npm run watch                 # AI Agentsの変更を監視
 npm run check                 # 型チェック・Webview JS構文チェック
 npm test                      # 単体テスト（API接続不要。ライブテストは含まない）
-npm run test:integration       # VS Code上で起動・SDK接続・停止を確認（API接続不要）
-npm run test:protocol          # インストール済み Cursor CLI と同梱 Codex の接続確認
-npm run test:live              # 既存ログインでの短い実推論（利用枠を使う）
-npm run test:tools             # 一時ディレクトリでの実ツール・承認・拒否
+npm run test:integration      # VS Code上で起動・SDK接続・停止を確認（API接続不要）
+npm run test:protocol         # インストール済み Cursor CLI と同梱 Codex の接続確認
+npm run test:live             # 既存ログインでの短い実推論（利用枠を使う）
+npm run test:tools            # 一時ディレクトリでの実ツール・承認・拒否
 npm run package               # 実行環境のOS/CPU向けVSIXを作成
 ```
 

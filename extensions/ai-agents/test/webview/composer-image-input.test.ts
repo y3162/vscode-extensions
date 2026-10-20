@@ -88,6 +88,36 @@ test('composer rejects an empty image-reader result and keeps the prompt intact'
   window.happyDOM.abort();
 });
 
+test('composer reports unreadable image data and reader errors without attaching images', () => {
+  const { window, host, composer } = bootComposer();
+  const oldReader = Object.getOwnPropertyDescriptor(globalThis, 'FileReader');
+  class FailedReader {
+    result: string | null = null;
+    onload: ((event: ProgressEvent<FileReader>) => unknown) | null = null;
+    onerror: ((event: ProgressEvent<FileReader>) => unknown) | null = null;
+    readAsDataURL(file: Blob): void {
+      if (file.size === 1) {
+        this.result = 'data:image/png;base64,not-base64';
+        this.onload?.({} as ProgressEvent<FileReader>);
+      } else this.onerror?.({} as ProgressEvent<FileReader>);
+    }
+  }
+  Object.defineProperty(globalThis, 'FileReader', { configurable: true, value: FailedReader });
+  try {
+    const addImages = (composer as unknown as { addImages(files: File[]): void }).addImages.bind(composer);
+    addImages([new window.File(['x'], 'bad.png', { type: 'image/png' })]);
+    assert.match(host.querySelector('.composer-error')?.textContent ?? '', /attach it again/i);
+    composer.render(shell(), strings('en'));
+    addImages([new window.File(['xx'], 'unreadable.png', { type: 'image/png' })]);
+    assert.match(host.querySelector('.composer-error')?.textContent ?? '', /attach it again/i);
+    assert.equal(host.querySelectorAll('.chips img').length, 0);
+  } finally {
+    if (oldReader) Object.defineProperty(globalThis, 'FileReader', oldReader);
+    else Reflect.deleteProperty(globalThis, 'FileReader');
+    window.happyDOM.abort();
+  }
+});
+
 test('composer scopes image drafts to their conversation and restores them after reload', () => {
   const first = bootComposer();
   const image = { mimeType: 'image/png', data: 'aW1hZ2U=', name: 'fixture.png' };
@@ -121,6 +151,18 @@ test('composer drops invalid persisted image bytes and asks for reattachment', (
   composer.render(shell(), strings('en'));
   assert.equal(host.querySelectorAll('.chips img').length, 0);
   assert.match(host.querySelector<HTMLElement>('.composer-error')?.textContent ?? '', /attach it again/i);
+  window.happyDOM.abort();
+});
+
+test('composer ignores malformed persisted attachment drafts', () => {
+  const { window, host, composer } = bootComposer();
+  composer.restoreAttachmentDrafts({
+    missing: null,
+    images: { images: 'invalid', chips: [] },
+    chips: { images: [], chips: 'invalid' },
+  } as unknown as Parameters<Composer['restoreAttachmentDrafts']>[0]);
+  composer.render(shell(), strings('en'));
+  assert.equal(host.querySelectorAll('.chip').length, 0);
   window.happyDOM.abort();
 });
 
