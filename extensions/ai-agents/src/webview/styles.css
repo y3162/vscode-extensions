@@ -246,7 +246,7 @@ a { color: var(--vscode-textLink-foreground); }
   background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
   display: grid; place-items: center;
 }
-.dock { flex: 0 0 auto; padding: .35em 0 .45em; }
+.dock { flex: 0 0 auto; padding: .85em 0 .9em; }
 .subagent-slot { margin: 0 .55em .35em; min-width: 0; }
 .subagent-slot[hidden] { display: none; }
 .subagent-panel-heading {
@@ -304,25 +304,32 @@ a { color: var(--vscode-textLink-foreground); }
 .banner-copy p, .banner-copy strong { margin: 0; }
 .change-bar { padding: 0 .7em .25em; flex-direction: column; align-items: stretch; }
 .composer-card {
-  margin: 0 .55em;
-  border: 1px solid var(--vscode-panel-border, transparent);
-  border-radius: .7em;
-  background: var(--vscode-input-background);
-  padding: .45em .55em .35em;
+  display: flex;
+  flex-direction: column;
+  min-height: 154px;
+  margin: 0 .75em;
+  border: 1px solid color-mix(in srgb, var(--vscode-foreground) 25%, transparent);
+  border-radius: .9em;
+  background: color-mix(in srgb, var(--vscode-input-background) 94%, var(--vscode-foreground));
+  padding: .65em .75em .55em;
   position: relative;
 }
-.composer-card:focus-within { border-color: var(--vscode-focusBorder); }
+.composer-card:focus-within { border-color: color-mix(in srgb, var(--vscode-foreground) 35%, transparent); }
+.composer-card textarea:focus-visible { outline: none; }
 textarea {
   display: block; width: 100%; resize: none; border: 0; outline: none; background: transparent;
   min-height: 3.2em; max-height: 40vh; padding: .25em .1em .4em; line-height: 1.45;
 }
 .composer-row { justify-content: space-between; gap: .35em; flex-wrap: nowrap; }
+.composer-card textarea { flex: 1 1 auto; min-height: 6.5em; }
 .row-left, .row-right { min-width: 0; flex-wrap: nowrap; }
 .row-left { flex: 1 1 auto; }
 .row-right { justify-content: flex-end; flex: 0 0 auto; }
-.mode, .model-name { flex-direction: row-reverse; }
-.model-name { min-width: 0; max-width: 14em; flex: 0 1 auto; }
+.model-name { flex-direction: row-reverse; }
+.model-name { min-width: 0; max-width: 14em; flex: 0 1 auto; padding-left: .35em; }
 .pill { border-radius: 999px; max-width: 14em; }
+.mode { gap: .35em; padding: .25em .55em; color: var(--vscode-descriptionForeground); background: color-mix(in srgb, var(--vscode-foreground) 10%, transparent); }
+.mode .mode-icon { font-size: 1em; }
 .icon-btn.attach { border-radius: .4em; background: transparent; color: inherit; }
 .pill .btn-label, .env .btn-label, .change-summary .btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pill:hover, .icon-btn:hover, .ghost:hover, .log-toggle:hover, .session-row:hover, .back:hover, .provider:hover, .menu-item:hover, .suggest-item:hover, .tool-line:hover {
@@ -337,6 +344,9 @@ textarea {
 .icon-btn.header-btn { width: 2em; height: 2em; min-width: 28px; min-height: 28px; border-radius: .45em; }
 .send { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
 .send:hover { background: var(--vscode-button-hoverBackground); }
+.composer-card .attach, .composer-card .send { color: var(--vscode-descriptionForeground); }
+.composer-card .send { background: color-mix(in srgb, var(--vscode-foreground) 18%, transparent); }
+.composer-card .send:hover { background: color-mix(in srgb, var(--vscode-foreground) 25%, transparent); }
 .stop { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 .secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: 0; border-radius: .35em; padding: .25em .55em; }
 .secondary.pressed { outline: 1px solid var(--vscode-focusBorder); }

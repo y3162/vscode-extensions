@@ -7,6 +7,7 @@ import { Window } from 'happy-dom';
 import type { ModelCatalogMessage, ViewMessage, ViewPlan, ViewShell } from '../../src/protocol.js';
 
 import { createDom } from '../../src/webview/dom.js';
+import { renderPlanView } from '../../src/webview/plan-view.js';
 
 import { strings } from '../../src/webview/strings.js';
 
@@ -52,5 +53,24 @@ test('plan view uses its localized model label when the selected build label is 
   const { window, root, transcript } = bootTranscript();
   transcript.render([], shell({ planView: planView({ buildModelLabel: '' }) }), strings('en'), true);
   assert.equal(root.querySelector('.plan-actions .pill .btn-label')?.textContent, strings('en').model);
+  (root.querySelector('.plan-view-toggle') as HTMLButtonElement).click();
+  window.happyDOM.abort();
+});
+
+test('plan summary truncates long text and identifies both Cursor plan sources', () => {
+  const window = new Window();
+  const dom = createDom(window.document);
+  const host = dom.el('div');
+  window.document.body.append(host);
+  const render = (view: ViewPlan, expanded: boolean) =>
+    renderPlanView(host, shell({ planView: view }), dom, strings('en'), () => {}, () => {}, expanded, () => {});
+  render(planView({ overview: 'word '.repeat(60) }), false);
+  const summary = host.querySelector('.plan-summary')?.textContent ?? '';
+  assert.equal(summary.length, 238);
+  assert.ok(summary.endsWith('…'));
+  render(planView({ source: 'acp-create-plan' }), true);
+  assert.match(host.querySelector('.plan-source')?.textContent ?? '', /Cursor ACP create_plan/);
+  render(planView({ source: 'sdk-createPlan' }), true);
+  assert.match(host.querySelector('.plan-source')?.textContent ?? '', /Cursor SDK createPlan/);
   window.happyDOM.abort();
 });

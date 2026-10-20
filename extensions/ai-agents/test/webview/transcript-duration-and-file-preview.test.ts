@@ -66,3 +66,22 @@ test('a restored running turn is visibly marked unknown instead of completed', (
   assert.equal(root.querySelector('.turn-usage')?.hidden, false);
   window.happyDOM.abort();
 });
+
+test('transcript shows multiple waiting children and a child progress update', () => {
+  const window = new Window();
+  const dom = createDom(window.document);
+  const root = dom.el('main');
+  window.document.body.append(root);
+  const transcript = new Transcript(dom, root, () => {}, () => {}, () => {}, () => {});
+  transcript.restoreExpanded(['user']);
+  transcript.render([
+    { id: 'user', role: 'user', text: 'Explore' },
+    { id: 'child', role: 'status', text: '', turnId: 'user', meta: { type: 'subagent', subagent: {
+      id: 'child', name: 'Explorer', status: 'running', background: true, progress: 'Reading files',
+    } } },
+  ], shell({ subagentWaiting: { parentTurnId: 'user', startedAt: 1, count: 2 } }), strings('en'));
+  assert.equal(root.querySelector('.waiting-subagent')?.textContent, strings('en').waitingSubagents);
+  assert.match(root.querySelector('.subagent')?.textContent ?? '', /Reading files/);
+  (root.querySelector('.subagent') as HTMLButtonElement).click();
+  window.happyDOM.abort();
+});

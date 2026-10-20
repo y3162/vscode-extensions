@@ -3,7 +3,7 @@ import { writeImageFiles } from '../images.js';
 import { captureGitBaselines } from '../change-tracker.js';
 import { extensionVersion } from '../version.js';
 import type {
-  AgentSession, AgentUpdate, ChatMessage, FileChange, PermissionDecision, SessionSummary, SubagentRecord, TerminalRecord, TodoEntry, UsageStats,
+  AgentInteractions, AgentSession, AgentUpdate, ChatMessage, FileChange, PermissionDecision, SessionSummary, SubagentRecord, TerminalRecord, TodoEntry, UsageStats,
 } from '../types.js';
 import { codexSpawn } from './codex-binary.js';
 import type { SessionOptions } from './session-options.js';
@@ -213,7 +213,11 @@ function messagesFrom(value: unknown): ChatMessage[] {
   return messages;
 }
 
-export async function createCodexAppServerSession(options: SessionOptions): Promise<AgentSession> {
+type CodexAppServerOptions = Omit<SessionOptions, 'interactions'> & {
+  interactions?: Pick<AgentInteractions, 'requestPermission' | 'requestAnswers'> & Partial<AgentInteractions>;
+};
+
+export async function createCodexAppServerSession(options: CodexAppServerOptions): Promise<AgentSession> {
   const canonicalCwd = await realpath(options.cwd).catch(() => path.resolve(options.cwd));
   const workspacePath = (name: string): string => {
     const resolved = path.resolve(options.cwd, name);
@@ -378,7 +382,6 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
     const resolved = new Set<string>();
     const markIncomplete = (itemIds: Iterable<string>, detail: string) => {
       const ids = new Set(itemIds);
-      if (!ids.size) return;
       for (const row of terminals) {
         if (!row.itemId || !ids.has(row.itemId)) continue;
         const updated = { ...row, outputError: detail };
@@ -443,7 +446,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
             if (typeof item.aggregatedOutput === 'string') {
               resolved.add(item.id);
               terminalOutputReadFailures = 0;
-              emitItem(item, undefined, undefined, group.turnId);
+              emitItem(item, group.turnId);
             }
           }
           if ([...group.itemIds].every((itemId) => resolved.has(itemId))) break;
@@ -486,11 +489,11 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
     else current.resolve();
   };
 
-  const emitItem = (item: Record<string, unknown>, subagentId?: string, waitState?: boolean, eventTurnId?: string) => {
+  const emitItem = (item: Record<string, unknown>, eventTurnId: string, subagentId?: string, waitState?: boolean) => {
     const destination = emitLive.current ?? emitBackground;
     const emit = (update: AgentUpdate) => {
       const text = subagentId && update.text.length > 12000 ? `${update.text.slice(0, 12000)}\n[Earlier output omitted]` : update.text;
-      const ownerTurnId = subagentId ? childParentTurns.get(subagentId) ?? turnId : eventTurnId ?? turnId;
+      const ownerTurnId = subagentId ? childParentTurns.get(subagentId) ?? turnId : eventTurnId;
       destination({ ...update, text, backendTurnId: update.backendTurnId ?? ownerTurnId, ...(subagentId ? { subagentId } : {}) });
     };
     const type = itemType(item).toLowerCase();
@@ -623,11 +626,11 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
         const ownerThread = noted || threadId;
         const ownerTurn = turnIdOf(body, turnId);
         if (ownerThread && ownerTurn) terminalItems.set(id, { threadId: ownerThread, turnId: ownerTurn });
-        emitItem({ id, type: 'commandExecution', text: buffers.get(id), status: 'in_progress' }, noted && childThreads.has(noted) ? noted : undefined, undefined, ownerTurn);
+        emitItem({ id, type: 'commandExecution', text: buffers.get(id), status: 'in_progress' }, ownerTurn, noted && childThreads.has(noted) ? noted : undefined);
         return;
       }
       if (noted && childThreads.has(noted)) {
-        if (itemType(item) && ['item/started', 'item/completed', 'item/updated'].includes(method)) emitItem(item, noted, undefined, turnIdOf(body, turnId));
+        if (itemType(item) && ['item/started', 'item/completed', 'item/updated'].includes(method)) emitItem(item, turnIdOf(body, turnId), noted);
         const turn = record(body.turn);
         const previous = children.get(noted);
         const previousFinished = previous?.status === 'completed' || previous?.status === 'error' || previous?.status === 'cancelled';
@@ -657,7 +660,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
           type: method.includes('reasoning') ? 'reasoning' : method.includes('plan') ? 'plan' : 'agentMessage',
           text: buffers.get(id),
           status: 'in_progress',
-        }, undefined, undefined, turnIdOf(body, turnId));
+        }, turnIdOf(body, turnId));
         return;
       }
       if (method === 'turn/started') {
@@ -667,7 +670,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       }
       if (method === 'item/started' || method === 'item/completed' || method === 'item/updated') {
         const waitState = isWaitTool(item) ? method === 'item/started' || (method === 'item/updated' && /progress|running|pending/i.test(String(item.status ?? ''))) : undefined;
-        emitItem(item, undefined, waitState, turnIdOf(body, turnId));
+        emitItem(item, turnIdOf(body, turnId), undefined, waitState);
       }
       if (method === 'turn/completed' || method === 'turn/diff/updated') {
         const id = turnIdOf(body, turnId);
@@ -890,8 +893,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
             } while (childCursor);
             for (const message of messagesFrom({ turns: childTurns })) {
               if (message.meta?.type === 'subagent') continue;
-              const backendId = message.backendId ?? message.id;
-              emit({ ...message, id: `${childId}:${message.id}`, backendId, backendTurnId: parentTurnId, subagentId: childId });
+              emit({ ...message, id: `${childId}:${message.id}`, backendId: message.backendId!, backendTurnId: parentTurnId, subagentId: childId });
             }
           } catch { /* Child history is an optional App Server capability. Keep the known task and result. */ }
         }

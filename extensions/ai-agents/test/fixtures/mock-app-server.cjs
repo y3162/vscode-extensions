@@ -42,10 +42,19 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
   else if (request.method === 'initialized') return;
   else if (request.method === 'thread/start' || request.method === 'thread/resume') {
     const cwd = typeof request.params.cwd === 'string' ? request.params.cwd : process.cwd();
+    if (request.method === 'thread/start' && cwd.includes('ai-agents-edge-live-')) {
+      emit({ method: 'item/started', params: { threadId: 'thread-1', item: {
+        id: 'early-child-activity', type: 'subAgentActivity', agentThreadId: 'early-child', kind: 'mystery',
+      } } });
+      emit({ method: 'item/started', params: { threadId: 'early-child', item: {
+        id: 'early-child-command', type: 'commandExecution', command: 'echo early', status: 'completed',
+      } } });
+      emit({ method: 'turn/started', params: { threadId: 'early-child', turn: { id: 'early-child-turn' } } });
+    }
     if (historyFile !== path.join(cwd, '.git', 'ai-agents-mock-app-server.json')) loadHistory(cwd);
     replayFinal = request.params.threadId === 'history-final';
     const requestedThreadId = typeof request.params.threadId === 'string' ? request.params.threadId : '';
-    const responseThreadId = request.method === 'thread/resume' && (/^thread-\d+$/.test(requestedThreadId) || requestedThreadId === 'thread-restore-child') ? requestedThreadId : 'thread-1';
+    const responseThreadId = request.method === 'thread/resume' && (/^thread-\d+$/.test(requestedThreadId) || requestedThreadId === 'thread-restore-child' || requestedThreadId === 'thread-edge-history') ? requestedThreadId : 'thread-1';
     if (!threadTurnIds.has(responseThreadId)) threadTurnIds.set(responseThreadId, []);
     saveHistory();
     const sandbox = request.params.sandbox === 'read-only' ? {type:'readOnly',networkAccess:false}
@@ -80,6 +89,15 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
         emit({ method: 'turn/completed', params: { threadId: activeThreadId, turn: { id: turnId, status: 'completed' } } });
         pendingTurn = undefined;
       }, 25);
+      return;
+    }
+    if (text === 'OVERSIZED_MANAGED_OUTPUT') {
+      const turnId = 'oversized-turn';
+      emit({ id: request.id, result: { turn: { id: turnId } } });
+      emit({ method: 'turn/started', params: { threadId: activeThreadId, turn: { id: turnId, status: 'inProgress' } } });
+      emit({ method: 'item/agentMessage/delta', params: { threadId: activeThreadId, itemId: 'oversized-answer', delta: 'x'.repeat(17 * 1024 * 1024) } });
+      emit({ method: 'turn/completed', params: { threadId: activeThreadId, turn: { id: turnId, status: 'completed' } } });
+      pendingTurn = undefined;
       return;
     }
     if (text === 'EARLY_TERMINAL_OUTPUT') {
@@ -171,6 +189,55 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       pendingTurn = undefined;
       return;
     }
+    if (text === 'EDGE_NOTIFICATIONS') {
+      const turnId = 'edge-live-turn';
+      const childId = 'edge-live-child';
+      emit({ method: 'turn/started', params: { threadId: activeThreadId, turn: { id: turnId, status: 'inProgress' } } });
+      emit({ method: 'item/started', params: { threadId: activeThreadId, item: {
+        id: 'spawn-edge-live', type: 'subAgentActivity', agentThreadId: childId, kind: 'started',
+      } } });
+      emit({ method: 'item/started', params: { threadId: activeThreadId, item: {
+        id: 'wait-edge-live', type: 'collabAgentToolCall', name: 'wait', status: 'pending', receiverThreadIds: [childId],
+      } } });
+      emit({ method: 'item/updated', params: { threadId: activeThreadId, item: {
+        id: 'wait-edge-live', type: 'collabAgentToolCall', tool: 'wait', status: 'running', receiverThreadIds: [childId],
+      } } });
+      emit({ method: 'item/updated', params: { threadId: activeThreadId, item: {
+        id: 'wait-edge-live', type: 'collabAgentToolCall', tool: 'wait', status: 'paused', receiverThreadIds: [childId],
+      } } });
+      emit({ method: 'item/updated', params: { threadId: activeThreadId, item: {
+        id: 'wait-edge-live', type: 'collabAgentToolCall', tool: 'wait', receiverThreadIds: [childId],
+      } } });
+      emit({ method: 'item/completed', params: { threadId: activeThreadId, item: {
+        id: 'unnamed-collab-edge', type: 'collabAgentToolCall', status: 'completed',
+      } } });
+      emit({ method: 'item/started', params: { threadId: childId, item: {
+        id: 'child-command-edge', type: 'commandExecution', processId: 'child-process-edge', status: 'running',
+      } } });
+      emit({ method: 'item/started', params: { threadId: childId, item: {
+        id: 'child-wait-edge', type: 'collabAgentToolCall', tool: 'wait', status: 'running',
+      } } });
+      emit({ method: 'item/completed', params: { threadId: childId, item: {
+        id: 'child-wait-edge', type: 'collabAgentToolCall', tool: 'wait', status: 'completed',
+      } } });
+      emit({ method: 'item/commandExecution/outputDelta', params: { threadId: childId, itemId: 'child-command-edge', delta: 'child output' } });
+      emit({ method: 'item/agentMessage/delta', params: { threadId: childId, itemId: 'child-long-edge', delta: 'x'.repeat(12001) } });
+      emit({ method: 'item/completed', params: { threadId: childId, item: {
+        id: 'child-long-edge', type: 'agentMessage', text: 'x'.repeat(12001), phase: 'final_answer',
+      } } });
+      emit({ method: 'item/commandExecution/outputDelta', params: { threadId: childId, delta: 5 } });
+      emit({ method: 'item/commandExecution/outputDelta', params: { threadId: activeThreadId, itemId: 'parent-delta-edge', delta: 9 } });
+      emit({ method: 'item/commandExecution/outputDelta', params: { itemId: 'unscoped-delta-edge', delta: 'unscoped output' } });
+      emit({ method: 'item/started', params: { item: { id: 'unscoped-command-edge', type: 'commandExecution', command: 'pwd' } } });
+      emit({ method: 'item/completed', params: { threadId: activeThreadId, item: {
+        id: 'wait-edge-live', type: 'collabAgentToolCall', tool: 'wait', receiverThreadIds: [childId],
+      } } });
+      emit({ method: 'turn/completed', params: { threadId: childId, turn: { id: 'child-edge-turn', status: 'completed', durationMs: 12 } } });
+      emit({ method: 'turn/completed', params: { threadId: activeThreadId, turn: { id: turnId, status: 'completed' } } });
+      emit({ id: request.id, result: { turn: { id: turnId, status: 'completed' } } });
+      pendingTurn = undefined;
+      return;
+    }
     if (text === 'SILENT_CHILD') {
       emit({ method: 'item/started', params: { threadId: 'thread-1', item: { type: 'subAgentActivity', id: 'silent-start', agentThreadId: 'silent-child', agentPath: '/root/silent', kind: 'started' } } });
       emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'silent-turn', status: 'completed' } } });
@@ -218,7 +285,14 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
       return;
     }
     if (text.includes('NEED_APPROVAL')) {
+      fs.writeFileSync('approval-requested', 'yes');
       emit({ id: 50, method: 'item/commandExecution/requestApproval', params: { approvalId: 'approval-1', command: 'npm test', reason: 'fixture command' } });
+      return;
+    }
+    if (text === 'NEED_ANSWERS') {
+      emit({ id: 51, method: 'item/tool/requestUserInput', params: { itemId: 'question-1', questions: [
+        { id: 'choice', question: 'Which option?', options: [{ label: 'safe' }] },
+      ] } });
       return;
     }
     const streamId = text === 'SECURITY_POLICY' ? `policy-${++policyTurn}` : 'agent-1';
@@ -235,6 +309,26 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
     pendingTurn = undefined;
   } else if (request.method === 'thread/turns/list') {
     const requestedThreadId = String(request.params.threadId || '');
+    if (requestedThreadId === 'thread-edge-history') {
+      emit({ id: request.id, result: { data: [{ id: 'parent-edge', error: { message: 'parent failed' }, items: [
+        { id: 'command-edge', type: 'commandExecution', command: 'echo edge', output: 'stdout', status: 'completed' },
+        { id: 'file-edge', type: 'fileChange', text: 'patched', changes: [{ path: 'edge.txt', kind: 'add' }] },
+        { id: 'thought-edge', type: 'reasoning', text: 'reasoning' },
+        { id: 'spawn-edge', type: 'collabAgentToolCall', tool: 'spawnAgent', receiverThreadIds: ['child-edge', 'child-no-history', 'child-bad-page'],
+          agentsStates: { 'child-edge': { status: 'completed', message: 'done' } } },
+      ] }, { id: '', items: [{ type: 'subAgentActivity', agentThreadId: 'child-no-parent', kind: 'completed' }] }], nextCursor: null } });
+      return;
+    }
+    if (requestedThreadId === 'child-edge') {
+      if (!request.params.cursor) emit({ id: request.id, result: { data: [{ id: 'child-turn', items: [
+        { type: 'subAgentActivity', agentThreadId: 'nested-child', kind: 'completed' },
+        { id: 'child-answer', type: 'agentMessage', text: 'edge child answer', phase: 'final_answer' },
+      ] }], nextCursor: 'next' } });
+      else emit({ id: request.id, result: { data: [], nextCursor: null } });
+      return;
+    }
+    if (requestedThreadId === 'child-no-history') { emit({ id: request.id, error: { message: 'child history unavailable' } }); return; }
+    if (requestedThreadId === 'child-bad-page') { emit({ id: request.id, result: { data: null } }); return; }
     const restoredChildParent = requestedThreadId === 'thread-restore-child' ? [{ id: 'parent-turn', status: 'completed', items: [
       { id: 'spawn-child', type: 'collabAgentToolCall', tool: 'spawnAgent', prompt: 'inspect restored child', model: 'gpt-test', receiverThreadIds: ['child-thread'], agentsStates: { 'child-thread': { status: 'completed', message: 'restored child answer' } } },
     ] }] : undefined;
@@ -261,8 +355,9 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', (l
   } else if (request.method === 'turn/interrupt') {
     emit({ id: request.id, result: {} });
   }
-  else if (request.id === 50 || (pendingTurn && request.result)) {
-    emit({ method: 'item/completed', params: { item: { id: 'agent-1', type: 'agentMessage', text: `approved:${request.result?.decision}` } } });
+  else if (request.id === 50 || request.id === 51 || (pendingTurn && request.result)) {
+    const detail = request.id === 51 ? JSON.stringify(request.result?.answers) : request.result?.decision;
+    emit({ method: 'item/completed', params: { item: { id: 'agent-1', type: 'agentMessage', text: `approved:${detail}` } } });
     emit({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', items: [] } } });
     emit({ id: pendingTurn, result: { turn: { id: 'turn-1', status: 'completed' } } });
     pendingTurn = undefined;

@@ -119,6 +119,43 @@ test('child duration identifies Backend-reported values and Extension Host estim
   assert.equal(estimated.host.querySelector('.subagent-elapsed')?.getAttribute('title'), 'Extension Host内の観測時刻からの概算');
 });
 
+test('subagent rows and details handle sparse names, active work, and failed child events', () => {
+  const panelFixture = fixture();
+  const panel = new SubagentPanel(panelFixture.dom, panelFixture.host, () => {}, () => {});
+  panel.render({ subagents: [
+    { ...child('one', 'running'), background: false, name: 'path/to/Explorer', task: '   ' },
+    { ...child('two', 'running'), background: false, name: '/', task: 'Different task' },
+  ] } as ViewShell, strings('en'), true);
+  assert.match(panelFixture.host.querySelector('.subagent-panel-heading')?.textContent ?? '', /2 active subagents/);
+  assert.match(panelFixture.host.querySelector('[data-subagent-id="one"]')?.textContent ?? '', /path\/to\/Explorer/);
+  assert.match(panelFixture.host.querySelector('[data-subagent-id="two"]')?.textContent ?? '', /\//);
+
+  const detail = fixture();
+  renderSubagentDetail(detail.dom, detail.host, {
+    ...child('one', 'running'), taskOmitted: true, historyOmitted: true, error: 'child failed', resultPreview: undefined,
+  }, [
+    { id: 'err', role: 'error', text: 'command failed', subagentId: 'one' },
+    { id: 'thought', role: 'status', text: 'checking', subagentId: 'one', meta: { type: 'thinking' } },
+  ], strings('en'), 'en', () => {});
+  assert.equal(detail.host.querySelectorAll('.subagent-history-omitted').length, 2);
+  assert.match(detail.host.querySelector('.subagent-error')?.textContent ?? '', /child failed/);
+  assert.match(detail.host.querySelector('.subagent-event-heading.error')?.textContent ?? '', /Failed/);
+  assert.match(detail.host.querySelectorAll('.subagent-event-heading')[1]?.textContent ?? '', /Thought/);
+  assert.equal(detail.host.querySelector('.subagent-unavailable'), null);
+  assert.ok(detail.host.querySelector('.subagent-elapsed'), 'running children show elapsed time');
+
+  const sparse = fixture();
+  renderSubagentDetail(sparse.dom, sparse.host, {
+    ...child('sparse', 'unknown'), task: undefined, startedAt: undefined, resultPreview: undefined,
+  }, [], strings('en'), 'en', () => {});
+  assert.match(sparse.host.querySelector('.subagent-unavailable')?.textContent ?? '', /does not provide a detailed child transcript/i);
+  assert.equal(sparse.host.querySelector('.subagent-elapsed'), null);
+
+  const resultOnly = fixture();
+  renderSubagentDetail(resultOnly.dom, resultOnly.host, child('done', 'completed'), [], strings('en'), 'en', () => {});
+  assert.equal(resultOnly.host.querySelector('.subagent-unavailable'), null);
+});
+
 test('sidebar detail navigation keeps the parent scroll and draft while child updates continue', async () => {
   const { window, dom, host } = fixture();
   host.id = 'app';

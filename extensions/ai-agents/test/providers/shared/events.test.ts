@@ -32,6 +32,25 @@ test('Cursor assistant content extracts text and tool updates use a stable call 
   assert.equal(cursorUpdate({ ...base, type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'hi' }] } }, 11), undefined);
 });
 
+test('Cursor terminal results show output and exit code while other results keep JSON', () => {
+  const base = { agent_id: 'agent-1', run_id: 'run-1', type: 'tool_call', call_id: 'shell', name: 'Shell', status: 'completed' } as const;
+  assert.equal(cursorUpdate({ ...base, result: { stdout: 'hello\n', stderr: 'warning\n', exitCode: 2 } }, 0)?.text,
+    'completed: Shell\nhello\nwarning\nExit code: 2');
+  assert.equal(cursorUpdate({ ...base, result: { status: 'success', value: { stdout: 'done', stderr: '', exitCode: 0 } } }, 0)?.text,
+    'completed: Shell\ndone\nExit code: 0');
+  assert.equal(cursorUpdate({ ...base, result: { success: { value: { stdout: '', stderr: 'failed', exit_code: 1 } } } }, 0)?.text,
+    'completed: Shell\nfailed\nExit code: 1');
+  assert.equal(cursorUpdate({ ...base, result: { stdout: '', stderr: '' } }, 0)?.text, 'completed: Shell\n');
+  assert.equal(cursorUpdate({ ...base, result: { stdout: 'first', stderr: 'second' } }, 0)?.text,
+    'completed: Shell\nfirst\nsecond');
+  assert.equal(cursorUpdate({ ...base, result: { stdout: 'only stdout' } }, 0)?.text,
+    'completed: Shell\nonly stdout');
+  assert.equal(cursorUpdate({ ...base, result: { stderr: 'only stderr' } }, 0)?.text,
+    'completed: Shell\nonly stderr');
+  assert.equal(cursorUpdate({ ...base, result: null }, 0)?.text, 'completed: Shell\nnull');
+  assert.match(cursorUpdate({ ...base, name: 'Read', result: { ok: true } }, 0)?.text ?? '', /"ok": true/);
+});
+
 test('Codex errors, unknown items, and cache-write deltas stay explicit', () => {
   assert.equal(codexUpdate({ id: 'bad', type: 'error', message: 'boom' })?.role, 'error');
   assert.equal(codexUpdate({ id: 'mystery', type: 'future_item' } as never), undefined);

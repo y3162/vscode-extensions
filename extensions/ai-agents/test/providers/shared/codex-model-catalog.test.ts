@@ -214,6 +214,105 @@ test('Codex catalog startup keeps a meaningful process error when stdin EPIPE ra
   }
 });
 
+test('Codex catalog rejects malformed and error RPC responses', async (t) => {
+  for (const kind of ['malformed', 'rpc-error'] as const) {
+    const child = fakeCodex((request, worker) => {
+      if (request.method !== 'initialize') return;
+      if (kind === 'malformed') queueMicrotask(() => worker.stdout.write('{broken\n'));
+      else reply(worker, { id: request.id, error: { message: 'catalog unavailable' } });
+    });
+    const spawn = t.mock.method(childProcess, 'spawn', () => child as never);
+    try {
+      await assert.rejects(listModels({ provider: 'codex', codexPath: '/fixture/codex' }),
+        kind === 'malformed' ? /応答が不正/ : /catalog unavailable/);
+    } finally { spawn.mock.restore(); }
+  }
+});
+
+test('Codex catalog accepts empty RPC result but rejects missing model data', async (t) => {
+  const child = fakeCodex((request, worker) => {
+    reply(worker, { id: request.id });
+  });
+  t.mock.method(childProcess, 'spawn', () => child as never);
+  await assert.rejects(listModels({ provider: 'codex', codexPath: '/fixture/codex' }), /一覧が不正/);
+});
+
+test('Codex catalog contains non-Error startup failures and child termination races', async (t) => {
+  const child = fakeCodex(() => {});
+  child.kill = () => { throw new Error('already exited'); };
+  t.mock.method(childProcess, 'spawn', () => child as never);
+  queueMicrotask(() => child.emit('error', 'synthetic failure'));
+  await assert.rejects(listModels({ provider: 'codex', codexPath: '/fixture/codex' }), /synthetic failure/);
+});
+
+test('Codex catalog preserves a missing exit status and string stdin failures', async (t) => {
+  for (const failure of ['exit', 'stdin'] as const) {
+    const child = fakeCodex((request, worker) => {
+      if (request.method !== 'initialize') return;
+      if (failure === 'exit') queueMicrotask(() => worker.emit('exit', null, null));
+      else queueMicrotask(() => worker.stdin.emit('error', 'broken input'));
+    });
+    const spawn = t.mock.method(childProcess, 'spawn', () => child as never);
+    try {
+      await assert.rejects(listModels({ provider: 'codex', codexPath: '/fixture/codex' }),
+        failure === 'exit' ? /signal/ : /broken input/);
+    } finally { spawn.mock.restore(); }
+  }
+});
+
+test('Codex catalog handles aborted startup before its first request', async (t) => {
+  const child = fakeCodex(() => assert.fail('aborted startup must not send RPC requests'));
+  const controller = new AbortController();
+  child.prependListener('spawn', () => controller.abort());
+  t.mock.method(childProcess, 'spawn', () => child as never);
+  await assert.rejects(listModels({ provider: 'codex', codexPath: '/fixture/codex', signal: controller.signal }), { name: 'AbortError' });
+  assert.equal(child.killCalls, 1);
+});
+
+test('Codex catalog checks cancellation between spawn and initialize', async (t) => {
+  const child = fakeCodex(() => assert.fail('cancelled catalog must not send initialize'));
+  const controller = new AbortController();
+  child.prependListener('spawn', () => queueMicrotask(() => controller.abort()));
+  t.mock.method(childProcess, 'spawn', () => child as never);
+  await assert.rejects(listModels({ provider: 'codex', codexPath: '/fixture/codex', signal: controller.signal }), { name: 'AbortError' });
+});
+
+test('Codex catalog reports synchronous stdin write failures and exited transports', async (t) => {
+  for (const failure of ['throw', 'exited'] as const) {
+    const child = fakeCodex((request, worker) => {
+      if (request.method !== 'initialize') return;
+      if (failure === 'exited') worker.exitCode = 7;
+      reply(worker, { id: request.id, result: {} });
+    });
+    if (failure === 'throw') child.stdin.write = (() => { throw new Error('synchronous write failed'); }) as typeof child.stdin.write;
+    const spawn = t.mock.method(childProcess, 'spawn', () => child as never);
+    try {
+      await assert.rejects(listModels({ provider: 'codex', codexPath: '/fixture/codex' }),
+        failure === 'throw' ? /synchronous write failed/ : /終了しました \(7\)/);
+    } finally { spawn.mock.restore(); }
+  }
+});
+
+test('Codex catalog force-stops a child that ignores graceful termination', async (t) => {
+  const child = fakeCodex((request, worker) => {
+    if (request.method === 'initialize') reply(worker, { id: request.id, result: {} });
+    if (request.method === 'model/list') reply(worker, { id: request.id, result: { data: [] } });
+  });
+  const signals: Array<NodeJS.Signals | undefined> = [];
+  child.kill = (signal?: NodeJS.Signals) => {
+    signals.push(signal);
+    if (signal === 'SIGKILL') {
+      child.signalCode = 'SIGKILL';
+      child.emit('exit', null, 'SIGKILL');
+    }
+    return true;
+  };
+  t.mock.method(childProcess, 'spawn', () => child as never);
+  assert.deepEqual(await listModels({ provider: 'codex', codexPath: '/fixture/codex' }), []);
+  await new Promise((resolve) => setTimeout(resolve, 1600));
+  assert.deepEqual(signals, [undefined, 'SIGKILL']);
+});
+
 test('Codex catalog handles a real child stdin pipe closing after initialize', {
   skip: process.platform === 'win32', timeout: 8_000,
 }, async () => {

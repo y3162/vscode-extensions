@@ -13,6 +13,7 @@ interface CaretToken { kind: 'file' | 'slash'; query: string; start: number }
 export interface ComposerAttachmentDraft { images: ImageChip[]; chips: Chip[] }
 
 const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+const modeIcons: Record<string, string> = { agent: 'infinity', plan: 'list-flat', ask: 'comment' };
 const maxImageBytes = 5_000_000;
 const maxImageBase64Length = Math.ceil(maxImageBytes / 3) * 4;
 
@@ -88,7 +89,11 @@ export class Composer {
     this.input.id = 'prompt';
     const row = dom.el('div', 'composer-row');
     const left = dom.el('div', 'row-left');
-    this.mode = dom.button('pill mode', 'Mode', 'chevron-down');
+    this.mode = dom.button('pill mode', 'Mode');
+    const modeIcon = dom.icon('infinity');
+    modeIcon.classList.add('mode-icon');
+    this.mode.prepend(modeIcon);
+    this.mode.append(dom.icon('chevron-down'));
     this.mode.setAttribute('aria-haspopup', 'menu');
     this.mode.addEventListener('click', () => this.openMode());
     this.model = dom.button('pill model-name', 'Model', 'chevron-down');
@@ -227,6 +232,7 @@ export class Composer {
     this.input.placeholder = revising ? copy.revisePlaceholder : copy.placeholder;
     this.input.setAttribute('aria-label', copy.placeholder);
     this.togglePill(this.mode, shell.showMode, shell.modes.find((mode) => mode.id === shell.mode)?.label ?? shell.mode, copy.mode);
+    this.mode.querySelector('.mode-icon')!.className = `codicon codicon-${modeIcons[shell.mode] ?? 'infinity'} mode-icon`;
     if (this.catalog && (this.catalog.provider !== shell.provider || this.catalog.cwd !== shell.cwd)) this.catalog = null;
     const modelText = shell.effortLabel ? `${shell.modelLabel} ${shell.effortLabel}` : shell.modelLabel;
     this.model.querySelector('.btn-label')!.textContent = modelText;
@@ -271,6 +277,7 @@ export class Composer {
     this.env.querySelector('.btn-label')!.textContent = envText;
     this.env.title = envText;
     this.env.setAttribute('aria-label', envText);
+    this.env.hidden = shell.folders.length <= 1;
     this.renderBanner(shell, copy);
     this.renderChanges(shell, copy);
     this.renderQueue(shell, copy);
@@ -593,9 +600,8 @@ export class Composer {
     const shell = this.shell;
     if (!shell) return;
     this.modelMenu.close(false);
-    const icons: Record<string, string> = { agent: 'infinity', plan: 'list-flat', ask: 'comment' };
     this.menu.open(this.mode, shell.modes.map((mode) => ({
-      id: mode.id, label: mode.label, description: mode.description, icon: icons[mode.id],
+      id: mode.id, label: mode.label, description: mode.description, icon: modeIcons[mode.id],
       checked: mode.id === shell.mode,
       onSelect: () => this.configure({ mode: mode.id }),
     })));

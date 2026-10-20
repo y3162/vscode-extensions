@@ -5,9 +5,16 @@ import { lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promise
 import { connect, type Socket } from 'node:net';
 import { createInterface } from 'node:readline';
 import path from 'node:path';
-import type { AgentInteractions, AgentSession, AgentUpdate, ChatMessage, TerminalRecord, Selection, SessionSummary } from '../types.js';
+import type { AgentInteractions, AgentSession, AgentUpdate, ChatMessage, TerminalRecord, SessionSummary } from '../types.js';
 import type { SessionOptions } from './session-options.js';
 import type { ManagedMessage, ManagedSnapshot } from './managed-protocol.js';
+
+export function managedWorkerEntry(directory: string, fileExists = existsSync): string {
+  const packaged = path.join(directory, 'managed-worker.cjs');
+  if (fileExists(packaged)) return packaged;
+  const compiled = path.join(directory, 'managed-worker.js');
+  return fileExists(compiled) ? compiled : path.resolve(directory, '../../dist/managed-worker.cjs');
+}
 
 /** Profile storage + canonical workspace + local conversation are all part of the owner key. */
 export async function createManagedSession(options: SessionOptions): Promise<AgentSession> {
@@ -21,9 +28,7 @@ export async function createManagedSession(options: SessionOptions): Promise<Age
   if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o077)) throw new Error('Unsafe managed directory.');
   if (created) {
     await writeFile(path.join(root, 'token'), randomBytes(32).toString('hex'), { mode: 0o600, flag: 'wx' });
-    const entry = path.join(__dirname, 'managed-worker.cjs');
-    const compiled = path.join(__dirname, 'managed-worker.js');
-    const workerEntry = existsSync(entry) ? entry : existsSync(compiled) ? compiled : path.resolve(__dirname, '../../dist/managed-worker.cjs');
+    const workerEntry = managedWorkerEntry(__dirname);
     const child = spawn(process.execPath, [workerEntry, root], {
       detached: true, stdio: 'ignore', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
     });
@@ -157,7 +162,6 @@ export async function createManagedSession(options: SessionOptions): Promise<Age
     async detach() { listeners.clear(); channel.end(); channel.destroy(); },
     async dispose() { try { if (!closed) await request('dispose'); } finally { channel.destroy(); } },
     async setMode(mode) { await request('setMode', mode); },
-    async setModel(selection: Selection) { await request('setModel', selection); },
     async loadTranscript(emit) { for (const message of await request('transcript') as ChatMessage[]) emit(message); },
     async listBackgroundTerminals() { return await request('terminals') as TerminalRecord[]; },
     async terminateBackgroundTerminal(id) { await request('terminateTerminal', id); },

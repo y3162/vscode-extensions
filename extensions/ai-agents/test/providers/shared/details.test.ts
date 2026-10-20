@@ -156,3 +156,18 @@ test('light metadata drops stored baselines and previews a diff only when needed
   assert.deepEqual(light?.files?.[1]?.preview?.map((line) => line.text), ['old', 'new']);
   assert.equal(light?.files?.[2]?.preview, undefined);
 });
+
+test('light subagent metadata keeps optional progress and error only when present', () => {
+  const base = { id: 'child', name: 'Explore', status: 'running' as const, background: false as const };
+  assert.deepEqual(lightMeta({ type: 'subagent', subagent: base })?.subagent, base);
+  const detailed = lightMeta({ type: 'subagent', subagent: {
+    ...base, task: 'look', progress: 'reading', error: 'failed', resultPreview: 'found',
+  } })?.subagent;
+  assert.equal(detailed?.task, 'look');
+  assert.equal(detailed?.progress, 'reading');
+  assert.equal(detailed?.error, 'failed');
+  assert.equal(detailed?.resultPreview, 'found');
+  const longTask = lightMeta({ type: 'subagent', subagent: { ...base, task: 'x'.repeat(12001) } })?.subagent;
+  assert.equal(longTask?.task?.length, 12000);
+  assert.equal(longTask?.taskOmitted, true);
+});
