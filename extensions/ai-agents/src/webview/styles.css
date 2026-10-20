@@ -347,6 +347,8 @@ textarea {
 .composer-card .attach, .composer-card .send { color: var(--vscode-descriptionForeground); }
 .composer-card .send { background: color-mix(in srgb, var(--vscode-foreground) 18%, transparent); }
 .composer-card .send:hover { background: color-mix(in srgb, var(--vscode-foreground) 25%, transparent); }
+.composer-card .send.is-ready { background: var(--vscode-foreground); color: var(--vscode-input-background); }
+.composer-card .send.is-ready:hover { background: color-mix(in srgb, var(--vscode-foreground) 85%, var(--vscode-input-background)); }
 .stop { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 .secondary { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: 0; border-radius: .35em; padding: .25em .55em; }
 .secondary.pressed { outline: 1px solid var(--vscode-focusBorder); }

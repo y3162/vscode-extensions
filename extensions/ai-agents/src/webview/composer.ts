@@ -267,6 +267,7 @@ export class Composer {
     if (shell.busy && this.mode.getAttribute('aria-expanded') === 'true') this.menu.close(false);
     this.mode.disabled = shell.busy;
     this.send.disabled = !shell.cwd;
+    this.updateSendState();
     this.send.querySelector('.btn-label')!.textContent = shell.busy ? copy.queue : copy.send;
     this.send.title = shell.busy ? copy.queue : copy.send;
     this.send.setAttribute('aria-label', shell.busy ? copy.queue : copy.send);
@@ -435,6 +436,7 @@ export class Composer {
       row.append(preview, remove);
       this.chipRow.append(row);
     });
+    this.updateSendState();
   }
 
   private submit(): void {
@@ -531,6 +533,11 @@ export class Composer {
     const max = Math.max(80, (view?.innerHeight ?? 800) * 0.4);
     this.input.style.height = 'auto';
     this.input.style.height = `${Math.min(this.input.scrollHeight, max)}px`;
+    this.updateSendState();
+  }
+
+  private updateSendState(): void {
+    this.send.classList.toggle('is-ready', Boolean(this.shell?.cwd && (this.input.value.trim() || this.images.length)));
   }
 
   private addImages(files: FileList | File[] | null): void {
