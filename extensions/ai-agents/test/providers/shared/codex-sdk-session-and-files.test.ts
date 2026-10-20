@@ -1,6 +1,6 @@
+import { createGitFixture, snapshotGitFixture } from '../../support/git-fixture.js';
 import assert from 'node:assert/strict';
 
-import { execFileSync } from 'node:child_process';
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 
@@ -64,11 +64,8 @@ test('Codex SDK enriches rename and update metadata from tracked baselines and p
   const cwd = await directory(t);
   await writeFile(path.join(cwd, 'old.txt'), 'old source\n');
   await writeFile(path.join(cwd, 'ordinary.txt'), 'ordinary before\n');
-  execFileSync('git', ['init', '--quiet'], { cwd });
-  execFileSync('git', ['config', 'user.email', 'fixture@example.test'], { cwd });
-  execFileSync('git', ['config', 'user.name', 'Synthetic Fixture'], { cwd });
-  execFileSync('git', ['add', 'old.txt', 'ordinary.txt'], { cwd });
-  execFileSync('git', ['commit', '-m', 'synthetic codex baseline', '--quiet'], { cwd });
+  createGitFixture(cwd);
+  snapshotGitFixture(cwd);
 
   const thread = {
     id: 'codex-file-thread',

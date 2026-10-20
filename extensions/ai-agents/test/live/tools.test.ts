@@ -8,6 +8,7 @@ import { revertChange } from '../../src/change-review.js';
 import { createSession } from '../../src/providers/index.js';
 import type { AgentUpdate, FileChange, PermissionDecision, PermissionRequest } from '../../src/types.js';
 import type { SessionOptions } from '../../src/providers/session-options.js';
+import { createGitFixture, snapshotGitFixture } from '../support/git-fixture.js';
 
 const enabled = process.env.AI_AGENTS_LIVE_TOOLS === '1';
 
@@ -18,9 +19,8 @@ function which(command: string): string {
 async function workspace(): Promise<{ cwd: string; cleanup(): Promise<void> }> {
   const cwd = await mkdtemp(path.join(tmpdir(), 'ai-agents-tools-'));
   await writeFile(path.join(cwd, 'note.txt'), 'alpha\n');
-  execFileSync('git', ['init'], { cwd });
-  execFileSync('git', ['add', 'note.txt'], { cwd });
-  execFileSync('git', ['-c', 'user.email=ai-agents@example.com', '-c', 'user.name=AI Agents', 'commit', '-m', 'init'], { cwd });
+  createGitFixture(cwd);
+  snapshotGitFixture(cwd);
   return { cwd, async cleanup() { await rm(cwd, { recursive: true, force: true }); } };
 }
 

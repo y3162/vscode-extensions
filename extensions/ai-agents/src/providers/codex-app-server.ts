@@ -48,7 +48,8 @@ function usageOf(value: unknown): UsageStats | undefined {
   return {
     scope: usage.total ? 'session' : 'request', source: 'codex-app-server', inputIncludesCache: true,
     contextWindow: typeof usage.modelContextWindow === 'number' ? usage.modelContextWindow : undefined,
-    contextTokens: typeof record(usage.last).totalTokens === 'number' ? Number(record(usage.last).totalTokens) : undefined,
+    // `last` is request token accounting, not an authoritative context occupancy snapshot.
+    contextTokens: undefined,
     cacheWriteInputTokens: typeof source.cacheWriteInputTokens === 'number' ? source.cacheWriteInputTokens : undefined,
     inputTokens: typeof input === 'number' ? input : 0,
     outputTokens: typeof output === 'number' ? output : 0,
@@ -251,8 +252,11 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
   const emitLive = { current: undefined as ((update: AgentUpdate) => void) | undefined };
   const backgroundListeners = new Set<(update: AgentUpdate) => void>();
   const commands = new Map<string, TerminalRecord>();
+  const terminalItems = new Map<string, { threadId: string; turnId: string }>();
   let terminals: TerminalRecord[] = [];
   let terminalListError: string | undefined;
+  let terminalOutputReadFailures = 0;
+  let terminalOutputReadDisabled = false;
   let pollTimer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
   const effort = options.modelParams?.find((param) => param.id === 'modelReasoningEffort')?.value;
@@ -341,9 +345,135 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
     terminals = rows;
     terminalListError = undefined;
     publishTerminals();
+    await refreshTerminalOutputs(rows);
     if (!rows.length && pollTimer) { clearTimeout(pollTimer); pollTimer = undefined; }
     schedulePoll();
     return rows;
+  }
+
+  function rememberTerminalItem(item: Record<string, unknown>, body: Record<string, unknown>): void {
+    if (!itemType(item).toLowerCase().includes('command') || typeof item.id !== 'string') return;
+    const ownerThread = typeof body.threadId === 'string' && body.threadId ? body.threadId : threadId;
+    const ownerTurn = turnIdOf(body, turnId);
+    if (ownerThread && ownerTurn) terminalItems.set(item.id, { threadId: ownerThread, turnId: ownerTurn });
+  }
+
+  async function refreshTerminalOutputs(rows: TerminalRecord[]): Promise<void> {
+    if (terminalOutputReadDisabled || !rows.length) return;
+    const relevant = rows.filter((row) => row.itemId);
+    if (!relevant.length) return;
+
+    const byTurn = new Map<string, { threadId: string; turnId: string; itemIds: Set<string> }>();
+    const unresolved = new Set<string>();
+    for (const row of relevant) {
+      const itemId = row.itemId!;
+      const location = terminalItems.get(itemId);
+      if (!location) { unresolved.add(itemId); continue; }
+      const key = `${location.threadId}\0${location.turnId}`;
+      const group = byTurn.get(key) ?? { ...location, itemIds: new Set<string>() };
+      group.itemIds.add(itemId);
+      byTurn.set(key, group);
+    }
+
+    const resolved = new Set<string>();
+    const markIncomplete = (itemIds: Iterable<string>, detail: string) => {
+      const ids = new Set(itemIds);
+      if (!ids.size) return;
+      for (const row of terminals) {
+        if (!row.itemId || !ids.has(row.itemId)) continue;
+        const updated = { ...row, outputError: detail };
+        commands.set(row.itemId, { ...commands.get(row.itemId), ...updated });
+        const index = terminals.findIndex((item) => item.processId === row.processId);
+        if (index >= 0) terminals[index] = updated;
+      }
+      publishTerminals();
+    };
+
+    try {
+      // Bound the complete reconciliation pass, not just each individual RPC.
+      const outputReadSignal = AbortSignal.timeout(10000);
+      // After an Extension Host reload the output deltas are gone. Resolve
+      // terminal item IDs against recent history so their owning turn can be
+      // queried without replaying the prompt. Pagination is bounded.
+      if (unresolved.size) {
+        const cursors = new Set<string>();
+        let cursor: string | undefined;
+        for (let page = 0; page < 20; page++) {
+          const response = record(await rpc.request('thread/items/list', {
+            threadId, limit: 100, sortDirection: 'desc', ...(cursor ? { cursor } : {}),
+          }, outputReadSignal));
+          const data = Array.isArray(response.data) ? response.data : [];
+          for (const raw of data) {
+            const entry = record(raw);
+            const item = record(entry.item);
+            if (typeof item.id !== 'string' || !unresolved.has(item.id) || typeof entry.turnId !== 'string' || !entry.turnId) continue;
+            terminalItems.set(item.id, { threadId, turnId: entry.turnId });
+            const key = `${threadId}\0${entry.turnId}`;
+            const group = byTurn.get(key) ?? { threadId, turnId: entry.turnId, itemIds: new Set<string>() };
+            group.itemIds.add(item.id);
+            byTurn.set(key, group);
+          }
+          if ([...unresolved].every((itemId) => terminalItems.has(itemId))) break;
+          const nextCursor = typeof response.nextCursor === 'string' && response.nextCursor ? response.nextCursor : undefined;
+          if (!nextCursor) break;
+          if (cursors.has(nextCursor)) throw new Error('Codex repeated an item history cursor while reconciling terminal output.');
+          cursors.add(nextCursor);
+          cursor = nextCursor;
+        }
+      }
+
+      for (const group of byTurn.values()) {
+        const cursors = new Set<string>();
+        let cursor: string | undefined;
+        for (let page = 0; page < 20; page++) {
+          const response = record(await rpc.request('thread/items/list', {
+            threadId: group.threadId,
+            turnId: group.turnId,
+            limit: 100,
+            sortDirection: 'desc',
+            ...(cursor ? { cursor } : {}),
+          }, outputReadSignal));
+          const data = Array.isArray(response.data) ? response.data : [];
+          for (const raw of data) {
+            const entry = record(raw);
+            const item = record(entry.item);
+            if (typeof item.id !== 'string' || !group.itemIds.has(item.id) || !itemType(item).toLowerCase().includes('command')) continue;
+            // The App Server item is the only available authoritative snapshot
+            // when a command output delta was not delivered to this connection.
+            if (typeof item.aggregatedOutput === 'string') {
+              resolved.add(item.id);
+              terminalOutputReadFailures = 0;
+              emitItem(item, undefined, undefined, group.turnId);
+            }
+          }
+          if ([...group.itemIds].every((itemId) => resolved.has(itemId))) break;
+          const nextCursor = typeof response.nextCursor === 'string' && response.nextCursor ? response.nextCursor : undefined;
+          if (!nextCursor) break;
+          if (cursors.has(nextCursor)) throw new Error('Codex repeated an item turn cursor while reconciling terminal output.');
+          cursors.add(nextCursor);
+          cursor = nextCursor;
+        }
+        terminalOutputReadFailures = 0;
+      }
+
+      const incomplete = relevant.filter((row) => !resolved.has(row.itemId!));
+      if (incomplete.length) {
+        const notFound = incomplete.filter((row) => !terminalItems.has(row.itemId!));
+        const missingSnapshot = incomplete.filter((row) => terminalItems.has(row.itemId!));
+        const details = [
+          ...(notFound.length ? [`${notFound.length} terminal item(s) were not found in the newest 2,000 history items`] : []),
+          ...(missingSnapshot.length ? [`${missingSnapshot.length} terminal item(s) had no complete output snapshot`] : []),
+        ];
+        markIncomplete(incomplete.map((row) => row.itemId!), `Runtime output completeness is unknown: ${details.join('; ')}.`);
+      }
+    } catch (error) {
+      terminalOutputReadFailures++;
+      const message = errorMessage(error);
+      markIncomplete(relevant.filter((row) => !resolved.has(row.itemId!)).map((row) => row.itemId!), `Runtime output completeness is unknown: ${message}`);
+      if (/method.{0,30}(not found|unknown)|unknown method|method not found/i.test(message) || terminalOutputReadFailures >= 3) {
+        terminalOutputReadDisabled = true;
+      }
+    }
   }
 
   const finish = (id: string, error: Error | null) => {
@@ -356,11 +486,12 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
     else current.resolve();
   };
 
-  const emitItem = (item: Record<string, unknown>, subagentId?: string, waitState?: boolean) => {
+  const emitItem = (item: Record<string, unknown>, subagentId?: string, waitState?: boolean, eventTurnId?: string) => {
     const destination = emitLive.current ?? emitBackground;
     const emit = (update: AgentUpdate) => {
       const text = subagentId && update.text.length > 12000 ? `${update.text.slice(0, 12000)}\n[Earlier output omitted]` : update.text;
-      destination({ ...update, text, backendTurnId: subagentId ? childParentTurns.get(subagentId) ?? turnId : turnId, ...(subagentId ? { subagentId } : {}) });
+      const ownerTurnId = subagentId ? childParentTurns.get(subagentId) ?? turnId : eventTurnId ?? turnId;
+      destination({ ...update, text, backendTurnId: update.backendTurnId ?? ownerTurnId, ...(subagentId ? { subagentId } : {}) });
     };
     const type = itemType(item).toLowerCase();
     const id = typeof item.id === 'string' ? item.id : type || 'item';
@@ -371,7 +502,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       const output = typeof item.aggregatedOutput === 'string' ? item.aggregatedOutput : buffers.get(id) ?? saved?.output;
       const status = typeof item.status === 'string' ? item.status : saved?.status ?? 'unknown';
       if (processId) {
-        const command: TerminalRecord = { ...saved, processId, itemId: id, status, ...(typeof item.command === 'string' ? { command: item.command } : {}), ...(output !== undefined ? { output } : {}), ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}) };
+        const command: TerminalRecord = { ...saved, processId, itemId: id, status, ...(typeof item.command === 'string' ? { command: item.command } : {}), ...(output !== undefined ? { output } : {}), ...(typeof item.aggregatedOutput === 'string' ? { outputError: undefined } : {}), ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}) };
         commands.set(id, command);
         const active = terminals.findIndex((row) => row.processId === processId);
         if (active >= 0) {
@@ -483,8 +614,20 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       const item = record(body.item);
       const noted = typeof body.threadId === 'string' ? body.threadId : '';
       if (noted && threadId && noted !== threadId && !childThreads.has(noted)) return;
+      rememberTerminalItem(item, body);
+      if (method === 'item/commandExecution/outputDelta') {
+        const id = typeof body.itemId === 'string' ? body.itemId : '';
+        const delta = typeof body.delta === 'string' ? body.delta : '';
+        if (!id) return;
+        buffers.set(id, `${buffers.get(id) ?? ''}${delta}`);
+        const ownerThread = noted || threadId;
+        const ownerTurn = turnIdOf(body, turnId);
+        if (ownerThread && ownerTurn) terminalItems.set(id, { threadId: ownerThread, turnId: ownerTurn });
+        emitItem({ id, type: 'commandExecution', text: buffers.get(id), status: 'in_progress' }, noted && childThreads.has(noted) ? noted : undefined, undefined, ownerTurn);
+        return;
+      }
       if (noted && childThreads.has(noted)) {
-        if (itemType(item) && ['item/started', 'item/completed', 'item/updated'].includes(method)) emitItem(item, noted);
+        if (itemType(item) && ['item/started', 'item/completed', 'item/updated'].includes(method)) emitItem(item, noted, undefined, turnIdOf(body, turnId));
         const turn = record(body.turn);
         const previous = children.get(noted);
         const previousFinished = previous?.status === 'completed' || previous?.status === 'error' || previous?.status === 'cancelled';
@@ -505,16 +648,16 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
         }
         return;
       }
-      if (method === 'item/agentMessage/delta' || method === 'item/commandExecution/outputDelta' || method === 'item/reasoning/summaryTextDelta' || method === 'item/plan/delta') {
+      if (method === 'item/agentMessage/delta' || method === 'item/reasoning/summaryTextDelta' || method === 'item/plan/delta') {
         const id = typeof body.itemId === 'string' ? body.itemId : 'stream';
         const delta = typeof body.delta === 'string' ? body.delta : '';
         buffers.set(id, `${buffers.get(id) ?? ''}${delta}`);
         emitItem({
           id,
-          type: method.includes('command') ? 'commandExecution' : method.includes('reasoning') ? 'reasoning' : method.includes('plan') ? 'plan' : 'agentMessage',
+          type: method.includes('reasoning') ? 'reasoning' : method.includes('plan') ? 'plan' : 'agentMessage',
           text: buffers.get(id),
           status: 'in_progress',
-        }, noted);
+        }, undefined, undefined, turnIdOf(body, turnId));
         return;
       }
       if (method === 'turn/started') {
@@ -524,7 +667,7 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       }
       if (method === 'item/started' || method === 'item/completed' || method === 'item/updated') {
         const waitState = isWaitTool(item) ? method === 'item/started' || (method === 'item/updated' && /progress|running|pending/i.test(String(item.status ?? ''))) : undefined;
-        emitItem(item, undefined, waitState);
+        emitItem(item, undefined, waitState, turnIdOf(body, turnId));
       }
       if (method === 'turn/completed' || method === 'turn/diff/updated') {
         const id = turnIdOf(body, turnId);
@@ -544,11 +687,11 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
           const files = turnFilePaths.size
             ? parsed.filter((file) => [...turnFilePaths].some((item) => sameAgentPath(item, file.path)))
             : parsed;
-          if (files.length) emitLive.current({ id: `${id}:diff`, role: 'tool', text: 'diff updated', meta: { type: 'files', files } });
+          if (files.length) emitLive.current({ id: `${id}:diff`, backendTurnId: id, role: 'tool', text: 'diff updated', meta: { type: 'files', files } });
         }
         const turn = record(body.turn);
         const usage = usageOf(body.usage ?? body.tokenUsage ?? turn.usage);
-        if (usage && emitLive.current) emitLive.current({ id: `${id}:usage`, role: 'status', text: '', meta: { type: 'usage', usage } });
+        if (usage && emitLive.current) emitLive.current({ id: `${id}:usage`, backendTurnId: id, role: 'status', text: '', meta: { type: 'usage', usage } });
         if (method === 'turn/completed') {
           const status = typeof turn.status === 'string' ? turn.status : 'completed';
           const message = failureText(turn.error) || failureText(body.error);
@@ -561,7 +704,8 @@ export async function createCodexAppServerSession(options: SessionOptions): Prom
       }
       if (method === 'turn/plan/updated') {
         const todos = todosOf(body.plan);
-        emitLive.current?.({ id: 'plan', role: 'status', text: typeof body.explanation === 'string' ? body.explanation : '', meta: { type: 'todo', todos } });
+        const ownerTurn = turnIdOf(body, turnId);
+        emitLive.current?.({ id: 'plan', ...(ownerTurn ? { backendTurnId: ownerTurn } : {}), role: 'status', text: typeof body.explanation === 'string' ? body.explanation : '', meta: { type: 'todo', todos } });
       }
       if (method === 'error') {
         const message = failureText(body.error) || failureText(body) || 'Codex app-server error';

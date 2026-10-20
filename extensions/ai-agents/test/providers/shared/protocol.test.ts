@@ -1,6 +1,6 @@
+import { createGitFixture } from '../../support/git-fixture.js';
 import assert from 'node:assert/strict';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -262,7 +262,7 @@ test('a silent child is reconciled through public thread/read after its parent e
 
 test('synthetic native move_path identifies the destination and preserves the source baseline', { timeout: 10000 }, async () => {
   const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
-  execFileSync('git', ['init', '-q'], { cwd });
+  createGitFixture(cwd);
   await writeFile(path.join(cwd, 'a.txt'), 'alpha\n');
   const controller = new ChatController({ provider: 'codex', cwd, model: 'fixture' }, async (selection) => createCodexAppServerSession({ ...selection, storagePath: cwd, codexPath: command }), () => {});
   try {
@@ -281,7 +281,7 @@ test('synthetic native move_path identifies the destination and preserves the so
 
 test('editing an earlier App Server prompt restores its per-turn file checkpoint and branches history', { timeout: 20000 }, async () => {
   const { cwd, command, cleanup } = await fixture('mock-app-server.cjs');
-  execFileSync('git', ['init', '-q'], { cwd });
+  createGitFixture(cwd);
   const journalDirectory = path.join(cwd, 'journal');
   const controller = new ChatController({ provider: 'codex', cwd, model: 'fixture' }, async (selection, context) => createCodexAppServerSession({
     ...selection, storagePath: cwd, codexPath: command, resumeId: context?.resumeId,

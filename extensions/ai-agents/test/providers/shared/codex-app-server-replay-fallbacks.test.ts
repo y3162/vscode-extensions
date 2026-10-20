@@ -42,7 +42,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       item('', { id: 'bare-type', content: [{ type: 'text', text: 'bare item' }] });
       item('agentMessage', { id: 'assistant-final', text: 'plain plan', phase: 'final_answer' });
       emit({ method: 'item/agentMessage/delta', params: { threadId: 'server-thread' } });
-      emit({ method: 'turn/plan/updated', params: { threadId: 'server-thread', plan: [{ step: 'plan fallback' }] } });
+      emit({ method: 'turn/plan/updated', params: { threadId: 'server-thread', turnId: id, plan: [{ step: 'plan fallback' }] } });
       emit({ method: 'turn/diff/updated', params: { threadId: 'server-thread', turn: { id }, diff:
         'diff --git a/new.txt b/new.txt\\n--- /dev/null\\n+++ b/new.txt\\n@@ -0,0 +1 @@\\n+new\\n' } });
       emit({ method: 'turn/completed', params: { threadId: 'server-thread', turn: { id, status: 'completed' } } });
@@ -85,6 +85,7 @@ test('Codex App Server normalizes replay, listing, todo, diff, model, and identi
     assert.equal(session.sessionId, 'server-thread');
     assert.equal(updates.some((update) => update.id === 'edge-turn:diff' && update.meta?.files?.[0]?.path === 'new.txt'), true);
     assert.equal(updates.some((update) => update.meta?.todos?.[0]?.content === 'fallback todo'), true);
+    assert.equal(updates.find((update) => update.id === 'plan')?.backendTurnId, 'edge-turn', 'plan notifications keep their server turn ID for delayed-event routing');
     assert.equal(updates.find((update) => update.id === 'plan-text')?.meta?.plan?.markdown, 'plain plan');
     assert.equal(updates.some((update) => update.id === 'commandexecution' && update.role === 'tool'), true);
     assert.equal(updates.some((update) => update.id === 'tool:bare-type' || update.text === 'tool: bare item'), true);

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import * as vscode from 'vscode';
 import { readFile, writeFile } from 'node:fs/promises';
-import { execFileSync } from 'node:child_process';
 import type { AgentsSidebar } from '../../src/sidebar.js';
 import type { Backend, Provider } from '../../src/types.js';
+import { createGitFixture, snapshotGitFixture } from '../support/git-fixture.js';
 
 function assertFinalAnswers(sidebar: AgentsSidebar, count: number): void {
   const state = sidebar.controller.snapshot();
@@ -16,7 +16,8 @@ function assertFinalAnswers(sidebar: AgentsSidebar, count: number): void {
 }
 
 export async function runReliability(sidebar: AgentsSidebar, cwd: string): Promise<void> {
-  execFileSync('git', ['init', '-q'], { cwd });
+  createGitFixture(cwd);
+  snapshotGitFixture(cwd);
   const config = vscode.workspace.getConfiguration('ai-agents');
   await config.update('codex.executablePath', '', vscode.ConfigurationTarget.Global);
   const evidencePath = process.env.AI_AGENTS_RELIABILITY_EVIDENCE!;

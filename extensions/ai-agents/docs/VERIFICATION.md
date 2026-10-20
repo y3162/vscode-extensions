@@ -836,3 +836,278 @@ Coverageは以前の報告値からわずかに下がっており、100%では�
 **今回の作業は部分完了です。** コード修正、Node 22/26のmacOSテスト、Host/Backend検証、テスト整理は完了しました。Linuxと修正後GitHub Actions、GUIの全幅/全テーマと手操作、全Prompt Rewind行程が未確認のため、ユーザー受入条件全体を完了とは判定しません。v1.0.0のリリース判定とは別です。
 
 # サブエージェントのサイドバー表示（2026-10-18）
+## 2026-10-18 v1.0.0 blocker retest
+
+This addendum records the current macOS arm64 working tree after the fixes present at HEAD 188c892f39695be054b267d2b699453057ebfa64. The working tree was already dirty before this retest. No Linux test, commit, push, or release was performed. Earlier entries remain historical snapshots.
+
+### Phase 1 — full regression
+
+| Check | Result | Evidence |
+|---|---|---|
+| npm run check | PASS | Main and webview TypeScript checks |
+| npm test | PASS | 822 / 822 tests |
+| npm run test:coverage | PASS | Lines/statements 99.75%, branches 98.83%, functions 99.79%; 100% was not required |
+| npm run test:hygiene | PASS | 431 test assets checked |
+| npm run build | PASS | Extension and webview build |
+| npm run test:integration | PASS | macOS arm64 VS Code 1.142.0 Extension Host; all integration assertions passed |
+| npm run package | PASS | Darwin arm64 VSIX created |
+| git diff --check | PASS | No whitespace errors |
+
+The new session-switch regression asserts that Retry returns the active webview conversation key alongside the original image, and the post-Reload terminal regression asserts that a missing process remains Unknown after a successful empty terminal list. Host Integration is fixture evidence and does not count as live-backend or active GUI Reload evidence.
+
+The VSIX contains 1,514 files (389,151,529 uncompressed bytes; SHA-256 1252a542604725eb8ce727210841730fe0d3f3e16ef518131eb29548e8ca7d89). It contains no test/test(s) paths, source maps, auth.json, .env, or credential-named files. Text and path scans found no developer-home, session-root, or workspace-root leakage. One key-shaped literal was found in the bundled Codex Mach-O; it is byte-identical to the installed @openai/codex 0.162.1 Darwin arm64 dependency and was not taken from a user profile. Its literal was not copied into this audit record.
+
+### GUI and Reload status
+
+- QVC6kt remains untouched. Its existing unsent FAIL_TURN and image-a.png remain in that session.
+- lZ1xAG is the selected Mock GUI session: disposable VS Code 1.142.0, isolated workspace/profile/shared data and CODEX_HOME, fixture App Server configured, credentialsCopied false. The launcher reports PID 28937 as running, but this sandbox cannot independently probe that process.
+- In lZ1xAG, the PAGED fixture showed proc-1 and proc-2 as Running with Terminate controls. These are fixture process IDs, not OS processes. A Terminate click could not be completed because the Computer Use element became stale; the actual termination action is BLOCKED.
+- An unsent synthetic draft was visible in the Composer, and navigation back to History worked. Reopening the same blank chat to verify that draft after switching was not completed because the history controls returned stale-element errors. Draft retention after switching in this attempt is BLOCKED.
+- Copy success at 300 px, long-code horizontal scrolling, Plan View interaction, and Build action state were NOT RUN in this GUI attempt; the current deterministic fixture history has no suitable code/Plan/Build content.
+- The existing QVC6kt records for queued-image preservation, draft reload retention, subagent Reload, and terminal Unknown restoration remain prior evidence and were not overwritten or relabeled as a new retest.
+
+| Reload case | Result | Scope |
+|---|---|---|
+| Ordinary Turn in progress | BLOCKED | The Mock fixture completes an ordinary turn immediately; no isolated authenticated backend is available yet |
+| Plan generation in progress | BLOCKED | No held Plan scenario in this fixture; real-backend auth is pending |
+| Build execution in progress | BLOCKED | No held Build scenario in this fixture; real-backend auth is pending |
+| Queue held across Reload | PASS (prior QVC6kt evidence; not rerun) | Queue remained visible and did not auto-send |
+| Unsent Composer draft across Reload | PASS (prior QVC6kt evidence; not rerun) | Prior captured draft remained visible; current session-switch attempt is inconclusive |
+| Background Terminal Reload | PASS (prior Mock GUI evidence; not rerun) | Same saved IDs restored as Unknown; current lZ1xAG list was Running before Reload only |
+
+### Real-backend authentication and image test
+
+The isolated Codex CLI reports Not logged in. No real-backend inference or image transmission was attempted. No credentials, cookies, API keys, Keychain records, or auth files were read from or copied out of a normal profile.
+
+The lZ1xAG CODEX_HOME now has only the setting cli_auth_credentials_store = file. The remaining user operation and bounded test sequence are recorded in MACOS_ACCEPTANCE_RUNBOOK.md. Real-backend image transmission and Retry are BLOCKED pending that operation.
+
+### Release decision
+
+v1.0.0 is NO-GO pending real-backend image delivery/Retry and the active normal-Turn, Plan, and Build Reload observations. The local regression suite is green, but Host Integration and Mock GUI evidence do not close those live acceptance blockers.修正後の公式macOS GitHub Actions再実行もCommit/Push後に必要です。
+# 2026-10-18 認証済みApp Server・実行中Reload追記（lZ1xAG）
+
+この追記は認証前スナップショットを更新するものです。過去の記録は書き換えていません。対象はmacOS arm64、HEAD `188c892f39695be054b267d2b699453057ebfa64`、既存の未コミット作業ツリーです。Linux、Commit、Push、Releaseは実施していません。
+
+認証確認は**PASS**。`CODEX_HOME=/private/tmp/ai-agents-gui-acceptance-lZ1xAG/isolated-home/.codex`でBundled Codex CLI 0.162.1の`codex login status`を実行し、ChatGPTログインを確認しました。認証ファイルの内容を読み出さず、通常profileから認証情報を取得・コピーしていません。lZ1xAGの隔離設定だけでMockの`ai-agents.codex.executablePath`上書きを解除し、Backendを`app-server`にしました。Extension Hostも同じ隔離CODEX_HOMEを参照しています。
+
+## 実Backend（Mock・Host Integrationと区別）
+
+| ケース | 結果 | 証拠・範囲 |
+|---|---|---|
+| PNG 1件のみ | PASS | App Server `turn/start`入力に`localImage` 1件。合成PNG 176 bytes。Backend最終回答とUIが一致 |
+| テキスト＋PNG 1件 | PASS | テキストと`localImage` 1件がApp Server入力に含まれ、Backendは画像の色を回答しUIと一致 |
+| Retry用のローカルプロセス起動失敗 | NOT RUN | 1回の失敗注入はプロセス起動後・`turn/start`転送前のRPC境界。指定されたローカル起動失敗ではない |
+| Retry画像・会話の復元と隔離 | PASS | 元の画像、会話ID、User message IDを照合。別会話へ画像が混入せず、元会話へ戻すと復元 |
+| Retry後の手動Send | FAIL | 許可された1回のSendは`thread/resume`の`no rollout found`で`turn/start`前に失敗。再送・推論なし |
+| 重複Backend Turn | PASS（0件） | 失敗したRetry経路ではBackend Turn開始なし。重複送信なし。Retry完了の合格を意味しない |
+
+実Backend画像の通常送信はPASSですが、指定されたローカル起動失敗を経由するEnd-to-end Retryは**BLOCKED**です。失敗注入と手動Sendは各1回で終了し、追加のRetryを行っていません。
+
+## 実行中Reload（認証済みCodex App Server）
+
+各ケースは独立したlZ1xAG会話で実行しました。Reloadには`Developer: Reload Window`を使い、テストランナーでReload後画面を閉じる方式は使っていません。Reload後に完了確認できない処理はUnknownとし、再実行していません。
+
+| ケース | 結果 | Reload後の照合 |
+|---|---|---|
+| 通常Turn | PASS | 同一会話・Backend Session・User履歴。部分Assistant応答はCompletedにせずUnknown |
+| Plan生成 | PASS | 同一会話・Session・履歴・Plan本文・Usage。Plan状態Unknown。Buildは自動実行せず無効 |
+| Build実行 | PASS | 同一会話・Session・履歴、Build状態Unknown。使い捨て`build-reload-target-20261018.txt`は`before\n`のまま（SHA-256 `9160d4be34c8695bd172a76c7c7966587ea5a4d991ad22c87b2b91af54aa9ebb`）。Build再実行なし |
+| Queue＋PNG | PASS | 同一Queue ID・本文・PNG 1件が残り、自動送信なし。10秒後も未送信。Composer下書き保持 |
+| Composer下書き | PASS | 2件の隔離会話の下書きをReload後に復元 |
+
+PlanケースではReload前にQueueが通常処理でUser Turnへ変わったため、Queue保持の根拠にしていません。Queue保持は別の専用会話で確認しました。
+
+## GUI残項目
+
+実GUIでPlan表示、BuildのReady/Building/Unknown状態とBuild操作を確認しました。Background Terminalの既存PASSはMock GUI証拠で、今回の実Backendでは再試験していません。300px幅のCopy成功表示、長いコードブロックの横スクロール、会話切替後のComposer下書き保持は**NOT RUN**。通常Turn/Plan/BuildのReload後履歴整合性は上表のとおりPASSです。
+
+## リリース判定
+
+現時点のv1.0.0は**NO-GO**。Retryの安全なローカル起動失敗経路と1回のBackend受信を検証できておらず、Retry後の手動SendはBackend Turn開始前に失敗しました。修正後の回帰テストとVSIX監査は本追記後に実施します。`188c892f`以降の未コミット変更に対する公式macOS GitHub Actionsは未実施で、次回Commit/Push後に再実行が必要です。
+
+## Phase 1 最終回帰結果 — 2026-10-18（macOS arm64）
+
+対象HEADは`188c892f39695be054b267d2b699453057ebfa64`、対象はその上の未コミット作業ツリーです。
+
+| Check | 結果 | 実測 |
+|---|---|---|
+| `npm run check` | PASS | ExtensionとWebviewのTypeScript check |
+| `npm test` | PASS | 822/822、fail 0 |
+| `npm run test:coverage` | PASS | 822/822。Lines/Statements 99.75%、Branches 98.83%、Functions 99.79%。100%必須ではない |
+| `npm run test:hygiene` | PASS | 431 test assets |
+| `npm run build` | PASS | Extension、Webview、Cursor worker |
+| `npm run test:integration` | PASS | 公式VS Code 1.142.0、独立temporary app/profile/workspace、Mock fixture Host。全assertion成功 |
+| `npm run package` | PASS | Darwin arm64 VSIXを作成 |
+| `git diff --check` | PASS | whitespace errorなし |
+
+Integrationの最初の試行はネットワーク制限によるVS Code取得DNS失敗、別の実行はモデル詳細QuickPick待ちtimeoutでした。freshな公式アプリで再実行したIntegrationは全assertionを通過しました。これらは失敗経緯として記録し、最後の成功へ含めて隠していません。IntegrationはHost Integration/Mock fixtureであり、実Backend送信・Reloadの証拠ではありません。
+
+## VSIXと作業ツリー監査
+
+`dist/ai-agents-darwin-arm64.vsix`：1,514 files、uncompressed 389,151,529 bytes、archive 144,110,947 bytes、SHA-256 `2e699714e864c6cde09fb195f6cf226d2b5858166db27f82ab5c26e7f585d126`。test paths、source maps、`auth.json`、`.env`、秘密鍵ヘッダー、lZ1xAG/QVC6kt/workspaceのパスマーカーはありません。依存SDKに`credential-store.d.ts`／`stored-credentials.d.ts`型定義が6件ありますが、これはCursor SDKの型宣言であり認証値を含みません。Bundled Codex Mach-Oにkey-shaped静的文字列が1件検出されましたが、ローカル`@openai/codex-darwin-arm64`依存バイナリとSHA-256が一致し、ユーザー認証情報ではありません。
+
+現在の未コミット変更は8 tracked files（3 docs、`package.json`、2 production TS、2 sidebar tests）とuntracked `scripts/gui-session.mjs`です。`package-lock.json`や認証ファイルの変更はありません。未コミットの変更を保持しており、Commit/Push/Releaseは行っていません。
+
+## 最終判定
+
+v1.0.0は**NO-GO**。Phase 1全回帰と通常の実Backend画像送信、3種の実行中Reload、Queue＋画像保持はPASSです。指定されたローカルプロセス起動失敗を経由するRetryは未確認で、唯一の許可されたRetry SendもBackend Turn開始前に失敗しました。また、300px Copy成功表示、長いコードの横スクロール、会話切替後Composer下書き保持はNOT RUNです。Commit/Push後には未コミット修正を含む公式macOS GitHub Actionsの再実行が必要です。
+
+## 最終Plan/View Plan検証 — 2026-10-18
+
+本節は同日付の旧ローカルsuite結果を更新します。HEAD `188c892f39695be054b267d2b699453057ebfa64`、macOS arm64、拡張版0.10.0、dirty worktreeが対象です。既存のユーザー変更と添付MOVは保持し、Commit/Push/Release/Linux検証は行っていません。
+
+| Check | 結果 | 根拠 |
+|---|---|---|
+| `npm run check` | PASS | Extension/Webview静的・型検査 |
+| `npm run build` | PASS | Extension、Webview、Cursor worker。Integration/package内でも再実行 |
+| `npm test` | PASS — 823/823 | 現在のUnit/Webview/Mock suite |
+| `npm run test:coverage` | PASS | 現suiteのcoverage実行完了 |
+| `npm run test:hygiene` | PASS — 432 assets | 現在のhygiene対象 |
+| `npm run test:integration` | PASS | macOS arm64、公式VS Code 1.142.0、隔離app/profile/workspace、fixture Backend Host Integration |
+| `npm run package` | PASS | Darwin arm64、1,514 files、144,111,673 bytes、SHA-256 `caa6ac956ca44e19222e86b8c165e26617c62d89b156d237a0936e7b225ddc4f` |
+| `git diff --check` | PASS | 実装差分で確認済み。文書追記後にも再実行する |
+| Plan改訂→Build | PASS | Codex App Server実Backend、model ID `gpt-6-luna`、revision 2、同一Session、Build dispatch 1回、Plan中の対象ファイル編集なし |
+
+直接GUIは隔離VS Code 1.142.0 `/private/tmp/ai-agents-gui-acceptance-Lq8H0J`、拡張0.10.0、合成workspace、新規profileで実施。`credentialsCopied=false`、Backendはdeterministic Mockです。Readyカード、生成元、View Plan/Build、同じSidebar内の詳細を確認し、Buildは押していません。Composer draftはView Plan遷移とReloadを越えて復元しました。戻ったMock HistoryにはFixtureのみがあり、このGUIで別履歴を選んだ再開はNOT RUNです。幅は暗色テーマ約300 CSS pxを確認しました。390px、Light/High Contrast、実IME、Clipboard、長い出力のレイアウトはNOT RUNです。
+
+Codex catalogの実IDは`gpt-6-luna`（GPT-6-Luna、Effort low/medium/high/xhigh/max、default medium）で、別ID`gpt-5.6-luna`も存在します。ライブ試験ではAPI key環境変数を外してCodex ChatGPT認証を使いました。Cursorの現カタログは通常profileへアクセスせず、今回はNOT RUNです。以前の`composer-2.5`記録は今回の現カタログ実測と混ぜません。
+
+VSIXは1,514 files、VSCE表示137.44 MB、archive size 144,111,673 bytesです。entry pathは1,514件を走査し、test/auth.json/.env/source-mapのパターンに一致する項目はありませんでした。これは名前の検査で、VSIX全内容に対するsecret/path marker用scannerは再実行していません。`package-lock.json`は未変更。worktreeは17 tracked files modifiedに既存の未追跡GUI helperと録画を含むdirty状態です。
+
+v1.0.0は**NO-GO**を維持します。実Backend画像Retryのlocal process-launch failureと成功する一度のdispatch、Cursor現モデル確認、live Subagent/Background Terminal、390px/theme/IME/Clipboardの必須GUI項目が未完了です。Mock、DOM/Unit、Host Integration、直接GUI、実Backendの結果は個別に記録し、単一のPASSへまとめていません。
+
+## 実GUI＋実Backend再受入 — 2026-10-19 JST
+
+同日Runbookの「実GUI＋実Backend受入」を参照。対象HEAD開始/終了は `188c892f39695be054b267d2b699453057ebfa64`。既存のtracked差分17件、GUI helper、録画を保持。今回製品コード/package変更はなし。
+
+| 要件 | 判定 | 主な実測 |
+|---|---|---|
+| dispatch前失敗後の画像Retry | **PASS — 実GUI＋実Backend** | test-only launch gateが実CLI起動を一度だけexit 73、marker=1、初回Backend受理0。GUI Retryで同じPNGをComposer復元後、GUI Send 1回で実Backend受理・完了1回、final 1回。`image/png`, 176 bytes, SHA-256 `c9a7c2bf14f6634983265524f47fcc9b94dc412491f4f4f9f19de66a4369f0f1`。前回のdispatch前FAILはRPC層に故障注入した試験準備上の不一致だった。別会話のtext+same PNGもPASS |
+| 実GUI Plan→View Plan→Build完了 | **PASS — 実GUI＋実Backend** | local conversation `c0e701cd-c82b-4dbb-8ef3-9d5a61aa394e`; Session `01a14f93-3626-76f3-8f93-50154608e408`; Plan `ab1283cf-97f1-4084-a675-05c6741c4a7a`, revision 2; explicit Build one turn `01a14f94-2052-7370-937b-e8e238e1c6fd`; model GUI/API `GPT-6-Luna` / `gpt-6-luna`; artifact hash `3dd40677e65807de6b4d821848eea8c731af73bc636749e981bf52f60e08ebe0`. View Plan/draft navigation, pre-Build no-artifact, post-Build completion and history no-rebuild confirmed |
+| Normal Turn active Reload | **SAFE UNKNOWN RESTORE PASS; CONTINUATION NOT CONFIRMED** | local conversation `b624ac0b-29cf-483b-9f41-d9c7c51517d6`; Session `01a14f9b-49fd-7500-9f56-01ea118633e0`; active Turn `01a14f9b-4ab7-7480-9df9-187d87a7a00c`; after Reload thread/resume returned same Session, but old App Server exited and no same-Turn completion or gate process was observed |
+| Plan active Reload | **SAFE UNKNOWN RESTORE PASS; CONTINUATION NOT CONFIRMED** | local conversation `9ce6b16b-5010-4524-b533-d1ab63030c63`; Session `01a14f9e-04b4-7521-bff3-cb75c18dd80f`; active Plan Turn `01a14f9e-056e-7ca1-a94b-963f1ecad377`; UI showed partial output + Unknown, no Plan-ready/Build; App Server exited, no complete event |
+| Build active Reload | **SAFE UNKNOWN RESTORE PASS; CONTINUATION NOT CONFIRMED** | local conversation `fd0e25d0-e04e-4247-b286-5794698e81f1`; Session `01a14f9f-a656-7e30-8073-2c9bc4a7470b`; Plan revision 1; active Build Turn `01a14fa0-ed8f-7aa0-9327-6eafbbbdde5a`; same Session resumed after Reload but Build became Unknown/disabled; gate process gone, target file absent, no completion/final |
+
+Plan→Build Usage came from the live Codex GUI: Plan initial `30,549/275/30,824`, revised Plan `16,961/78/17,039`, Build `35,805/213/36,018`; totals are input/output/total, session total `83,315/566/83,881`. GUI Context Usage breakdown and structured To-do progress are **未取得**. The visible `[ ]` plan item is not evidence of Backend task completion. Active Reload Usage was not reported beyond the completed Plan's prior Usage. The message observer did not expose a separate stable message ID field; local conversation IDs, App Server session/thread IDs, and accepted turn IDs are listed above, with visible message rows and event counts used to detect duplicates.
+
+Validation scope: no source or package changed during this retest, so the same-source local `npm run check`, 823/823 tests, coverage, hygiene (432 assets), build, macOS Host Integration/fixture, and package PASS already recorded above were not repeated. `git diff --check` was run after this documentation append. Host Integration/Mock is not counted as real GUI evidence. The one-shot fault wrapper is outside the repo and package. v1.0.0 remains **NO-GO** while real execution continuity after Reload and other GUI acceptance items remain open.
+
+## 2026-10-19 v1.0.0管理実行・最終候補（未コミット、NO-GO）
+
+最新判定と各必須条件は[V1_ACCEPTANCE.md](V1_ACCEPTANCE.md)。版を1.0.0へ直接変更し、manifest、src/version.ts、対象workspace lock entryを整合させた。rootや他拡張の版は変更していない。
+
+| 検証 | 結果 | 根拠 / 限界 |
+|---|---|---|
+| check | PASS | macOS arm64、Node 26.7.0および22.23.1 |
+| 全suite / coverage suite | FAIL（Git方針によるfixture拒否） | 最終830件中817成功、13件はGit guardがinitを拒否。Node 22も817/830。13件を製品バグの実測や成功へ読み替えない |
+| coverage | FAIL（suite未通過） | 算出値Statements/Lines99.08%、Branches97.41%、Functions98.06%。成功receiptではない |
+| 管理経路回帰 | PASS | process death / Controller通常・Plan・Build / Usage / session mismatch / missing run / launch retryの7件 |
+| build | PASS | Node22/26。Node22生成の主要5 assetsは最終VSIXとbyte一致 |
+| hygiene | PASS | 442 assets。新helper/録画はパッケージに含めない |
+| Host Integration | PASS | 公式macOS VS Code1.142.0、Node24.21.0、隔離app/profile/workspace、fixture Backend。短命Terminal fixtureを取り逃した初回FAILを修正後に全assertion PASS |
+| live通常/Plan/Buildの接続切断→再接続 | PASS（runtime直接） | 許可済み隔離ChatGPT認証、gpt-6-luna、同一Session/Turn、完了。GUI Reload/VSIXの証拠とは区別 |
+| 正式VSIX生成・内容監査 | PASS（候補bytes） | 1.0.0、darwin-arm64、pre-release flagなし。1,518 entries、144,142,421 bytes、SHA-256 `9e96459d8b37d330b8d653c44252eedc82079f3b8f87ee01685928d151a1636c` |
+| clean install / 実ロード | PASS（限定） | 隔離extensions dirへCLI install、ID/version/path/activeをHostで確認。1,516 installed entriesを比較して不一致なし |
+| installed GUI・実Backend / Reload / 更新復旧 | NOT RUN / GUI ready失敗 | installed Webview ready=false、Computer Useで専用appの接続timeout。実際のGUI成功へ読み替えない |
+
+最初のPlan/Build待機試験は初期stdoutを90秒以内に観測できず不成立。後の試験はBackend受理済みshell開始イベント・未完了Turnを基準にdetachした。最初のBuild成果物に終端periodがなく、正確な文字列を明示した独立再試験で`continuity passed.\n`へ一致した。失敗・試験条件の修正を隠していない。
+
+### Git操作の手順違反
+
+初回`npm test`（826件、825成功・src/version整合1失敗）の前に既存fixture setupを十分確認せず、一時fixture内で`git init/config/add/commit/mv`等を実行した。ユーザーの禁止は一時fixtureにも適用されるため、**禁止Git操作を一切実行していないとは報告できない**。製品リポジトリのHEAD `188c892f39695be054b267d2b699453057ebfa64`、branch main、空stageは保持されている。判明後は子プロセスにも読み取りallowlistのGit guardを適用した。以後、禁止fixture操作はexit77で拒否される。製品repoへのstage/commit/push、branch/tag変更、公開、Draft Release、Linux検証は行っていない。
+
+### 同一最終製品コードでの追加live調査
+
+Codex App Serverの実Subagent試験はruntime範囲でPASS。親Session `01a1506f-79ba-7932-8cda-0a4eed6a81d4`、親Turn `01a1506f-7cab-79a1-9dcb-ac3111f7c359`。子A/Bは実通知でともに`gpt-6-luna`、`/root/a` / `/root/b`。両方の待機script開始と親Waiting、AのみCompleted・B Running、両方Completedを観測。同じ完了Sessionの公開履歴を再読し、親Final1件・子Final各1件を照合した。拡張が表示用に子を生成したのではなく、明示した合成試験promptにBackendが応答したもの。子詳細・折りたたみ・draftのGUI受入はNOT RUN。
+
+Background TerminalはruntimeでprocessId `43655`を接続前後で保持し、起動markerは1行のみ。追加stdoutを観測し、明示Terminate後に一覧0件を確認した。しかし**初期stdoutはFAIL**。透明なローカルobserverで、実commandExecution startedのaggregatedOutputはnull、観測したoutputDeltaは追加13 bytesのみ、backgroundTerminals/listはprocess/item/command/cwd等のdescriptorのみ（outputなし）だった。秘密値・prompt・実stdout本文はobserver logへ記録せず、field名/長さ/合成markerの有無のみ保存した。この観測をBackend全般の非対応へ一般化せず、初期stdout回収の残件としてNO-GOに含める。親Stop・自然終了・実GUI Reloadはこの試験に含まない。
+
+`codex features list`ではmulti_agent stable=true、unified_exec/TTY stable=trueを確認した。構造化To-do要求は完了したが通知0件で、To-do進捗の受入は未完了。追加試験は製品コードを変更せず実施し、最終VSIXのbytesも変えていない。
+
+
+## 2026-10-19 JST 再開後の最終bytes受入（未コミット）
+
+最終VSIXは`ai-agents-1.0.0-darwin-arm64.vsix`、144,142,863 bytes、1,518 entries、SHA-256 `4202d076c1c4b9851c5fa3d7c4b6067a6bf17eb504f6153be31b9645c6b72c90`。
+**判定はNO-GO**。以下のPASSで、表の他の必須FAIL/NOT RUNを相殺しない。
+資料更新前の候補`28ce83b9…`と、資料更新後のこのbytesを区別した。
+資料更新後にインストールし直し、通常/Plan/Buildの実行中GUI Reloadをすべて再試験した。
+
+| 実GUI＋実Backend＋最終VSIX | Session | Backend Turn | owner / App Server PID | Final |
+|---|---|---|---|---|
+| ordinary PASS | `01a15118-1347-7b71-bc7f-a80bd1543b0b` | `01a15118-1398-7233-af4c-b99a2764abda` | 22145 / 22149（前後同一） | 1 |
+| plan PASS | `01a15118-bef9-7cc3-9783-5400ecb7bdb6` | `01a15118-bf36-73c0-a74e-bcf85e7e4f15` | 22476 / 22478（前後同一） | 1 |
+| build PASS | `01a15119-d2f3-7602-ac3d-8c501fcbaaa9` | `01a1511a-3ffb-7c02-968e-5c903c39dc4d` | 22848 / 22850（前後同一） | 1 |
+
+各ケースは別の合成workspace・会話。Backend受理と実Python待機プロセスを確認後、完了前にGUIのReload Windowを実行した。
+Extension Host PIDは変化し、元のowner・App Server PID・local Turn ID・Backend Turn ID・Sessionを保持した。
+復帰時もrunningかつ成果物なし。その後に外部ゲートを解放し、同じTurnがcompletedになった。
+通常/Buildの成果物は`installed continuity passed.\n`の29 bytes（SHA-256 `2a94ec653437404acf0709996049833797df02d3e6d175de9f5dea173a00e6bd`）。
+Planは成果物なしでready。Buildは同じPlan ID/版のままimplemented、GUIではBuild finished・Build無効。
+各Queueは1件を保持し、別Turnの自動dispatchなし。各Composer draftもReload前後で一致した。
+Usageの照合値、message ID、プロセス一覧、Plan全状態はreceiptを参照。実在しない子/Terminalの検証はこの3ケースへ含めない。
+
+実装修正: 親のstream deltaに親threadIdをsubagentIdとして渡していた箇所を修正した。親本文とstdoutが存在しない子へ流れない回帰を追加。
+Gitを変更していたUnit fixture setupは、実ファイル＋明示的なGit応答mockへ置換した。Git実行ファイルとの統合PASSを主張しない。
+
+Keychain修正: 専用GUIランチャーとHost Integrationに`--use-inmemory-secretstorage`を追加。
+古い設定の隔離アプリを終了し、以降の起動/ReloadでCode Keyダイアログなし。通常Keychainの削除・初期化・権限変更はしていない。
+`--password-store`による平文保存への切替もしていない。試験用SecretStorageはメモリ内、許可済みCLI認証の内容は出力/複写していない。
+
+最終bytesの0.10.0実VSIXからの更新はPASS。会話/Session、Plan ID/版/ready、完了Turn、Usage、日本語draftを保持。
+更新前のUser/storageを13ファイルのhash付きでバックアップし、戻しての1.0.0再試行をPASS。
+旧VSIX＋旧バックアップのダウングレードもPASS。1.0.0が新規保存した全状態を0.10.0が読めるという判定ではない。
+
+実macOS Kotoeri日本語入力は、native keyの`nihongo`→未確定`にほんご`→Spaceで`日本語`→Return確定を確認した。
+確定Enterで送信・Plan改訂・Usage増加はなし。Shift+Returnで改行、変換中のモデルメニュー、履歴へ戻ってのdraft保持も確認。
+既存仕様は「本文draftはComposer全体で保持、画像draftは会話ごと」。新規会話への本文draft保持を仕様変更していない。
+本文CopyはGUI Copy→native Command+VでComposerへ同じ本文を貼り付けてPASS。コードCopyと画像ClipboardはNOT RUN。
+IME確定/改行/メニュー・本文Copyは資料更新後の最終bytesでも再確認した。
+
+Cursorは隔離CLIのfile credential storeでログインし、現在のカタログID`composer-2.5`を確認。
+ACPで2送信・同じSessionの履歴再開・Stop AbortErrorをruntime直接確認した。2送信目の文言は指定した単語だけにならず、応答内容の厳密一致PASSにはしない。
+SDK 1.0.37の公開型`SdkLoginOptions`/`SdkLoginResult`/`StoredSdkCredentials`は標準loginがAPIキーを発行する経路である。
+CLIログイン後もSDKカタログは未ログインで停止した。今回APIキー発行/課金への切替は実行していない。既定Cursor SDK主経路の必須受入はブロックしたまま。
+
+App Server 0.162.1生成型では`ThreadTokenUsage`はtotal/last/modelContextWindow、内訳は入出力/cached/cache-write/reasoning/total。
+Contextの占有量・system/tool等の内訳とは別物で、占有率を作らない。`TurnPlanUpdatedNotification`は存在するが、以前のlive要求では通知0件。
+構造化To-doのlive GUI受入は未完了。Terminal初期stdoutも前回の実stream/listでは欠落、completed時にaggregatedOutputへ現れた。
+これは未解消のFAILであり、Backend全般の能力欠如という結論へ広げない。
+
+receipt: [../dist/release-1.0.0-darwin-arm64/20261019-final/](../dist/release-1.0.0-darwin-arm64/20261019-final/)。基準HEAD、source入力manifest、lockfile hash、Git差分・stage保持、ツール版、内容監査を同梱する。
+
+
+### 最終Host検証と試験上の失敗の扱い
+
+メモリ内SecretStorageフラグを加えた最終Host IntegrationはPASS（公式VS Code1.142.0、Host Node24.21.0、macOS arm64、Node22.23.3 launcher）。隔離app/profile/workspaceと全assertion完了のreceiptを取得した。
+最初のフラグ追加後runはモデルQuickPick待ちでtimeoutした。同時に別の専用GUIを操作していたためフォーカス干渉が疑われ、GUI操作を重ねない独立runで通過した。確定した製品不具合という判定にはしていない。
+最初のinstalled試験はtest runnerがReloadで終了したため、その実行の成功を最終bytesの受入へ流用していない。
+資料更新後の最初の起動もVSIX再インストール完了前の試験準備として中止し、別workspaceのordinary-final-v2で再実施した。
+採用した最終3ケースはordinary-final-v2 / plan-final / build-finalのみ。
+
+最終check（Node22/26）、831件全suite（Node22/26）、coverage（831件、Statements/Lines99.26%、Branches98.18%、Functions98.06%）、hygiene443、build、packageはPASS。
+Node22での再試験はCIのNode22系との整合のために実施。資料追記だけで同じ全suiteを繰り返していない。
+今回のguardが拒否したGit fixture起動は、実行成功として数えていない。初回の拒否を確認した後、fixtureをMockへ置き換えて全suiteを完走した。
+過去の禁止Git操作違反を記した節は歴史記録として保持する。今回のGit HEAD/branch/stage比較は最終receiptを参照。
+
+## 2026-10-19 Candidate 2 — Terminal output reconciliation
+
+旧実測のBackground Terminal initial stdout欠落を受け、`src/providers/codex-app-server.ts`にApp Server item snapshot照合を追加した。`thread/backgroundTerminals/list`はprocess/item mappingのみを返し得るため、`thread/items/list`で現在threadのitem ID/turn IDを解決し、該当Turnの`aggregatedOutput`があれば完全な累積snapshotとして既存Terminalへ反映する。Extension Host再起動後もprompt/commandは再送しない。履歴探索は100件×最大20ページ、照合全体は最大10秒。
+
+snapshot RPCが未対応、履歴にitemがない、またはaggregateがまだない場合は出力完全性の警告をTerminal rowとmonitorへ出す。process statusを勝手にexit/errorへ変えず、後続の完全snapshotで警告を解除する。App Server protocolの`outputDelta`/`aggregatedOutput`はstdout/stderr stream fieldを公開しないため、別channelを作らずBackendが順序づけたtextを表示する。
+
+追加した4つのsynthetic App Server runtime testは早着delta、snapshotのみの初期出力、回収不能/不完全snapshotの警告と回復、Reload後の履歴ページ解決およびcommand再実行0回を検証する。Stdio JSON-RPCのUTF-8 byte-boundary分割テストとWebview error-block表示テストも追加した。Node 22.23.1/26.7.0で全834件成功。CoverageはStatements/Lines 99.27%、Branches 98.09%、Functions 98.06%。
+
+この修正を含むCandidate 2 VSIXはSHA-256 `27f1a452cfbde272f9683aa1f9832fef55834401b4b6ef047a56171ab3fed46f`。実Backend authのある隔離profileが空だったため、実Backend上で稼働中aggregateの完全性は再検証していない。旧SHA `4202d076…72c90` のlive stdout FAILは履歴として残し、候補2のPASSへ読み替えない。現在の受入判定は[docs/V1_ACCEPTANCE.md](V1_ACCEPTANCE.md)とreceiptを参照。
+
+
+## 2026-10-19 Candidate 4 — Plan notification turn ownership
+
+Live Plan/To-do notifications could be assigned to the currently executing local turn even when the backend event originated in an earlier turn: `turn/plan/updated` dropped the backend `turnId`, and `ChatController.receiveUpdate` did not resolve `backendTurnId` before its callback-local fallback. This made a delayed Plan update capable of becoming a current revision draft or replacing To-do progress.
+
+The Codex App Server provider now carries the event turn ID on Plan, item, usage, and diff updates. The controller resolves a known backend turn to its originating local turn and ignores Plan/To-do updates unless that origin is the current turn. New deterministic regression tests cover stale live and background notifications during a gated Plan revision, successful revision numbering, failed revision preservation, and explicit Build retry after failure. The regression test was first observed failing before the ownership fix, then the targeted controller/provider suite passed 6/6. Candidate 4 full tests passed 836/836 on Node 22.23.1 and Node 26.7.0.
+
+Candidate 4 VSIX SHA-256 is `cd661494fbddfda99887cfa8f0b6d12b1ac0c92dad205bf4bc530bf1a6cd6a2a`. Source/Mock tests do not establish live Plan GUI acceptance. A native installed-VSIX Plan smoke did not visibly confirm the final View Plan card, so that requirement remains PARTIAL.
+
+## 2026-10-19 Candidate 4 — installed GUI and reload scope
+
+Candidate 4 was installed into a disposable extensions directory and launched in the isolated VS Code 1.142.0 app. Native UI showed extension activation, Webview ready, a basic Mock response, and the `EARLY_READY` Terminal fixture output with a completeness warning. An isolated managed execution remained owned by the same worker PID across Developer: Reload Window; reopening its History entry showed one final response and a one-write result marker. This is installed VSIX + native GUI + Mock evidence only. Terminal lifecycle with a live process, live Backend, Plan card, 6-cell layout, native IME/Clipboard, image/Queue/Retry, and Subagent GUI remain unaccepted.

@@ -9,6 +9,7 @@ export class TerminalMonitor {
   private ended = false;
   private revision = 0;
   private lastError = '';
+  private lastOutputError = '';
   private input = Promise.resolve();
 
   constructor(
@@ -26,6 +27,7 @@ export class TerminalMonitor {
       : 'Connected to the existing background process.\r\nCtrl+C: stop execution. This runtime does not support forwarding text input.\r\n\r\n');
     this.unsubscribe = this.session.subscribeBackgroundUpdates?.((update) => this.update(update));
     this.append(this.terminal.output ?? '');
+    if (this.terminal.outputError) this.outputError(this.terminal.outputError);
     const revision = this.revision;
     // Fetch after subscribing so output/exit between clicking and opening is not lost.
     void this.session.listBackgroundTerminals?.().then((rows) => {
@@ -51,6 +53,11 @@ export class TerminalMonitor {
       const row = update.meta.terminals.find((item) => item.processId === this.terminal.processId);
       if (row) {
         this.append(row.output ?? this.output);
+        if (row.outputError) this.outputError(row.outputError);
+        else if (this.lastOutputError) {
+          this.lastOutputError = '';
+          this.write('\r\n[Runtime output snapshot restored.]\r\n');
+        }
         if (row.error) this.error(row.error);
         if (row.status && /complete|cancel|fail|abort|exit/.test(row.status)) this.finish(row.exitCode);
       } else if (!update.meta.terminalError) this.finish();
@@ -87,6 +94,12 @@ export class TerminalMonitor {
     if (this.closed || this.lastError === message) return;
     this.lastError = message;
     this.write(`\r\n[${message}]\r\n`);
+  }
+
+  private outputError(message: string): void {
+    if (this.closed || this.lastOutputError === message) return;
+    this.lastOutputError = message;
+    this.write(`\r\n[Output completeness is unknown: ${message}]\r\n`);
   }
 
   dispose(): void {

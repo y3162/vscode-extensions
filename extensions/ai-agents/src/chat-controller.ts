@@ -627,7 +627,10 @@ export class ChatController {
   restorePlan(plan: PlanState): void {
     if (this.rewinding) return;
     if (!plan.current || this.state.plan.current) return;
-    const phase = plan.phase === 'implemented' ? 'implemented' : 'ready';
+    // Only a persisted settled phase is safe to restore as actionable. A legacy
+    // plan snapshot can outlive its conversation history, so an interrupted or
+    // unknown execution must not turn back into a Build button after Reload.
+    const phase = plan.phase === 'implemented' || plan.phase === 'ready' ? plan.phase : 'unknown';
     this.state.plan = { ...plan, phase, draft: undefined, current: { ...plan.current, restored: true } };
     this.state.todos = plan.current.todos;
     this.publish();
@@ -728,6 +731,7 @@ export class ChatController {
     const todosBefore = structuredClone(historyBefore?.todos ?? this.state.todos);
     if (intent === 'plan' || intent === 'revise') this.state.plan = beginPlanning(this.state.plan);
     const turnId = randomUUID();
+    turnOptions.executionId = turnId;
     const record: TurnRecord = {
       id: turnId, startedAt: Date.now(), status: 'running', waitMs: 0, mode, model: selection.model, intent,
       planBefore, todosBefore,
@@ -779,7 +783,11 @@ export class ChatController {
           text: text + (failure?.retryable === false ? '\n設定の修正が必要です。変更しないまま再送しても同じエラーになります。Diagnoseで実行環境を確認してください。' : ''),
           at: Date.now(), ...(failure ? { failure } : {}),
         });
-        this.finishTurn(turnId, cancelled ? 'cancelled' : 'failed', intent);
+        if ((error as { executionUncertain?: boolean }).executionUncertain) {
+          record.status = 'unknown';
+          if (intent !== 'chat') this.state.plan.phase = 'unknown';
+          this.currentTurn = undefined;
+        } else this.finishTurn(turnId, cancelled ? 'cancelled' : 'failed', intent);
         if (!cancelled) {
           this.state.status = 'error';
           this.autoDrain = false;
@@ -848,7 +856,7 @@ export class ChatController {
   private bindSession(session: AgentSession): (() => void) | undefined {
     return session.subscribeBackgroundUpdates?.((update) => {
       if (this.session !== session || this.resetting || this.rewinding && !this.rewindSending) return;
-      const origin = this.updateTurns.get(update.id) ?? this.currentTurn ?? this.state.turns.at(-1)?.id ?? session.sessionId ?? 'background';
+      const origin = (update.backendTurnId ? this.state.turns.find((turn) => turn.backendTurnId === update.backendTurnId)?.id : undefined) ?? this.updateTurns.get(update.id) ?? this.currentTurn ?? this.state.turns.at(-1)?.id ?? session.sessionId ?? 'background';
       this.receiveUpdate(origin, update);
     });
   }
@@ -944,7 +952,13 @@ export class ChatController {
   private receiveUpdate(turnId: string, update: AgentUpdate): void {
     const childTurnId = update.subagentId
       ? this.state.subagents.find((child) => child.id === update.subagentId)?.parentTurnId : undefined;
-    const origin = childTurnId ?? this.updateTurns.get(update.id) ?? turnId;
+    const backendTurn = update.backendTurnId
+      ? this.state.turns.find((turn) => turn.backendTurnId === update.backendTurnId)?.id : undefined;
+    const origin = childTurnId ?? backendTurn ?? this.updateTurns.get(update.id) ?? turnId;
+    // Plan and To-do notifications mutate the currently actionable plan. A
+    // delayed notification from a completed turn must not become a newer
+    // revision draft or overwrite progress while another turn is active.
+    if ((update.meta?.type === 'plan' || update.meta?.type === 'todo') && origin !== this.currentTurn) return;
     if (update.meta?.type === 'subagentWait' && update.meta.subagentWait) {
       if (update.meta.subagentWait.waiting) {
         if (this.active && origin === this.currentTurn) {
@@ -1053,7 +1067,16 @@ export class ChatController {
       else this.state.subagents[index] = { ...this.state.subagents[index], ...incoming };
     }
     if (update.meta?.type === 'terminals' && update.meta.terminals) {
-      this.state.terminals = update.meta.terminals;
+      const terminals = update.meta.terminals;
+      if (this.restored) {
+        const current = new Map(terminals.map((terminal) => [terminal.processId, terminal]));
+        // A successful empty list after reload cannot prove that a saved running process exited.
+        // Keep absent saved records as Unknown until the backend reports that exact process again.
+        for (const terminal of this.state.terminals) {
+          if (terminal.status === 'unknown' && !current.has(terminal.processId)) current.set(terminal.processId, terminal);
+        }
+        this.state.terminals = [...current.values()];
+      } else this.state.terminals = terminals;
       this.state.terminalError = update.meta.terminalError;
     }
   }
@@ -1215,6 +1238,37 @@ export class ChatController {
       // openAgent either leaves an assigned session or throws before returning.
       const session = this.session!;
       if (session.sessionId) this.retainedId = session.sessionId;
+      const interrupted = [...this.state.turns].reverse().find((turn) => turn.status === 'unknown');
+      if (interrupted && session.recoverRun) {
+        this.currentTurn = interrupted.id;
+        this.turnWait = interrupted.waitMs;
+        let attached = false;
+        try {
+          const recovered = await session.recoverRun(interrupted.id, signal, (update) => {
+            this.receiveUpdate(interrupted.id, update);
+          }, () => {
+            attached = true;
+            interrupted.status = 'running';
+            this.state.status = 'running';
+            if (interrupted.intent === 'plan' || interrupted.intent === 'revise') {
+              const savedDraft = this.state.plan.draft;
+              this.state.plan = beginPlanning(interrupted.planBefore ?? this.state.plan);
+              if (savedDraft) this.state.plan.draft = savedDraft;
+            } else if (interrupted.intent === 'build') this.state.plan.phase = 'building';
+            this.publish();
+          });
+          if (recovered) this.finishTurn(interrupted.id, 'completed', interrupted.intent);
+        } catch (error) {
+          // Losing the owner is not completion and must keep Build disabled.
+          if (attached && (error as { executionStatus?: string }).executionStatus) {
+            this.finishTurn(interrupted.id, (error as { executionStatus?: string }).executionStatus === 'cancelled' ? 'cancelled' : 'failed', interrupted.intent);
+          } else {
+            interrupted.status = 'unknown';
+            if (interrupted.intent !== 'chat') this.state.plan.phase = 'unknown';
+          }
+          throw error;
+        } finally { this.currentTurn = undefined; }
+      }
       if (session.loadTranscript && !this.replayed) {
         const replay: ChatMessage[] = [];
         await session.loadTranscript((message) => replay.push(message));
@@ -1322,5 +1376,13 @@ export class ChatController {
     return this.resetting;
   }
 
-  async dispose(): Promise<void> { await this.reset(); }
+  async dispose(): Promise<void> {
+    if (this.session?.detach) {
+      this.autoDrain = false;
+      this.unsubscribeBackground?.();
+      await this.session.detach();
+      return;
+    }
+    await this.reset();
+  }
 }

@@ -22,7 +22,6 @@ function which(command: string): string {
 
 async function temporary(): Promise<{ cwd: string; cleanup(): Promise<void> }> {
   const cwd = await mkdtemp(path.join(tmpdir(), 'ai-agents-live-'));
-  execFileSync('git', ['init', '-q'], { cwd });
   return { cwd, async cleanup() { await rm(cwd, { recursive: true, force: true }); } };
 }
 

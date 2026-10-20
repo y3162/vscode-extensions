@@ -1,5 +1,5 @@
+import { createGitFixture, snapshotGitFixture } from '../../support/git-fixture.js';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -13,11 +13,8 @@ test('App Server reconciles terminal output, malformed subagent reads, questions
   const command = path.join(root, 'synthetic-app-server.cjs');
   await mkdir(cwd);
   await writeFile(path.join(cwd, 'old.txt'), 'original file\n');
-  execFileSync('git', ['init', '--quiet'], { cwd });
-  execFileSync('git', ['config', 'user.email', 'fixture@example.test'], { cwd });
-  execFileSync('git', ['config', 'user.name', 'Synthetic Fixture'], { cwd });
-  execFileSync('git', ['add', 'old.txt'], { cwd });
-  execFileSync('git', ['commit', '-m', 'synthetic baseline', '--quiet'], { cwd });
+  createGitFixture(cwd);
+  snapshotGitFixture(cwd);
 
   const source = String.raw`#!/usr/bin/env node
 const readline = require('node:readline');

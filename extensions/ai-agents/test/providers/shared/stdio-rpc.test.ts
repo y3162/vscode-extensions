@@ -48,14 +48,15 @@ test('a JSON response split across writes still resolves', async () => {
       const readline = require('node:readline');
       readline.createInterface({ input: process.stdin }).on('line', (line) => {
         const message = JSON.parse(line);
-        const payload = JSON.stringify({ id: message.id, result: { ok: true } });
-        process.stdout.write(payload.slice(0, 8));
-        setTimeout(() => process.stdout.write(payload.slice(8) + '\\n'), 20);
+        const payload = Buffer.from(JSON.stringify({ id: message.id, result: { ok: true, text: '日本語😀' } }) + '\\n');
+        const split = payload.indexOf(Buffer.from('語')) + 1;
+        process.stdout.write(payload.subarray(0, split));
+        setTimeout(() => process.stdout.write(payload.subarray(split)), 20);
       });
     `],
   });
   try {
-    assert.deepEqual(await rpc.request('ping', {}), { ok: true });
+    assert.deepEqual(await rpc.request('ping', {}), { ok: true, text: '日本語😀' });
   } finally { await rpc.dispose(); }
 });
 

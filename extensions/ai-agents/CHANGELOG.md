@@ -1,6 +1,15 @@
 # Changelog
 
-## Unreleased — 0.10.0 audit fixes
+## 1.0.0 — local release preparation (NO-GO)
+
+- Add profile/workspace/conversation-scoped App Server execution ownership and reconnect without prompt replay.
+- Keep Plan details in the sidebar, preserve drafts and explicit Build intent, and retain safe Unknown fallback.
+- Preserve explicit Retry as Composer restoration followed by user Send.
+- Package the managed worker and reuse the fixed workspace dependency lock.
+- Keep parent App Server text and command-output deltas on their own transcript instead of assigning a nonexistent subagent.
+- Complete installed-VSIX and live GUI acceptance before publishing.
+
+### Included audit fixes
 
 - Preserve repeated Cursor ACP deltas, final answers, and per-turn answers after session restore.
 - Await model changes across worker IPC; apply advertised ACP model variants only after backend acknowledgment and reject uncertain connections.

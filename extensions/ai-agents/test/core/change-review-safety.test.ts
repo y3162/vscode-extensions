@@ -1,6 +1,6 @@
+import { createGitFixture, snapshotGitFixture } from '../support/git-fixture.js';
 import assert from 'node:assert/strict';
 
-import { execFileSync } from 'node:child_process';
 
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 
@@ -25,7 +25,6 @@ test('baselines and revert refuse symlink escapes, oversized files, empty diffs,
   const outside = await tempDir('ai-agents-review-out-');
   const secret = path.join(outside, 'secret.txt');
   await writeFile(secret, 'secret', { mode: 0o640 });
-  const git = (...args: string[]) => execFileSync('git', args, { cwd, stdio: 'pipe' });
   try {
     const store = new Map<string, import('../../src/types.js').FileChange>();
     await writeFile(path.join(cwd, 'exact.txt'), 'a'.repeat(500_000), { mode: 0o640 });
@@ -61,12 +60,11 @@ test('baselines and revert refuse symlink escapes, oversized files, empty diffs,
     await assert.rejects(gitApplyReverse('  \n', cwd, [cwd]), /変更前の内容が無い/);
     await assert.rejects(gitApplyReverse('diff --git a/../secret.txt b/../secret.txt\n--- a/../secret.txt\n+++ b/../secret.txt\n@@ -1 +1 @@\n-secret\n+nope\n', cwd, [cwd]), /ワークスペース外/);
     await rm(path.join(cwd, 'link.txt'), { force: true });
-    git('init', '-q');
+    createGitFixture(cwd);
     await writeFile(path.join(cwd, 'exec.sh'), 'echo ok\n', { mode: 0o755 });
     await writeFile(path.join(cwd, 'plain.txt'), 'head\n', { mode: 0o644 });
     await symlink('plain.txt', path.join(cwd, 'inside-link.txt'));
-    git('add', '.');
-    git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'baseline');
+    snapshotGitFixture(cwd);
     const baselines = await captureGitBaselines(cwd);
     assert.ok(baselines);
     assert.equal(await baselines.lookupMode('exec.sh'), 0o755);

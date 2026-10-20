@@ -156,10 +156,11 @@ test('chat keeps live terminal state and output alongside the panel opener', () 
   click(window.document.querySelector('.terminal-open')!);
   assert.equal(posted(sent, 'openTerminal')?.processId, 'p1');
   assert.equal(window.document.querySelector('.terminal-output')?.textContent, row.output);
-  emit(shell({ terminals: [{ ...row, status: 'unknown', output: 'stdout\nstderr\nlatest', error: 'connection lost' }] }));
+  emit(shell({ terminals: [{ ...row, status: 'unknown', output: 'stdout\nstderr\nlatest', error: 'connection lost', outputError: 'Runtime output completeness is unknown: no complete snapshot.' }] }));
   assert.match(window.document.querySelector('.terminal-open')?.textContent ?? '', /unknown/);
   assert.equal(window.document.querySelector('.terminal-output')?.textContent, 'stdout\nstderr\nlatest');
   assert.match(window.document.querySelector('.terminal-row .error-block')?.textContent ?? '', /connection lost/);
+  assert.match(window.document.querySelectorAll('.terminal-row .error-block')[1]?.textContent ?? '', /completeness is unknown/);
 });
 
 test('finished SDK background terminals remain visible above the composer and in the header', () => {

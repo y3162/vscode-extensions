@@ -49,6 +49,8 @@ test('retryPrepared returns the original image and retrying reuses it without du
     await harness.sidebar.handleMessage({ type: 'prepareRetry', id: originalUser.id }, view as never);
     const prepared = view.messages.filter((message) => message.type === 'retryPrepared').at(-1);
     assert.deepEqual(prepared?.images, [image]);
+    const latestState = view.messages.filter((message) => message.type === 'state').at(-1) as { shell?: { conversationId?: string } } | undefined;
+    assert.equal(prepared?.conversationId, latestState?.shell?.conversationId, 'retry response must match the active webview conversation key');
     await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: 'inspect this image' });
 
     assert.equal(runs.length, 2);

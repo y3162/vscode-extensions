@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -9,6 +8,7 @@ import { ChatController } from '../../src/chat-controller.js';
 import { HistoryStore } from '../../src/history-store.js';
 import { createSession } from '../../src/providers/index.js';
 import type { AgentSession, ChatMessage, ChatState, Selection } from '../../src/types.js';
+import { createGitFixture, snapshotGitFixture } from '../support/git-fixture.js';
 
 const enabled = process.env.AI_AGENTS_LIVE_REWIND === '1';
 const controls = {
@@ -39,10 +39,9 @@ interface Fixture {
 async function fixture(label: string): Promise<Fixture> {
   const cwd = await mkdtemp(path.join(tmpdir(), `ai-agents-rewind-${label}-`));
   const storage = await mkdtemp(path.join(tmpdir(), 'ai-agents-rewind-store-'));
-  execFileSync('git', ['init', '-q'], { cwd });
   await writeFile(path.join(cwd, 'seed.txt'), 'seed\n');
-  execFileSync('git', ['add', 'seed.txt'], { cwd });
-  execFileSync('git', ['-c', 'user.name=AI Agents QA', '-c', 'user.email=ai-agents-qa@example.invalid', 'commit', '-m', 'baseline', '-q'], { cwd });
+  createGitFixture(cwd);
+  snapshotGitFixture(cwd);
 
   const history = new HistoryStore(path.join(storage, 'history'));
   await history.load();

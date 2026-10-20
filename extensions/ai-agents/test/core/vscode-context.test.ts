@@ -1,16 +1,14 @@
+import { createGitFixture } from '../support/git-fixture.js';
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { promisify } from 'node:util';
 import {
   activeFileToken, gitSummary, instructionSummary, problemsText, recentTerminalText, searchWorkspace, selectionBlock, watchTerminals, workspaceCommands,
 } from '../../src/vscode-context.js';
 import { DiagnosticSeverity, languages, RelativePattern, resetVscode, Uri, window, workspace } from '../support/vscode-stub.js';
 
-const exec = promisify(execFile);
 
 function tempDir(): string {
   return mkdtempSync(path.join(tmpdir(), 'ai-agents-context-'));
@@ -129,7 +127,7 @@ test('git summary reports status inside a repository and an empty result outside
   const repo = tempDir();
   const plain = tempDir();
   try {
-    await exec('git', ['init'], { cwd: repo });
+    createGitFixture(repo);
     writeFileSync(path.join(repo, 'tracked.txt'), 'hello');
     const summary = await gitSummary(repo);
     assert.match(summary, /tracked\.txt/);

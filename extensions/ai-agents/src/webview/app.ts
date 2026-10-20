@@ -11,7 +11,7 @@ import { usageText } from '../usage.js';
 import { Transcript } from './transcript.js';
 import { renderSubagentDetail, SubagentPanel } from './subagents.js';
 
-interface Persisted { draft?: string; attachmentDrafts?: Record<string, ComposerAttachmentDraft>; expanded?: string[]; stick?: boolean; page?: Page; subagentsExpanded?: boolean }
+interface Persisted { draft?: string; attachmentDrafts?: Record<string, ComposerAttachmentDraft>; expanded?: string[]; planViewKey?: string; stick?: boolean; page?: Page; subagentsExpanded?: boolean }
 
 class MessageLog {
   private readonly byId = new Map<string, ViewMessage>();
@@ -74,6 +74,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   let stick = true;
   let selectedSubagentId: string | null = null;
   let subagentsExpanded = saved?.subagentsExpanded ?? true;
+  let expandedPlanKey = saved?.planViewKey;
   let scheduled = false;
   let painted = '';
 
@@ -107,7 +108,8 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
     paint();
   });
   const transcript = new Transcript(dom, thread, post, (text, retryId) => { composer.editDraft(text, retryId); save(); }, (anchor) => composer.openBuildModel(anchor),
-    (turnId, editedText) => post({ type: 'rewind', turnId, editedText }), (id) => { selectedSubagentId = id; paint(); });
+    (turnId, editedText) => post({ type: 'rewind', turnId, editedText }), (id) => { selectedSubagentId = id; paint(); },
+    (expanded) => togglePlanView(expanded));
 
   function openSession(id: string): void {
     if (!shell) return;
@@ -144,9 +146,18 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   const save = () => vscode.setState({
     draft: composer.draft,
     attachmentDrafts: composer.persistedAttachmentDrafts(),
-    expanded: transcript.expandedIds(), stick, page, subagentsExpanded,
+    expanded: transcript.expandedIds(), planViewKey: expandedPlanKey, stick, page, subagentsExpanded,
   });
   composer.onInput(save);
+
+  function togglePlanView(expanded: boolean): void {
+    const key = planViewKey(shell);
+    if (!key) return;
+    expandedPlanKey = expanded ? key : undefined;
+    save();
+    paint();
+    if (!expanded) composer.focus();
+  }
 
   const applyChrome = () => {
     root.dataset.page = page;
@@ -181,7 +192,8 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
       usage.contextWindow && usage.contextTokens !== undefined ? `Context: ${usage.contextTokens} / ${usage.contextWindow} (${(100 * usage.contextTokens / usage.contextWindow).toFixed(1)}%)` : 'Context: 未取得 / Not reported',
     ].join('\n') : 'No token estimate or cost estimate.';
     const messages = log.list();
-    transcript.render(messages, shell, copy);
+    const activePlanKey = planViewKey(shell);
+    transcript.render(messages, shell, copy, Boolean(activePlanKey && activePlanKey === expandedPlanKey));
     const child = shell.subagents.find((item) => item.id === selectedSubagentId);
     if (selectedSubagentId && child) renderSubagentDetail(dom, childDetail, child, messages, copy, shell.locale, () => {
       selectedSubagentId = null;
@@ -261,4 +273,9 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
       view.removeEventListener('message', onMessage);
     },
   };
+}
+
+function planViewKey(shell: ViewShell | null): string | undefined {
+  if (!shell?.planView) return undefined;
+  return `${shell.conversationId ?? shell.sessionId ?? shell.cwd}\u0000${shell.planView.id}`;
 }

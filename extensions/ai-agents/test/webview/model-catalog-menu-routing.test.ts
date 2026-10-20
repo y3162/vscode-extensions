@@ -131,6 +131,7 @@ test('model and build menus ignore mismatched catalogs and post the menu that is
   window.dispatchEvent(new window.MessageEvent('message', { data: { ...catalog, requestId: third?.requestId } }));
   click(visible(document, '.menu-item[data-id="modelReasoningEffort"]'));
   assert.match(visible(document, '.menu-item[data-id="modelReasoningEffort:low"]').title, /Quick/);
+  click(visible(document, '.plan-view-toggle'));
   click(visible(document, '.plan-actions .pill'));
   const buildRequest = posted(sent, 'loadModelCatalog');
   window.dispatchEvent(new window.MessageEvent('message', {

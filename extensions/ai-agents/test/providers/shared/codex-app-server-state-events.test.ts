@@ -1,6 +1,6 @@
+import { createGitFixture, snapshotGitFixture } from '../../support/git-fixture.js';
 import assert from 'node:assert/strict';
 
-import { execFileSync } from 'node:child_process';
 
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 
@@ -325,11 +325,8 @@ test('App Server applies configured model and effort fallbacks when turn selecti
 test('App Server carries a rename without an oldPath through the Git baseline update', async () => {
   const fixture = await makeFixture('app-server-rename-no-old-path', 'rename-without-old-path');
   await writeFile(path.join(fixture.cwd, 'tracked.txt'), 'before move\n');
-  execFileSync('git', ['init', '--quiet'], { cwd: fixture.cwd });
-  execFileSync('git', ['config', 'user.email', 'fixture@example.test'], { cwd: fixture.cwd });
-  execFileSync('git', ['config', 'user.name', 'Synthetic Fixture'], { cwd: fixture.cwd });
-  execFileSync('git', ['add', 'tracked.txt'], { cwd: fixture.cwd });
-  execFileSync('git', ['commit', '-m', 'synthetic baseline', '--quiet'], { cwd: fixture.cwd });
+  createGitFixture(fixture.cwd);
+  snapshotGitFixture(fixture.cwd);
   const session = await createCodexAppServerSession(appOptions(fixture));
   const background: AgentUpdate[] = [];
   const unsubscribe = session.subscribeBackgroundUpdates!((update) => background.push(update));

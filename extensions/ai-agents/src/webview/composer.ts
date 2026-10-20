@@ -339,6 +339,7 @@ export class Composer {
         stop.addEventListener('click', () => this.post({ type: 'terminateTerminal', processId: terminal.processId }));
         row.append(stop);
         if (terminal.error) row.append(this.dom.el('p', 'terminal-detail error-block', terminal.error));
+        if (terminal.outputError) row.append(this.dom.el('p', 'terminal-detail error-block', terminal.outputError));
         if (terminal.output) row.append(this.dom.el('pre', 'terminal-detail terminal-output', terminal.output));
         items.append(row);
       }
