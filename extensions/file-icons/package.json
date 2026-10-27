@@ -1,26 +1,23 @@
 {
-  "publisher": "Catppuccin",
+  "publisher": "y3162",
   "name": "file-icons",
   "displayName": "File Icons",
   "type": "module",
   "version": "1.26.0",
   "private": true,
   "packageManager": "pnpm@10.18.2",
-  "description": "🦊 Soothing pastel icon theme for VSCode",
-  "author": "prazdevs",
+  "description": "File and folder icons for VS Code and VSCodium.",
+  "author": "y3162",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/catppuccin/vscode-icons"
+    "url": "https://github.com/y3162/vscode-extensions.git",
+    "directory": "extensions/file-icons"
   },
   "bugs": {
-    "url": "https://github.com/catppuccin/vscode-icons/issues"
-  },
-  "sponsor": {
-    "url": "https://opencollective.com/catppuccin"
+    "url": "https://github.com/y3162/vscode-extensions/issues"
   },
   "keywords": [
-    "catppuccin",
     "theme",
     "fancy",
     "pastel-colors",
@@ -47,6 +44,13 @@
     "onStartupFinished"
   ],
   "contributes": {
+    "languages": [
+      {
+        "id": "tensorboard-events",
+        "aliases": ["TensorBoard Events"],
+        "filenamePatterns": ["events.out.tfevents.*"]
+      }
+    ],
     "configuration": {
       "title": "File Icons",
       "properties": {

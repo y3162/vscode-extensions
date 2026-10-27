@@ -54,7 +54,7 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           file: extensions/file-icons/${{ steps.build.outputs.vsixPath }}
           tag: ${{ github.ref }}
-          body: Please refer to [CHANGELOG.md](https://github.com/catppuccin/vscode-icons/blob/main/CHANGELOG.md) for details.
+          body: Please refer to [CHANGELOG.md](https://github.com/y3162/vscode-extensions/blob/main/extensions/file-icons/CHANGELOG.md) for details.
           overwrite: true
 
       - name: Publish to Visual Studio Marketplace

@@ -361,6 +361,9 @@ const fileIcons: FileIcons = {
   'circle-ci': {
     fileNames: ['circle.yml'],
   },
+  'claude': {
+    fileNames: ['agents.md'],
+  },
   'clojure': {
     languageIds: ['clojure'],
     fileExtensions: [
@@ -2135,6 +2138,9 @@ const fileIcons: FileIcons = {
     languageIds: ['python'],
     fileExtensions: ['py'],
   },
+  'pytorch': {
+    fileExtensions: ['pt'],
+  },
   'r': {
     languageIds: [
       'r',
@@ -2573,6 +2579,9 @@ const fileIcons: FileIcons = {
       'Tauri.toml',
     ],
     fileExtensions: ['tauri'],
+  },
+  'tensorboard': {
+    languageIds: ['tensorboard-events'],
   },
   'terraform': {
     languageIds: ['terraform'],

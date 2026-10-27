@@ -19,6 +19,9 @@ const folderIcons: FolderIcons = {
       'moderators',
     ],
   },
+  'agents': {
+    folderNames: ['.agents'],
+  },
   'android': {
     folderNames: ['android'],
   },
@@ -43,6 +46,9 @@ const folderIcons: FolderIcons = {
       'app',
       'apps',
     ],
+  },
+  'arxiv': {
+    folderNames: ['arxiv', '.arxiv'],
   },
   'assets': {
     folderNames: [
@@ -104,6 +110,9 @@ const folderIcons: FolderIcons = {
       '.cargo',
     ],
   },
+  'checkpoint': {
+    folderNames: ['checkpoint', 'checkpoints', '.checkpoint', '.checkpoints'],
+  },
   'circle-ci': {
     folderNames: ['.circleci'],
   },
@@ -118,6 +127,9 @@ const folderIcons: FolderIcons = {
   },
   'cloud': {
     folderNames: ['cloud'],
+  },
+  'codex': {
+    folderNames: ['.codex'],
   },
   'command': {
     folderNames: [
@@ -455,6 +467,9 @@ const folderIcons: FolderIcons = {
       '.tx',
     ],
   },
+  'log': {
+    folderNames: ['log', 'logs', '.log', '.logs'],
+  },
   'luau': {
     folderNames: ['luau_packages'],
   },
@@ -463,6 +478,9 @@ const folderIcons: FolderIcons = {
   },
   'macos': {
     folderNames: ['mac', 'macos'],
+  },
+  'media': {
+    folderNames: ['media'],
   },
   'messages': {
     folderNames: ['message', 'messages'],
@@ -596,6 +614,9 @@ const folderIcons: FolderIcons = {
       'routers',
     ],
   },
+  'rules': {
+    folderNames: ['rules'],
+  },
   'sass': {
     folderNames: [
       'sass',
@@ -626,6 +647,12 @@ const folderIcons: FolderIcons = {
       'share',
       'shared',
     ],
+  },
+  'skills': {
+    folderNames: ['skill', 'skills'],
+  },
+  'speech': {
+    folderNames: ['asr', 'se'],
   },
   'src': {
     folderNames: [
@@ -724,6 +751,9 @@ const folderIcons: FolderIcons = {
       'utility',
       'utilities',
     ],
+  },
+  'venv': {
+    folderNames: ['venv', 'venvs', '.venv', '.venvs', 'virtualenv', 'virtualenvs', '.virtualenv', '.virtualenvs'],
   },
   'vercel': {
     folderNames: [
