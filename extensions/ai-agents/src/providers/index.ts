@@ -9,7 +9,11 @@ import { captureBaseline } from '../change-review.js';
 import { writeImageFiles } from '../images.js';
 import type { AgentSession, AgentUpdate, FileChange, Selection, SessionSummary, TurnOptions, UpdateMeta } from '../types.js';
 import { createCodexAppServerSession } from './codex-app-server.js';
+import { createCodexCliSession } from './codex-cli.js';
+import { createCursorCliSession } from './cursor-cli.js';
+import type { CliSpawn } from './cli-jsonl.js';
 import { cursorStoredMessages } from './cursor-history.js';
+import { genericSessionTitle } from '../session-index.js';
 import { loadCursorSdk, loadPublishedCursorSdk } from './cursor-sdk.js';
 import { cursorBackgroundRuntime, type CursorBackgroundRuntime } from './cursor-background-runtime.js';
 import { CursorTerminals } from './cursor-terminals.js';
@@ -38,6 +42,7 @@ export function interruptCursorBackgroundShell(shellId: number, pid: number, run
 interface SessionDependencies {
   nodeVersion?: string;
   writeImages?: typeof writeImageFiles;
+  cliSpawn?: CliSpawn;
 }
 
 export function loadCodexSdk(): Promise<typeof import('@openai/codex-sdk')> {
@@ -62,6 +67,15 @@ export async function createSession(options: SessionOptions, loaders = sdkLoader
   if (process.platform === 'darwin' && options.ownerKey && options.provider === 'codex' && options.backend === 'app-server') return createManagedSession(options);
   if (options.provider === 'codex' && options.backend === 'app-server') return createCodexAppServerSession(options);
   if (options.provider === 'cursor' && options.backend === 'acp') return createCursorAcpSession(options);
+  if (options.provider === 'cursor' && options.backend === 'cli') {
+    return dependencies.cliSpawn ? createCursorCliSession(options, dependencies.cliSpawn) : createCursorCliSession(options);
+  }
+  if (options.provider === 'codex' && options.backend === 'cli') {
+    return createCodexCliSession(options, {
+      ...(dependencies.cliSpawn ? { spawn: dependencies.cliSpawn } : {}),
+      ...(dependencies.writeImages ? { writeImages: dependencies.writeImages } : {}),
+    });
+  }
   if (options.provider === 'cursor' && loaders === sdkLoaders && !inProcess) return createCursorWorker(options);
   if (options.provider === 'codex') {
     if (options.approval && options.approval !== 'never') {
@@ -373,14 +387,28 @@ export async function listCursorSdkSessions(
 ): Promise<SessionSummary[]> {
   const { Agent, JsonlLocalAgentStore } = await load();
   await mkdir(options.storagePath, { recursive: true });
-  const listed = await Agent.list({ runtime: 'local', cwd: options.cwd, store: new JsonlLocalAgentStore(options.storagePath) });
-  return listed.items.map((item) => ({
-    id: item.agentId,
-    title: item.name || item.summary || item.agentId,
-    updatedAt: new Date(item.lastModified || Date.now()).toISOString(),
-    provider: 'cursor' as const,
-    cwd: options.cwd,
-  }));
+  const store = new JsonlLocalAgentStore(options.storagePath);
+  const listed = await Agent.list({ runtime: 'local', cwd: options.cwd, store });
+  const summaries: SessionSummary[] = [];
+  for (const item of listed.items) {
+    const providerTitle = [item.name, item.summary].find((title) => typeof title === 'string' && !genericSessionTitle(title, item.agentId));
+    let title = providerTitle;
+    if (!title) {
+      try {
+        const rows = await Agent.messages.list(item.agentId, { runtime: 'local', cwd: options.cwd, store, limit: 1, offset: 0 });
+        title = cursorStoredMessages(rows, []).find((message) => message.role === 'user')?.text.split('\n')[0]?.trim().slice(0, 80);
+      } catch { /* Older SDK stores may have metadata without readable messages. */ }
+    }
+    summaries.push({
+      id: item.agentId,
+      title: title || item.agentId,
+      titleSource: providerTitle ? 'provider' : 'local',
+      updatedAt: new Date(item.lastModified || Date.now()).toISOString(),
+      provider: 'cursor',
+      cwd: options.cwd,
+    });
+  }
+  return summaries;
 }
 
 export async function writeBaselineFile(storagePath: string, change: FileChange): Promise<string> {

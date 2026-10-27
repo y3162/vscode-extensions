@@ -29,12 +29,13 @@ export interface ShellSource {
   showBuildModel?: boolean;
 }
 
-const genericTitles = new Set(['', 'Codex', 'Cursor', 'Cursor ACP']);
+const genericTitles = new Set(['', 'Codex', 'Cursor', 'Cursor ACP', 'New Agent']);
 const syntheticPaths = new Set(['turn.diff', 'patch']);
 
 export function backendLabel(backend: Backend): string {
   if (backend === 'acp') return 'ACP';
   if (backend === 'app-server') return 'App Server';
+  if (backend === 'cli') return 'CLI';
   return 'SDK';
 }
 
@@ -226,8 +227,8 @@ export function buildShell(source: ShellSource): ViewShell {
     network: controls.network,
     showNetwork: capabilities.networkToggle,
     backendChoices: (state.selection.provider === 'cursor'
-      ? [choice('sdk', 'SDK'), choice('acp', 'ACP')]
-      : [choice('sdk', 'SDK'), choice('app-server', 'App Server')]),
+      ? [choice('sdk', 'SDK'), choice('acp', 'ACP'), choice('cli', 'CLI')]
+      : [choice('sdk', 'SDK'), choice('app-server', 'App Server'), choice('cli', 'CLI')]),
     backend: controls.backend,
     additionalDirectories: controls.additionalDirectories,
     autoApprove: state.autoApprove,

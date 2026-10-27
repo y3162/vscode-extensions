@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 
 import { tmpdir } from 'node:os';
 
@@ -93,5 +93,30 @@ test('Codex App Server normalizes replay, listing, todo, diff, model, and identi
     await assert.rejects(session.run!('fail-empty', new AbortController().signal, () => {}), /Codex app-server error/);
   } finally {
     await cleanup();
+  }
+});
+
+test('Codex App Server startup uses a thread preview when the title is empty', async () => {
+  const cwd = await tempDirectory();
+  const command = path.join(cwd, 'preview-server.cjs');
+  await writeFile(command, `const readline = require('node:readline');
+const emit = (message) => process.stdout.write(JSON.stringify(message) + '\\n');
+readline.createInterface({ input: process.stdin }).on('line', (line) => {
+  const request = JSON.parse(line);
+  if (request.method === 'initialize') emit({ id: request.id, result: {} });
+  else if (request.method === 'thread/start') emit({ id: request.id, result: { thread: { id: 'preview-thread', title: '', preview: 'Preview title' } } });
+  else if (request.id !== undefined) emit({ id: request.id, result: {} });
+});
+`);
+  const identities: Array<{ title: string; titleSource: string | undefined }> = [];
+  const session = await createCodexAppServerSession({
+    provider: 'codex', cwd, model: '', storagePath: cwd, codexPath: command, backend: 'app-server',
+    onIdentity: (identity) => identities.push({ title: identity.title, titleSource: identity.titleSource }),
+  });
+  try {
+    assert.deepEqual(identities, [{ title: 'Preview title', titleSource: 'provider' }]);
+  } finally {
+    await session.dispose();
+    await rm(cwd, { recursive: true, force: true });
   }
 });

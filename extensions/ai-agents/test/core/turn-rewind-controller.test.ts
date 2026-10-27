@@ -37,6 +37,8 @@ function harness(cwd: string, journals: string, scripts: Record<string, Script>,
   runGate?: Promise<void>;
   onRunStart?: () => void;
   onState?: (state: ChatState) => void;
+  rewindReason?: () => string | undefined;
+  verifyHistory?: (ids: string[]) => Promise<void>;
 }) {
   let sessionId = 'thread-1';
   const runs: string[] = [];
@@ -71,6 +73,8 @@ function harness(cwd: string, journals: string, scripts: Record<string, Script>,
     },
     async dispose() {},
   };
+  if (options?.rewindReason) session.rewindUnsupportedReason = options.rewindReason;
+  if (options?.verifyHistory) session.verifyTurnHistory = options.verifyHistory;
   if (options?.activate !== false) session.activateFork = (id: string) => { sessionId = id; };
   let flushes = 0;
   const persistence: RewindPersistence = {
@@ -460,6 +464,25 @@ test('rewindable turn ids stop at the first unsafe boundary and require an idle 
       const disabled = await play(disabledWorkspace.cwd, disabledWorkspace.journals, { rewindEnabled: false });
       assert.deepEqual([...disabled.controller.rewindableTurnIds()], []);
     } finally { await disabledWorkspace.cleanup(); }
+  } finally { await workspace.cleanup(); }
+});
+
+test('rewind respects backend availability and verifies its saved turn history', async () => {
+  const workspace = await directory();
+  let reason: string | undefined;
+  const verified: string[][] = [];
+  try {
+    const { controller } = await play(workspace.cwd, workspace.journals, {
+      rewindReason: () => reason,
+      verifyHistory: async (ids) => { verified.push(ids); },
+    });
+    const target = controller.snapshot().turns[0]!.id;
+    reason = 'history unavailable';
+    assert.deepEqual([...controller.rewindableTurnIds()], []);
+    reason = undefined;
+    assert.equal(controller.rewindableTurnIds().has(target), true);
+    await controller.previewRewind(target);
+    assert.deepEqual(verified, [['b1', 'b2', 'b3']]);
   } finally { await workspace.cleanup(); }
 });
 

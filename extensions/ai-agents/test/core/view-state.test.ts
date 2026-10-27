@@ -26,7 +26,7 @@ function shellFor(extra: Partial<ChatState> = {}, locale: 'ja' | 'en' = 'en', fo
 test('message diffs send only changed rows and file stats come from a diff', () => {
   const first = toViewMessage({ id: 'a', role: 'assistant', text: 'Hi' });
   assert.equal(messageSignature(first), JSON.stringify(first));
-  assert.deepEqual((['sdk', 'acp', 'app-server'] as const).map((backend) => backendLabel(backend)), ['SDK', 'ACP', 'App Server']);
+  assert.deepEqual((['sdk', 'acp', 'app-server', 'cli'] as const).map((backend) => backendLabel(backend)), ['SDK', 'ACP', 'App Server', 'CLI']);
   const initial = diffMessages(new Map(), [first]);
   assert.deepEqual(initial.upserts.map((message) => message.id), ['a']);
   const next = diffMessages(initial.next, [first, toViewMessage({ id: 'b', role: 'assistant', text: 'There' })]);

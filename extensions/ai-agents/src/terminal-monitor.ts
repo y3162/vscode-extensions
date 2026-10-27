@@ -22,9 +22,6 @@ export class TerminalMonitor {
   open(): void {
     if (this.opened || this.closed) return;
     this.opened = true;
-    this.write(`${this.terminal.command || this.terminal.processId}\r\n`);
-    this.write(this.ja ? '既存のバックグラウンドプロセスに接続しました。\r\nCtrl+C: 実行を停止。文字入力の転送はこのランタイムでは未対応です。\r\n\r\n'
-      : 'Connected to the existing background process.\r\nCtrl+C: stop execution. This runtime does not support forwarding text input.\r\n\r\n');
     this.unsubscribe = this.session.subscribeBackgroundUpdates?.((update) => this.update(update));
     this.append(this.terminal.output ?? '');
     if (this.terminal.outputError) this.outputError(this.terminal.outputError);

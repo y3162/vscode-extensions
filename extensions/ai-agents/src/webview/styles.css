@@ -117,9 +117,10 @@ a { color: var(--vscode-textLink-foreground); }
 }
 .shell-tool-heading { min-height: 2.2em; padding: .35em .55em; }
 .shell-tool-heading > .codicon:first-child, .shell-prompt { color: var(--vscode-descriptionForeground); flex: 0 0 auto; }
-.shell-command-line { display: flex; align-items: baseline; gap: .65em; min-width: 0; padding: .35em .65em; border-top: 1px solid var(--vscode-panel-border, transparent); font-family: var(--vscode-editor-font-family, monospace); white-space: pre-wrap; overflow-wrap: anywhere; }
-.shell-command-line code { color: var(--vscode-terminal-ansiBrightBlue, var(--vscode-textLink-foreground)); background: transparent; padding: 0; border: 0; border-radius: 0; }
-.shell-command-output { max-height: 15em; overflow: auto; padding: .4em .65em; border-top: 1px solid var(--vscode-panel-border, transparent); color: var(--vscode-descriptionForeground); }
+.shell-prompt { color: var(--vscode-terminal-ansiBrightBlack, var(--vscode-terminal-foreground, var(--vscode-foreground))); }
+.shell-command-line { display: flex; align-items: baseline; gap: .65em; min-width: 0; padding: .35em .65em; border-top: 1px solid var(--vscode-panel-border, transparent); font-family: var(--vscode-editor-font-family, monospace); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--vscode-terminal-foreground, var(--vscode-foreground)); background: var(--vscode-terminal-background, var(--vscode-editor-background)); }
+.shell-command-line code { color: inherit; background: transparent; padding: 0; border: 0; border-radius: 0; }
+.shell-command-output { max-height: 15em; overflow: auto; padding: .4em .65em; border-top: 1px solid var(--vscode-panel-border, transparent); color: var(--vscode-terminal-foreground, var(--vscode-foreground)); background: var(--vscode-terminal-background, var(--vscode-editor-background)); }
 .shell-tool > .ghost { margin: 0 .4em .25em; }
 .file-header {
   min-width: 0; min-height: 1.85em; padding: .28em .55em; gap: .4em;
@@ -329,6 +330,8 @@ textarea {
 .model-name { min-width: 0; max-width: 14em; flex: 0 1 auto; padding-left: .35em; }
 .pill { border-radius: 999px; max-width: 14em; }
 .mode { gap: .35em; padding: .25em .55em; color: var(--vscode-descriptionForeground); background: color-mix(in srgb, var(--vscode-foreground) 10%, transparent); }
+.mode[data-mode="plan"] { color: #f9e77a; background: #5c5b45; }
+.mode[data-mode="plan"]:hover { background: #6b6a50; }
 .mode .mode-icon { font-size: 1em; }
 .icon-btn.attach { border-radius: .4em; background: transparent; color: inherit; }
 .pill .btn-label, .env .btn-label, .change-summary .btn-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -379,6 +382,7 @@ textarea {
 .menu-value { max-width: 9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-descriptionForeground); }
 .menu-check, .menu-item .codicon-chevron-right, .menu-item .switch { margin-left: auto; flex: 0 0 auto; }
 .menu-glyph { width: 1.1em; text-align: center; flex: 0 0 auto; }
+.model-menu-icon { width: 1.1em; flex: 0 0 auto; text-align: center; }
 .menu-sep { height: 1px; margin: .28em .35em; background: var(--vscode-panel-border, var(--vscode-widget-border, transparent)); }
 .menu.model-menu { z-index: 6; min-width: 13.5em; max-height: min(22em, calc(100vh - 16px)); overflow: hidden; display: flex; flex-direction: column; padding: .3em; }
 .menu.model-menu.submenu { z-index: 7; }
@@ -501,4 +505,6 @@ textarea {
 .terminal-stop { flex: 0 0 auto; }
 
 .terminal-open .btn-label { flex: 1; }
+.terminal-open .btn-label { color: var(--vscode-terminal-foreground, var(--vscode-foreground)); font-family: var(--vscode-editor-font-family, monospace); }
 .terminal-open .terminal-state { flex: 0 0 auto; font-size: .8em; color: var(--vscode-descriptionForeground); }
+.terminal-output { color: var(--vscode-terminal-foreground, var(--vscode-foreground)); background: var(--vscode-terminal-background, var(--vscode-editor-background)); }

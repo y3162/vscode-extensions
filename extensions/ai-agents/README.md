@@ -69,9 +69,9 @@ APIキーを使う場合は詳細設定の **APIキー** または **AI Agents: 
 | `ai-agents.codex.model` | 空欄 | CodexのモデルID。空欄で既存のCodex設定を利用 |
 | `ai-agents.cursor.model` | `auto` | CursorのモデルID |
 | `ai-agents.codex.executablePath` | 空欄 | CLIを指定する場合の絶対パス。通常はSDK同梱CLIを利用 |
-| `ai-agents.codex.backend` | `sdk` | `sdk` または `app-server` |
-| `ai-agents.cursor.backend` | `sdk` | `sdk` または `acp` |
-| `ai-agents.cursor.agentPath` | `agent` | ACPで起動するCursor CLI |
+| `ai-agents.codex.backend` | `cli` | `cli`、`sdk`、`app-server` |
+| `ai-agents.cursor.backend` | `cli` | `cli`、`sdk`、`acp` |
+| `ai-agents.cursor.agentPath` | `agent` | Cursor CLIの起動コマンド |
 | `ai-agents.autoApprove` | `false` | ツール承認を省略する。サンドボックスは無効にしない |
 
 モデルは通常、サイドバーの選択画面から変更してください。上記モデル設定は、まだモデルを選択していない場合の初期値です。選択画面で保存したモデルを優先します。
@@ -91,6 +91,8 @@ SDKは選択したフォルダを作業ディレクトリとして、ファイ�
 表示履歴は手動削除までローカルに保持します。会話本文やツール出力に含まれる機密情報も保存され得ます。認証設定・承認トークン・画像バイナリは保存しません。`ai-agents.history.enabled` で新しい保存を無効化でき、`AI Agents: Delete Local Display History` で現在／すべてのローカル履歴を削除できます。バックエンド側の会話は削除しません。旧Codex SDK会話で、この拡張機能が保存していなかった表示履歴は取得できません。
 
 回答全文・コード・ユーザー本文・ツール出力のCopyはExtension HostのクリップボードAPIを使い、完了または失敗を表示します。回答全文はMarkdown原文、コードはコード本文をコピーします。
+
+Codex CLI でも、送信済みプロンプトの編集と再送に対応します。CLIで実行したターンをローカル App Server の履歴と照合し、指定ターン直前へ分岐してから再送します。ファイル変更は保存済みチェックポイントと現在の内容が一致する場合だけ戻します。履歴照合やGitからの変更前状態の取得ができないターンはRewindを表示しません。Cursor CLIの `--print` ではターン指定の巻き戻しAPIがないため、Rewindは利用できません。
 
 Token Usageは会話とターンの概要から確認できます。Cursor SDKはRun計測、Codex SDKは累積値からの差分、App Serverはtotal／lastを区別します。cacheの包含関係を表示し、reasoningを二重計上しません。Cursor ACPは非対応、未取得値は「—」です。課金額を推定しません。
 

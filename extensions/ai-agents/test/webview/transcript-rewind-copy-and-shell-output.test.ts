@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import { test } from 'node:test';
 
@@ -62,6 +64,7 @@ test('transcript restores pending placement, handles stale rewinds, copy outcome
     { id: 'user-1', role: 'user', text: 'prompt', canRewind: true },
     { id: 'tool-1', role: 'tool', text: 'plain command output', turnId: 'user-1', tool: { name: 'Run', kind: 'shell', status: 'completed', target: 'echo hi' } },
     { id: 'tool-2', role: 'tool', text: 'completed: command succeeded', turnId: 'user-1', tool: { name: 'Run', kind: 'shell', status: 'completed', target: 'true' } },
+    { id: 'tool-3', role: 'tool', text: 'echo hi\nstdout\nstderr\n', turnId: 'user-1', tool: { name: 'Run', kind: 'shell', status: 'completed', target: 'echo hi' } },
     { id: 'error-1', role: 'error', text: 'failed', turnId: 'user-1' },
   ];
   transcript.render(messages, shell({ busy: true, timings: undefined }), strings('en'));
@@ -75,6 +78,12 @@ test('transcript restores pending placement, handles stale rewinds, copy outcome
   click(statusTool);
   assert.equal(statusTool.closest('.tool-row-item')?.querySelector('.shell-command-output'), null, 'a status-only single-line result has no duplicate output block');
   click(statusTool);
+  const commandTool = root.querySelector<HTMLElement>('.shell-tool-heading[data-id="tool-3"]')!;
+  click(commandTool);
+  assert.equal(root.querySelector('.shell-tool-heading[data-id="tool-3"]')?.closest('.tool-row-item')?.querySelector('.shell-command-output')?.textContent, 'stdout\nstderr\n');
+  const css = readFileSync(path.join(__dirname, '../../src/webview/styles.css'), 'utf8');
+  assert.match(css, /\.shell-command-line \{[^}]*var\(--vscode-terminal-foreground/);
+  assert.match(css, /\.shell-command-line \{[^}]*var\(--vscode-terminal-background/);
 
   transcript.render(messages, shell({ busy: false, timings: undefined }), strings('en'));
   const edit = article.querySelector<HTMLButtonElement>('.edit-user')!;

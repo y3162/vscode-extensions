@@ -315,6 +315,7 @@ export class ChatController {
 
   rewindableTurnIds(): Set<string> {
     if (!this.rewindPersistence?.enabled() || this.state.busy || this.state.queue.length || this.hasLiveChildren() || this.hasLiveTerminals()) return new Set();
+    if (this.session?.rewindUnsupportedReason?.()) return new Set();
     let suffixIsSafe = true;
     const ids = new Set<string>();
     for (const turn of [...this.state.turns].reverse()) {
@@ -360,6 +361,7 @@ export class ChatController {
       if (!later.backendTurnId) throw new Error('後続ターンの Backend turn ID が不足しています。');
       if (!later.planBefore || !later.todosBefore) throw new Error('後続ターンの Plan / Todo チェックポイントが不足しています。');
     }
+    await session.verifyTurnHistory?.(this.state.turns.map((item) => item.backendTurnId).filter((id): id is string => Boolean(id)));
     await this.rewindPersistence.flush();
     const plan = await buildTurnRewindPlan(this.state.turns, turn.id, this.state.selection.cwd);
     return { turn, targetIndex, plan, session, backendTurnId, forkBeforeTurn };

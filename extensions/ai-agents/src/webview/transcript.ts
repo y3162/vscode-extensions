@@ -185,6 +185,8 @@ export class Transcript {
         && previous.canRewind === turn.user.canRewind && previous.rewindReason === turn.user.rewindReason) {
         const edit = host.querySelector<HTMLButtonElement>('.edit-user');
         if (edit) edit.disabled = Boolean(this.shell?.busy) || turn.user.canRewind !== true;
+        const resend = host.querySelector<HTMLButtonElement>('.resend-user');
+        if (resend) resend.disabled = Boolean(this.shell?.busy);
         return;
       }
       this.renderedUsers.add(host);
@@ -202,12 +204,16 @@ export class Transcript {
     copyButton.dataset.action = 'copy-source';
     this.copySources.set(copyButton, turn.user.text);
     const actions = this.dom.el('div', 'message-actions');
+    const resend = this.dom.button('ghost icon-btn resend-user', this.labels?.resend ?? 'Resend', 'redo');
+    resend.dataset.action = 'resend-user';
+    resend.dataset.turn = turn.id;
+    resend.disabled = Boolean(this.shell?.busy);
     const edit = this.dom.button('ghost icon-btn edit-user', this.labels?.editMessage ?? 'Edit message', 'edit');
     edit.dataset.action = 'edit-user';
     edit.dataset.turn = turn.id;
     edit.disabled = Boolean(this.shell?.busy) || turn.user.canRewind !== true;
     if (turn.user.canRewind !== true) edit.title = this.labels?.rewindUnavailable ?? 'This turn cannot be safely rewound.';
-    actions.append(copyButton, edit);
+    actions.append(copyButton, resend, edit);
     host.append(bubble, actions);
     if (turn.user.attachments?.length) {
       const row = this.dom.el('div', 'chips');
@@ -428,12 +434,12 @@ export class Transcript {
       commandLine.append(this.dom.el('code', undefined, command));
       row.append(commandLine);
 
-      const output = shellOutput(tool.detail);
+      const output = shellOutput(tool.detail, command);
       if (open && output) {
         const pre = this.dom.el('pre', 'shell-command-output', output);
         row.append(pre);
         const copyButton = this.dom.button('ghost tiny', copy.copy, 'copy');
-        copyButton.dataset.action = 'copy-source'; this.copySources.set(copyButton, tool.detail); row.append(copyButton);
+        copyButton.dataset.action = 'copy-source'; this.copySources.set(copyButton, output); row.append(copyButton);
       }
       return row;
     }
@@ -566,9 +572,9 @@ export class Transcript {
       if (id) this.refreshTurn(id);
       return;
     }
-    if (action === 'retry' && button.dataset.turn) {
+    if ((action === 'retry' || action === 'resend-user') && button.dataset.turn) {
       const text = this.turns.find((turn) => turn.id === button.dataset.turn)?.user?.text;
-      if (text !== undefined && !this.shell?.busy) { this.onRetry(text, button.dataset.turn); this.post({ type: 'prepareRetry', id: button.dataset.turn }); }
+      if (text !== undefined && !this.shell?.busy) { this.onRetry(text, button.dataset.turn); this.post({ type: action === 'retry' ? 'prepareRetry' : 'prepareResend', id: button.dataset.turn }); }
       return;
     }
     if (action === 'post' && button.dataset.type) { this.post({ type: button.dataset.type }); return; }
@@ -683,14 +689,13 @@ function shellCaption(command: string): string {
   return executable ? `Run ${executable}` : 'Run command';
 }
 
-function shellOutput(detail: string): string {
+function shellOutput(detail: string, command: string): string {
   const newline = detail.indexOf('\n');
   const header = newline < 0 ? detail : detail.slice(0, newline);
   const hasStatusPrefix = /^(?:in[-_]?progress|running|completed|success|failed|error|cancelled|aborted):\s*.+$/i.test(header);
-  if (newline < 0) return hasStatusPrefix ? '' : detail;
-  return hasStatusPrefix
-    ? detail.slice(newline + 1)
-    : detail;
+  const hasCommandHeader = header === command;
+  if (newline < 0) return hasCommandHeader || hasStatusPrefix ? '' : detail;
+  return hasCommandHeader || hasStatusPrefix ? detail.slice(newline + 1) : detail;
 }
 
 function toolIcon(kind: ToolInfo['kind']): string {

@@ -106,6 +106,22 @@ test('Resend calls onRewind with the edited text and original turn id', () => {
   assert.equal(root.querySelector('.prompt-editor'), null);
 });
 
+test('a completed Cursor message can be prepared as a new send without rewind', () => {
+  const { window, sent, emit, input } = mount();
+  emit(shell({ provider: 'cursor', providerLabel: 'Cursor · SDK' }), [
+    { id: 'old-user', role: 'user', text: 'Run this again', at: 1, canRewind: false },
+    { id: 'old-answer', role: 'assistant', text: 'Done', final: true, at: 2 },
+  ]);
+  click(visible(window.document, '.new-chat'));
+  const resend = window.document.querySelector<HTMLButtonElement>('.resend-user')!;
+  assert.equal(resend.disabled, false);
+  click(resend);
+  assert.equal(input().value, 'Run this again');
+  assert.equal(posted(sent, 'prepareResend')?.id, 'old-user');
+  assert.equal(posted(sent, 'rewind'), undefined);
+  assert.equal(posted(sent, 'send'), undefined);
+});
+
 test('an image-only failed turn restores its original image for explicit Retry', () => {
   const { window, sent, emit, input } = mount();
   emit(shell(), [

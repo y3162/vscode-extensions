@@ -182,7 +182,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
     settings.render(shell, copy);
     composer.render(shell, copy);
     subagentPanel.render(shell, copy, subagentsExpanded);
-    usageSummary.textContent = usageText(shell.usage, shell.backend === 'acp' ? 'Token Usage: 非対応 / Unsupported' : 'Token Usage: 未取得 / Not reported');
+    usageSummary.textContent = usageText(shell.usage, shell.backend === 'acp' || (shell.provider === 'cursor' && shell.backend === 'cli') ? 'Token Usage: 非対応 / Unsupported' : 'Token Usage: 未取得 / Not reported');
     const usage = shell.usage;
     usagePanel.hidden = !usage;
     usageDetail.textContent = usage ? [

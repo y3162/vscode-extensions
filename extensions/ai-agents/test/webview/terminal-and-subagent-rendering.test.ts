@@ -118,7 +118,7 @@ test('shell executions use a command card with expandable output', () => {
   assert.equal(card.querySelector('.shell-tool-heading')?.getAttribute('aria-expanded'), 'true');
   assert.equal(card.querySelector('.shell-command-output')?.textContent, 'slept for one second\n');
   click(card.querySelector('[data-action="copy-source"]')!);
-  assert.equal(posted(sent, 'copy')?.text, 'completed: sleep 1s\nslept for one second\n');
+  assert.equal(posted(sent, 'copy')?.text, 'slept for one second\n');
 });
 
 test('a background terminal list error remains visible without files or terminals', () => {

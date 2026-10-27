@@ -21,7 +21,7 @@ test('terminal mirror covers Japanese text, list races, redraws, and duplicate e
   const monitor = new TerminalMonitor(session, { processId: 'p', itemId: 'item', command: 'job', output: 'old\r\n' }, (text) => writes.push(text), true);
   monitor.open();
   monitor.open();
-  assert.equal(writes.filter((text) => text.includes('既存のバックグラウンド')).length, 1);
+  assert.equal(writes.filter((text) => text.includes('job') || text.includes('既存のバックグラウンド')).length, 0);
   listener?.({ id: 'item', role: 'tool', text: 'job', tool: { name: 'shell', kind: 'shell', status: 'running' } });
   listener?.({ id: 'item', role: 'tool', text: 'replaced', tool: { name: 'shell', kind: 'shell', status: 'running' } });
   assert.equal(writes.some((text) => text.includes('\x1b[2J')), true);

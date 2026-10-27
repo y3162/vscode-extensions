@@ -478,6 +478,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
         return [{
           id,
           title: typeof session.title === 'string' && session.title ? session.title : id,
+          titleSource: typeof session.title === 'string' && session.title ? 'provider' : 'local',
           updatedAt: typeof session.updatedAt === 'string' ? session.updatedAt : '',
           provider: 'cursor',
           cwd: options.cwd,

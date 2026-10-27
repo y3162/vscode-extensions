@@ -56,7 +56,8 @@ test('opening the same process reuses the terminal until close drops it', async 
   const chunks: string[] = [];
   ptyOf(first).onDidWrite((text) => chunks.push(text));
   ptyOf(first).open();
-  await waitFor(() => chunks.join('').includes('接続しました'), 'terminal banner');
+  await waitFor(() => chunks.join('').includes('hello'), 'terminal output');
+  assert.doesNotMatch(chunks.join(''), /接続しました|x{10}/);
   ptyOf(first).handleInput('\x03');
   await waitFor(() => chunks.join('').includes('割り込みに対応していません'), 'interrupt error');
   ptyOf(first).close();

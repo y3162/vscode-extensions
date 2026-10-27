@@ -750,10 +750,10 @@ export async function createCodexAppServerSession(options: CodexAppServerOptions
     },
   });
 
-  const identify = (title: string) => {
+  const identify = (title: string, titleSource: SessionSummary['titleSource'] = 'local') => {
     // The session is not exposed until initialization validates a non-empty id;
     // activated forks are likewise checked before replacing it.
-    options.onIdentity?.({ id: threadId, title, updatedAt: new Date().toISOString(), provider: 'codex', cwd: options.cwd });
+    options.onIdentity?.({ id: threadId, title, titleSource, updatedAt: new Date().toISOString(), provider: 'codex', cwd: options.cwd });
   };
 
   try {
@@ -794,7 +794,8 @@ export async function createCodexAppServerSession(options: CodexAppServerOptions
     }
     if (!threadId) throw new Error('Codex App Server did not return a thread id.');
     ownedThreadIds.add(threadId);
-    identify('Codex');
+    const title = typeof thread.title === 'string' && thread.title ? thread.title : typeof thread.preview === 'string' && thread.preview ? thread.preview : '';
+    identify(title || 'Codex', title ? 'provider' : 'local');
   } catch (error) {
     await rpc.dispose();
     if (error instanceof Error && error.name === 'AbortError') throw error;
@@ -916,9 +917,11 @@ export async function createCodexAppServerSession(options: CodexAppServerOptions
         const thread = record(record(item).thread ?? item);
         const id = typeof thread.id === 'string' ? thread.id : '';
         if (!id) return [];
+        const title = typeof thread.title === 'string' && thread.title ? thread.title : typeof thread.preview === 'string' && thread.preview ? thread.preview : id;
         return [{
           id,
-          title: typeof thread.title === 'string' && thread.title ? thread.title : typeof thread.preview === 'string' ? thread.preview : id,
+          title,
+          titleSource: title === id ? 'local' : 'provider',
           updatedAt: typeof thread.updatedAt === 'string' ? thread.updatedAt : '',
           provider: 'codex',
           cwd: options.cwd,

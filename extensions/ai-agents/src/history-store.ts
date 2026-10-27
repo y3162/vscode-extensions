@@ -25,7 +25,7 @@ export class HistoryStore {
     for (const name of names.filter((n) => /^[a-f0-9-]+\.json$/.test(n))) {
       try {
         const value = JSON.parse(await readFile(path.join(this.root, name), 'utf8')) as SavedConversation;
-        if (value.version !== 1 || `${value.id}.json` !== name || !value.state?.selection || !Array.isArray(value.state.messages) || !Array.isArray(value.state.turns) || !value.controls?.backend || typeof value.updatedAt !== 'string' || typeof value.state.selection.cwd !== 'string' || !['cursor', 'codex'].includes(value.state.selection.provider) || !['sdk', 'acp', 'app-server'].includes(value.controls.backend) || !['changes', 'todos', 'sessions', 'subagents', 'terminals'].every((key) => Array.isArray((value.state as unknown as Record<string, unknown>)[key])) || !value.state.plan || !value.state.messages.every((message) => typeof message.id === 'string' && typeof message.text === 'string' && ['user', 'assistant', 'tool', 'status', 'error'].includes(message.role))) throw new Error(`Invalid history record: ${name}`);
+        if (value.version !== 1 || `${value.id}.json` !== name || !value.state?.selection || !Array.isArray(value.state.messages) || !Array.isArray(value.state.turns) || !value.controls?.backend || typeof value.updatedAt !== 'string' || typeof value.state.selection.cwd !== 'string' || !['cursor', 'codex'].includes(value.state.selection.provider) || !['sdk', 'acp', 'app-server', 'cli'].includes(value.controls.backend) || !['changes', 'todos', 'sessions', 'subagents', 'terminals'].every((key) => Array.isArray((value.state as unknown as Record<string, unknown>)[key])) || !value.state.plan || !value.state.messages.every((message) => typeof message.id === 'string' && typeof message.text === 'string' && ['user', 'assistant', 'tool', 'status', 'error'].includes(message.role))) throw new Error(`Invalid history record: ${name}`);
         this.records.set(value.id, value);
       } catch { this.errors.push(`履歴を読み込めませんでした。元ファイルを保持しています: ${name}`); }
     }
@@ -35,6 +35,7 @@ export class HistoryStore {
     return [...this.records.values()].map((r) => ({
       id: r.sessionId ?? r.id, conversationId: r.id, backend: r.controls.backend,
       title: r.state.messages.find((m) => m.role === 'user')?.text.slice(0, 80) || 'Chat',
+      titleSource: 'local',
       updatedAt: r.updatedAt, provider: r.state.selection.provider, cwd: r.state.selection.cwd,
     }));
   }

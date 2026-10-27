@@ -232,6 +232,7 @@ export class Composer {
     this.input.placeholder = revising ? copy.revisePlaceholder : copy.placeholder;
     this.input.setAttribute('aria-label', copy.placeholder);
     this.togglePill(this.mode, shell.showMode, shell.modes.find((mode) => mode.id === shell.mode)?.label ?? shell.mode, copy.mode);
+    this.mode.dataset.mode = shell.mode;
     this.mode.querySelector('.mode-icon')!.className = `codicon codicon-${modeIcons[shell.mode] ?? 'infinity'} mode-icon`;
     if (this.catalog && (this.catalog.provider !== shell.provider || this.catalog.cwd !== shell.cwd)) this.catalog = null;
     const modelText = shell.effortLabel ? `${shell.modelLabel} ${shell.effortLabel}` : shell.modelLabel;
@@ -646,7 +647,7 @@ export class Composer {
       return {
         items: [
           { id: 'status', label: catalog.error || copy.modelCatalogError },
-          { id: 'refresh', label: copy.refreshModels, pinned: true, onSelect: () => this.requestCatalog(true) },
+          { id: 'refresh', label: copy.refreshModels, icon: 'history', pinned: true, onSelect: () => this.requestCatalog(true) },
         ],
       };
     }
@@ -705,7 +706,7 @@ export class Composer {
             || Boolean(model.aliases?.includes(this.buildMenu && this.shell?.planView ? this.shell.planView.buildModelId : catalog.selectedModelId)),
           onSelect: () => this.post({ type: this.buildMenu ? 'setBuildModel' : 'setModel', modelId: model.id }),
         })),
-        { id: 'refresh', label: copy?.refreshModels ?? 'Refresh', pinned: true, onSelect: () => this.requestCatalog(true) },
+        { id: 'refresh', label: copy?.refreshModels ?? 'Refresh', icon: 'history', pinned: true, onSelect: () => this.requestCatalog(true) },
       ],
     };
   }

@@ -1,5 +1,5 @@
 export type Provider = 'codex' | 'cursor';
-export type Backend = 'sdk' | 'acp' | 'app-server';
+export type Backend = 'sdk' | 'acp' | 'app-server' | 'cli';
 export type AgentMode = 'agent' | 'plan' | 'ask';
 export type ModelApplyMode = 'next-send' | 'new-session' | 'unsupported';
 export type SupportedModelApplyMode = Exclude<ModelApplyMode, 'unsupported'>;
@@ -296,6 +296,8 @@ export interface SessionSummary {
   conversationId?: string;
   id: string;
   title: string;
+  /** Whether the title came from the provider's session metadata or local display history. */
+  titleSource?: 'provider' | 'local';
   updatedAt: string;
   provider: Provider;
   cwd?: string;
@@ -323,6 +325,8 @@ export interface AgentSession {
   fork?(): Promise<string | undefined>;
   /** Create a new thread containing only turns strictly before `backendTurnId`. */
   forkBeforeTurn?(backendTurnId: string): Promise<string>;
+  /** Verify that locally saved turns still match the live backend history. */
+  verifyTurnHistory?(backendTurnIds: string[]): Promise<void>;
   /** Switch this live connection to a branch it created, without opening a second writer. */
   activateFork?(branchId: string): void;
   /** A reason when this session cannot safely fork at a turn boundary. */

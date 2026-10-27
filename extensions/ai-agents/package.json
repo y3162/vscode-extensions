@@ -222,19 +222,21 @@
           "type": "string",
           "enum": [
             "sdk",
-            "app-server"
+            "app-server",
+            "cli"
           ],
-          "default": "sdk",
-          "description": "Codex transport. SDK keeps the verified exec path. App Server enables interactive approvals, plan mode, review, and thread management."
+          "default": "cli",
+          "description": "Codex transport. SDK keeps the verified exec path. App Server enables interactive approvals, plan mode, review, and thread management. CLI runs codex exec --json once per turn."
         },
         "ai-agents.cursor.backend": {
           "type": "string",
           "enum": [
             "sdk",
-            "acp"
+            "acp",
+            "cli"
           ],
-          "default": "sdk",
-          "description": "Cursor transport. SDK uses @cursor/sdk. ACP uses the local Cursor CLI for interactive approvals and Ask mode."
+          "default": "cli",
+          "description": "Cursor transport. SDK uses @cursor/sdk. ACP uses the local Cursor CLI protocol for interactive approvals and Ask mode. CLI runs agent --print once per turn."
         },
         "ai-agents.cursor.agentPath": {
           "type": "string",

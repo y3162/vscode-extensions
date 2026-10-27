@@ -3,14 +3,17 @@ import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
 import type { SDKModel } from '@cursor/sdk';
 import { annotateParameter } from '../model-settings.js';
-import type { AgentModel, Provider } from '../types.js';
+import type { AgentModel, Backend, Provider } from '../types.js';
+import { listCursorCliModels } from './cursor-cli.js';
 import { extensionVersion } from '../version.js';
 
 export interface ModelListOptions {
   provider: Provider;
+  backend?: Backend;
   cwd?: string;
   apiKey?: string;
   codexPath?: string;
+  agentPath?: string;
   signal?: AbortSignal;
 }
 
@@ -88,6 +91,9 @@ function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 export async function listModels(options: ModelListOptions): Promise<AgentModel[]> {
   const signal = AbortSignal.any([AbortSignal.timeout(20000), ...(options.signal ? [options.signal] : [])]);
   signal.throwIfAborted();
+  if (options.provider === 'cursor' && options.backend === 'cli') {
+    return listCursorCliModels({ cwd: options.cwd, apiKey: options.apiKey, agentPath: options.agentPath, signal });
+  }
   if (options.provider === 'cursor') {
     const { Cursor } = await import('@cursor/sdk');
     signal.throwIfAborted();

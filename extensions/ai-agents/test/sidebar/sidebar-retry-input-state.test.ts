@@ -70,6 +70,32 @@ test('retry uses the saved expanded prompt and attachments when present', async 
   }
 });
 
+test('resending a completed message creates a new user turn', async () => {
+  resetVscode();
+  const runs: string[] = [];
+  const harness = withSession(async () => ({
+    sessionId: 'resend-completed-session',
+    async run(prompt: string, _signal: AbortSignal, emit: (update: AgentUpdate) => void) {
+      runs.push(prompt);
+      emit({ id: `resend-answer-${runs.length}`, role: 'assistant', text: 'completed', final: true });
+    },
+    async dispose() {},
+  }));
+  try {
+    await harness.sidebar.handleMessage({ type: 'send', provider: 'cursor', cwd: harness.workspacePath, prompt: 'Repeat this' });
+    const first = harness.sidebar.controller.snapshot().messages.find((message) => message.role === 'user');
+    assert.ok(first);
+    await harness.sidebar.handleMessage({ type: 'prepareResend', id: first.id });
+    await harness.sidebar.handleMessage({ type: 'send', provider: 'cursor', cwd: harness.workspacePath, prompt: 'Repeat this' });
+    assert.deepEqual(runs, ['Repeat this', 'Repeat this']);
+    const users = harness.sidebar.controller.snapshot().messages.filter((message) => message.role === 'user');
+    assert.equal(users.length, 2);
+    assert.notEqual(users[0]?.id, users[1]?.id);
+  } finally {
+    await close(harness);
+  }
+});
+
 test('retry without a saved prompt stays blocked until saved attachments are supplied again', async () => {
   resetVscode();
   const runs: Array<{ prompt: string; extras?: SendExtras }> = [];

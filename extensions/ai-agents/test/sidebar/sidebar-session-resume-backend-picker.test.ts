@@ -52,7 +52,7 @@ test('restoring an indexed conversation without a backend safely handles picker 
   try {
     window.quickPickQueue.push(undefined);
     await sidebar.handleMessage({ type: 'restoreSession', id: summary.id });
-    assert.deepEqual(window.quickPickOffers.at(-1), ['sdk', 'app-server']);
+    assert.deepEqual(window.quickPickOffers.at(-1), ['sdk', 'app-server', 'cli']);
     assert.equal(factoryCalls, 0, 'cancel must not construct or resume a backend session');
     assert.equal(sidebar.controller.sessionId(), undefined);
 

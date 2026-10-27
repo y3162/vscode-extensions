@@ -93,6 +93,41 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
       modelSettings: 'next-send',
     };
   }
+  if (provider === 'cursor' && backend === 'cli') {
+    return {
+      provider, backend,
+      modes: [...agentPlan, { id: 'ask', label: 'Ask' }],
+      sandbox: [
+        { id: 'enabled', label: 'Sandbox', description: 'agent --print を --sandbox enabled で起動します。' },
+        { id: 'disabled', label: 'Off', description: 'CLI の --sandbox disabled で起動します。保護は弱くなります。' },
+      ],
+      approval: [],
+      webSearch: [],
+      images: false,
+      sessionList: false,
+      resume: true,
+      fork: false,
+      compact: false,
+      steer: false,
+      interactiveApproval: false,
+      planApproval: false,
+      questions: false,
+      review: false,
+      usage: false,
+      rateLimits: false,
+      mcp: true,
+      skills: true,
+      rules: true,
+      todos: true,
+      subagentTracking: 'none',
+      backgroundTerminals: 'none',
+      plan: 'events',
+      buildModel: 'next-send',
+      networkToggle: false,
+      additionalDirectories: true,
+      modelSettings: 'next-send',
+    };
+  }
   if (provider === 'cursor') {
     return {
       provider, backend: 'sdk',
@@ -170,6 +205,49 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
       subagentTracking: 'observe',
       backgroundTerminals: 'experimental',
       plan: 'events',
+      buildModel: 'next-send',
+      networkToggle: true,
+      additionalDirectories: true,
+      modelSettings: 'next-send',
+    };
+  }
+  if (backend === 'cli') {
+    return {
+      provider: 'codex', backend,
+      modes: [{ id: 'agent', label: 'Agent' }],
+      sandbox: [
+        { id: 'read-only', label: 'Read-only' },
+        { id: 'workspace-write', label: 'Workspace write' },
+        { id: 'danger-full-access', label: 'Full access', description: 'サンドボックスを無効にします。' },
+      ],
+      approval: [
+        { id: 'never', label: 'Never', description: 'codex exec は対話承認を受け取れません。' },
+      ],
+      webSearch: [
+        { id: '', label: 'Default' },
+        { id: 'disabled', label: 'Disabled' },
+        { id: 'cached', label: 'Cached' },
+        { id: 'live', label: 'Live' },
+      ],
+      images: true,
+      sessionList: false,
+      resume: true,
+      fork: false,
+      compact: false,
+      steer: false,
+      interactiveApproval: false,
+      planApproval: false,
+      questions: false,
+      review: false,
+      usage: true,
+      rateLimits: false,
+      mcp: true,
+      skills: true,
+      rules: true,
+      todos: true,
+      subagentTracking: 'none',
+      backgroundTerminals: 'none',
+      plan: 'none',
       buildModel: 'next-send',
       networkToggle: true,
       additionalDirectories: true,

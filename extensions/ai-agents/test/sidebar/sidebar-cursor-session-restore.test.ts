@@ -38,7 +38,7 @@ test('Cursor restore offers its backend choices and cancellation does not create
     await sidebar.handleMessage({ type: 'select', provider: 'cursor', cwd: paths.workspacePath });
     window.quickPickQueue.push(undefined);
     await sidebar.handleMessage({ type: 'restoreSession', id: summary.id });
-    assert.deepEqual(window.quickPickOffers.at(-1), ['sdk', 'acp']);
+    assert.deepEqual(window.quickPickOffers.at(-1), ['sdk', 'acp', 'cli']);
     assert.equal(optionsSeen.length, 0);
     assert.equal(sidebar.controller.sessionId(), undefined);
 

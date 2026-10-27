@@ -286,6 +286,10 @@ test('token usage is visibly rendered with cache semantics, context and unsuppor
   assert.match(window.document.querySelector('.usage-panel pre')!.textContent!, /10.0%/);
   emit(shell({ backend: 'acp', usage: null }));
   assert.match(window.document.querySelector('.usage-panel summary')!.textContent!, /Unsupported/);
+  emit(shell({ provider: 'cursor', backend: 'cli', usage: null }));
+  assert.match(window.document.querySelector('.usage-panel summary')!.textContent!, /Unsupported/);
+  emit(shell({ provider: 'codex', backend: 'cli', usage: null }));
+  assert.match(window.document.querySelector('.usage-panel summary')!.textContent!, /Not reported/);
 });
 
 test('an error card shows the message and does not pretend the copy succeeded', () => {

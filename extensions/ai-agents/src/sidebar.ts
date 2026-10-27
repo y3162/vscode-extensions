@@ -82,8 +82,8 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     const provider = config.get<Provider>('defaultProvider', 'codex');
     const storedControls = context.workspaceState.get<Partial<Record<Provider, AgentControls>>>('ai-agents.controls', {});
     this.controls = {
-      codex: normalizeControls('codex', { ...defaultControls('codex', config.get<Backend>('codex.backend', 'sdk')), ...storedControls.codex }),
-      cursor: normalizeControls('cursor', { ...defaultControls('cursor', config.get<Backend>('cursor.backend', 'sdk')), ...storedControls.cursor }),
+      codex: normalizeControls('codex', { ...defaultControls('codex', config.get<Backend>('codex.backend', 'cli')), ...storedControls.codex }),
+      cursor: normalizeControls('cursor', { ...defaultControls('cursor', config.get<Backend>('cursor.backend', 'cli')), ...storedControls.cursor }),
     };
     this.selectedModels = context.workspaceState.get('ai-agents.selectedModels', {});
     this.dismissedWarning = context.workspaceState.get<string>('ai-agents.dismissedWarning') ?? null;
@@ -276,7 +276,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       tokens: this.controller.interactionTokens(),
       backends: { codex: this.controls.codex.backend, cursor: this.controls.cursor.backend },
     });
-    const rewindable = state.selection.provider === 'codex' && controls.backend === 'app-server' ? this.controller.rewindableTurnIds() : new Set<string>();
+    const rewindable = state.selection.provider === 'codex' && (controls.backend === 'app-server' || controls.backend === 'cli') ? this.controller.rewindableTurnIds() : new Set<string>();
     const messages = state.messages.map((message) => toViewMessage(message, message.role === 'user' && rewindable.has(message.id)));
     for (const view of this.readyViews) {
       const current = this.sync.get(view) ?? { sigs: new Map<string, string>(), revision: 0 };
@@ -357,13 +357,14 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
         catch { void source?.webview.postMessage({ type: 'copyResult', requestId: message.requestId, ok: false }); }
         return;
       }
-      case 'prepareRetry': {
+      case 'prepareRetry':
+      case 'prepareResend': {
         const controller = this.targetController(message);
         const id = 'id' in message && typeof message.id === 'string' ? message.id : '';
         const state = controller.snapshot();
         const user = state.messages.find((m) => m.id === id && m.role === 'user');
         if (!user || state.busy) return;
-        this.retryDraft = { controller, id, text: user.text };
+        this.retryDraft = message.type === 'prepareRetry' ? { controller, id, text: user.text } : undefined;
         const original = controller.retryInput(id);
         const conversationKey = this.registry.entries().find((entry) => entry.controller === controller)?.key;
         const prepared: HostToWebview = {
@@ -454,15 +455,17 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   }
 
   async listAvailableModels(selection = this.controller.snapshot().selection, signal?: AbortSignal): Promise<AgentModel[]> {
+    const config = vscode.workspace.getConfiguration('ai-agents');
     return listModels({
-      provider: selection.provider, cwd: selection.cwd || undefined, signal,
+      provider: selection.provider, backend: this.controls[selection.provider].backend, cwd: selection.cwd || undefined, signal,
       apiKey: await this.context.secrets.get(`ai-agents.${selection.provider}.apiKey`),
-      codexPath: vscode.workspace.getConfiguration('ai-agents').get<string>('codex.executablePath'),
+      codexPath: config.get<string>('codex.executablePath'),
+      agentPath: config.get<string>('cursor.agentPath'),
     });
   }
 
   private cacheKey(selection: Selection): string {
-    return `${selection.provider}\0${selection.cwd}`;
+    return `${selection.provider}\0${this.controls[selection.provider].backend}\0${selection.cwd}`;
   }
 
   private async cachedModels(selection: Selection, refresh = false): Promise<AgentModel[]> {
@@ -891,7 +894,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       ...(mode === 'agent' || mode === 'plan' || mode === 'ask' ? { mode } : {}),
       ...(typeof sandbox === 'string' ? { sandbox } : {}),
       ...(typeof approval === 'string' ? { approval } : {}),
-      ...(backend === 'sdk' || backend === 'acp' || backend === 'app-server' ? { backend } : {}),
+      ...(backend === 'sdk' || backend === 'acp' || backend === 'app-server' || backend === 'cli' ? { backend } : {}),
       ...(typeof network === 'boolean' ? { network } : {}),
       ...(typeof webSearch === 'string' ? { webSearch } : {}),
     });
@@ -1211,7 +1214,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     }
     let backend = savedConversation?.controls.backend ?? summary.backend;
     if (!backend) {
-      backend = await vscode.window.showQuickPick(provider === 'cursor' ? ['sdk', 'acp'] as const : ['sdk', 'app-server'] as const, { title: 'この過去チャットのバックエンドを選択してください' }) as Backend | undefined;
+      backend = await vscode.window.showQuickPick(provider === 'cursor' ? ['sdk', 'acp', 'cli'] as const : ['sdk', 'app-server', 'cli'] as const, { title: 'この過去チャットのバックエンドを選択してください' }) as Backend | undefined;
       if (!backend) return;
     }
     const selection = savedConversation?.state.selection ?? { ...this.controller.snapshot().selection, cwd: summary.cwd ?? this.controller.snapshot().selection.cwd };
@@ -1318,7 +1321,15 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   }
 
   async signIn(): Promise<void> {
-    if (this.controller.snapshot().selection.provider === 'cursor') await vscode.commands.executeCommand('ai-agents.cursorLogin');
+    const provider = this.controller.snapshot().selection.provider;
+    if (provider === 'cursor' && this.controls.cursor.backend === 'cli') {
+      const launch = agentLaunch(vscode.workspace.getConfiguration('ai-agents').get<string>('cursor.agentPath'), ['login']);
+      const terminal = vscode.window.createTerminal('Cursor CLI Login');
+      terminal.sendText(terminalCommand(launch.command, launch.args));
+      terminal.show();
+      return;
+    }
+    if (provider === 'cursor') await vscode.commands.executeCommand('ai-agents.cursorLogin');
     else {
       const terminal = vscode.window.createTerminal('Codex Login');
       terminal.sendText('codex login');
@@ -1334,7 +1345,9 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   async showUsage(): Promise<void> {
     const usage = this.controller.snapshot().usage;
     const limits = await this.controller.currentSession()?.rateLimits?.().catch((error: unknown) => errorMessage(error)) ?? '';
-    const text = [usageText(usage, this.controls[this.controller.snapshot().selection.provider].backend === 'acp' ? '非対応 / Unsupported' : '未取得 / Not reported'), usage ? JSON.stringify(usage, null, 2) : '', limits].filter(Boolean).join('\n');
+    const selection = this.controller.snapshot().selection;
+    const backend = this.controls[selection.provider].backend;
+    const text = [usageText(usage, backend === 'acp' || (selection.provider === 'cursor' && backend === 'cli') ? '非対応 / Unsupported' : '未取得 / Not reported'), usage ? JSON.stringify(usage, null, 2) : '', limits].filter(Boolean).join('\n');
     this.post({ type: 'inspector', title: 'Usage', text });
   }
 
@@ -1394,4 +1407,9 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
 <script nonce="${nonce}" src="${asset('main.js')}"></script>
 </body></html>`;
   }
+}
+
+function terminalCommand(command: string, args: string[]): string {
+  const quote = (part: string) => /^[\w./:@+-]+$/.test(part) ? part : `'${part.replaceAll("'", `'\\''`)}'`;
+  return [command, ...args].map(quote).join(' ');
 }

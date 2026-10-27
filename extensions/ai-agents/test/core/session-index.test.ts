@@ -95,3 +95,27 @@ test('session titles and registry rows keep activity, fallbacks, and the focused
   await errored.dispose();
   await untitled.dispose();
 });;
+
+test('provider titles survive local history and live session updates', () => {
+  const local = { id: 'thread', title: 'Original prompt', titleSource: 'local' as const, updatedAt: 't0', provider: 'codex' as const };
+  const official = { ...local, title: 'Official title', titleSource: 'provider' as const, updatedAt: 't1' };
+  let sessions = upsertSession([local], official);
+  sessions = mergeRegistrySessions(sessions, [{ ...local, title: 'Original prompt again', updatedAt: 't2', activity: 'running' }]);
+  assert.equal(sessions[0]?.title, 'Official title');
+  assert.equal(sessions[0]?.titleSource, 'provider');
+  assert.equal(sessions[0]?.activity, 'running');
+  sessions = upsertSession(sessions, { ...local, title: 'thread', updatedAt: 't3' });
+  assert.equal(sessions[0]?.title, 'Official title');
+  sessions = upsertSession(sessions, { ...official, title: 'Renamed by provider', updatedAt: 't4' });
+  assert.equal(sessions[0]?.title, 'Renamed by provider');
+  const legacy = { id: 'old', title: 'Previously saved title', updatedAt: 't0', provider: 'cursor' as const };
+  assert.equal(upsertSession([legacy], { id: 'old', provider: 'cursor', title: 'First prompt', updatedAt: 't1' })[0]?.title, 'First prompt');
+  assert.equal(upsertSession([legacy], { ...local, id: 'old', provider: 'cursor', title: 'First prompt', titleSource: 'local' })[0]?.title, 'Previously saved title');
+  const cursor = { ...local, id: 'cursor-agent', provider: 'cursor' as const, title: 'First request' };
+  const refreshed = upsertSession([cursor], { ...cursor, title: 'New Agent', titleSource: 'provider' });
+  assert.equal(refreshed[0]?.title, 'First request');
+  assert.equal(refreshed[0]?.titleSource, 'local');
+  const recovered = upsertSession([{ ...cursor, title: 'New Agent' }], { ...cursor, title: 'First request', titleSource: 'local' });
+  assert.equal(recovered[0]?.title, 'First request');
+  assert.equal(recovered[0]?.titleSource, 'local');
+});

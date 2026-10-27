@@ -129,6 +129,7 @@ export class Menu {
 export interface ModelMenuItem {
   id: string;
   label: string;
+  icon?: string;
   valueLabel?: string;
   description?: string;
   searchText?: string;
@@ -331,6 +332,12 @@ export class ModelMenu {
       if (item.toggle || radio) button.setAttribute('aria-checked', item.checked ? 'true' : 'false');
       if (item.submenu) button.setAttribute('aria-haspopup', 'menu');
       button.title = item.description ? `${item.label} — ${item.description}` : item.label;
+      if (item.icon) {
+        const icon = this.dom.icon(item.icon);
+        icon.classList.add('model-menu-icon');
+        icon.setAttribute('aria-hidden', 'true');
+        button.append(icon);
+      }
       button.append(this.dom.el('span', 'menu-label', item.label));
       if (item.valueLabel) button.append(this.dom.el('span', 'menu-value', item.valueLabel));
       if (item.toggle) button.append(this.dom.el('span', item.checked ? 'switch on' : 'switch'));

@@ -164,18 +164,27 @@ test('review baseline snapshots stay inside storage and preserve empty and long-
 test('listCursorSdkSessions uses an injectable published SDK and keeps display metadata', async (t) => {
   const cwd = await directory(t);
   const fake = cursorModule({});
-  const sdk = fake.sdk as unknown as { Agent: { list: (options: unknown) => Promise<{ items: unknown[] }> }; JsonlLocalAgentStore: new (root: string) => unknown };
+  const sdk = fake.sdk as unknown as { Agent: { list: (options: unknown) => Promise<{ items: unknown[] }>; messages: { list: (agentId: string, options: unknown) => Promise<unknown[]> } }; JsonlLocalAgentStore: new (root: string) => unknown };
   let listedOptions: unknown;
   sdk.Agent.list = async (options: unknown) => { listedOptions = options; return { items: [
     { agentId: 'one', name: 'Named', summary: 'summary', lastModified: '2026-01-01T00:00:00Z' },
     { agentId: 'two', name: '', summary: 'fallback', lastModified: '' },
     { agentId: 'three', name: '', summary: '', lastModified: '' },
+    { agentId: 'four', name: 'New Agent', summary: 'Useful summary', lastModified: '' },
+    { agentId: 'five', name: 'New Agent', summary: '', lastModified: '' },
+    { agentId: 'six', name: '', summary: '', lastModified: '' },
   ] }; };
+  sdk.Agent.messages = { async list(agentId: string) {
+    if (agentId === 'six') throw new Error('messages unavailable');
+    return agentId === 'five' ? [{ uuid: 'first', message: { agentConversationTurn: { userMessage: { text: 'First prompt\nDetails' }, steps: [] } } }] : [];
+  } } as never;
   const storagePath = path.join(cwd, 'list');
   const rows = await listCursorSdkSessions({ cwd, storagePath, apiKey: 'key' }, () => sdk as unknown as CursorModule);
   assert.deepEqual(rows.map((row) => [row.id, row.title, row.provider, row.cwd]), [
     ['one', 'Named', 'cursor', cwd], ['two', 'fallback', 'cursor', cwd], ['three', 'three', 'cursor', cwd],
+    ['four', 'Useful summary', 'cursor', cwd], ['five', 'First prompt', 'cursor', cwd], ['six', 'six', 'cursor', cwd],
   ]);
+  assert.deepEqual(rows.map((row) => row.titleSource), ['provider', 'provider', 'local', 'provider', 'local', 'local']);
   assert.equal((listedOptions as { cwd: string }).cwd, cwd);
   assert.equal(typeof (listedOptions as { store?: unknown }).store, 'object');
   assert.equal(rows.every((row) => !Number.isNaN(Date.parse(row.updatedAt))), true);
