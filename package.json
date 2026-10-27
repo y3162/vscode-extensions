@@ -2,7 +2,8 @@
   "name": "vscode-extensions",
   "private": true,
   "workspaces": [
-    "extensions/*"
+    "extensions/*",
+    "!extensions/file-icons"
   ],
   "engines": {
     "node": ">=22.13"

@@ -1,0 +1,74 @@
+name: File Icons Publish
+
+on:
+  push:
+    tags: [file-icons-v*]
+
+permissions:
+  contents: write
+
+defaults:
+  run:
+    working-directory: extensions/file-icons
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: extensions/file-icons/package.json
+
+      - name: Setup node
+        uses: actions/setup-node@v5
+        with:
+          cache: pnpm
+          cache-dependency-path: extensions/file-icons/pnpm-lock.yaml
+          node-version: lts/*
+
+      - name: Install dependencies
+        run: pnpm i --frozen-lockfile
+
+      - name: Lint files
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Integrity
+        run: pnpm integrity
+
+      - name: Build extension
+        id: build
+        run: pnpm build
+
+      - name: Upload binary to GitHub release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: extensions/file-icons/${{ steps.build.outputs.vsixPath }}
+          tag: ${{ github.ref }}
+          body: Please refer to [CHANGELOG.md](https://github.com/catppuccin/vscode-icons/blob/main/CHANGELOG.md) for details.
+          overwrite: true
+
+      - name: Publish to Visual Studio Marketplace
+        uses: haaleo/publish-vscode-extension@v2
+        with:
+          pat: ${{ secrets.VS_MARKETPLACE_TOKEN }}
+          extensionFile: extensions/file-icons/${{ steps.build.outputs.vsixPath }}
+          registryUrl: https://marketplace.visualstudio.com
+          dependencies: false
+
+      - name: Publish to OpenVSX Registry
+        uses: haaleo/publish-vscode-extension@v2
+        continue-on-error: true
+        timeout-minutes: 10
+        with:
+          pat: ${{ secrets.OPEN_VSX_TOKEN }}
+          extensionFile: extensions/file-icons/${{ steps.build.outputs.vsixPath }}

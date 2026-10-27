@@ -37,7 +37,7 @@ npm run test:tools            # 一時ディレクトリでの実ツール・承
 npm run package               # 実行環境のOS/CPU向けVSIXを作成
 ```
 
-ローカルのVS Codeへビルドしてインストールする場合は `./install.sh` を実行します。Cursorを使う場合は `./install.sh --editor cursor` を指定してください。Node.js 22.13以降と、対象エディターのCLI（`code` または `cursor`）が必要です。
+ローカルのVS Codeへビルドしてインストールする場合は、対象拡張の `install.sh` を実行します。AI Agentsは `extensions/ai-agents/install.sh`、File Iconsは `extensions/file-icons/install.sh` です。Cursorを使う場合は `--editor cursor` を付けてください。AI Agentsには Node.js 22.13以降と npm、File Iconsには Node.js 20以降と pnpm（未導入なら corepack）、および対象エディターのCLI（`code` または `cursor`）が必要です。
 
 `npm run test:integration` はmacOSではインストール済みのVS Codeを使用し、それ以外はテスト用VS Codeをダウンロードします。`VSCODE_EXECUTABLE_PATH` でも実行ファイルを指定できます。ユーザー設定・拡張機能と作業ファイルはテスト専用の一時ディレクトリに分離します。
 

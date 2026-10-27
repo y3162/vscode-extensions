@@ -23,6 +23,9 @@ export async function run(): Promise<void> {
   const mockPath = join(cwd, 'mock-codex.cjs');
   await chmod(mockPath, 0o755);
   await config.update('codex.executablePath', mockPath, vscode.ConfigurationTarget.Global);
+  // This host checks Codex SDK argv (`--model`, resume). CLI is the product default.
+  await config.update('codex.backend', 'sdk', vscode.ConfigurationTarget.Global);
+  await config.update('cursor.backend', 'sdk', vscode.ConfigurationTarget.Global);
   const extension = vscode.extensions.getExtension<{ sidebar: AgentsSidebar }>('y3162.ai-agents');
   assert.ok(extension, 'Extension is discoverable');
   const expectedExtensionPath = process.env.AI_AGENTS_EXPECTED_EXTENSION_PATH;

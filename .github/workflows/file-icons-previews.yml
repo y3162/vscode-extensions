@@ -1,0 +1,52 @@
+name: File Icons Previews
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - extensions/file-icons/icons/**
+      - extensions/file-icons/scripts/icons/preview.ts
+      - extensions/file-icons/scripts/catwalk.ts
+    tags-ignore: [v*]
+
+defaults:
+  run:
+    working-directory: extensions/file-icons
+
+jobs:
+  generate-previews:
+    name: Generate Previews
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: extensions/file-icons/package.json
+
+      - name: Setup node
+        uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+
+      - name: Setup catppuccin/catwalk
+        uses: catppuccin/setup-catwalk@v1.0.0
+
+      - name: Install dependencies
+        run: pnpm i --frozen-lockfile
+
+      - name: Generate Previews
+        run: pnpm previews
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          title: 'chore: re-generate previews'
+          commit-message: 'chore: re-generate previews'
+          branch: chore/re-generate-previews
+          delete-branch: true
+          add-paths: |
+            extensions/file-icons/assets/*

@@ -1,0 +1,64 @@
+name: File Icons
+
+on:
+  push:
+    branches: [main]
+    tags-ignore: [v*]
+    paths:
+      - extensions/file-icons/**
+      - .github/workflows/file-icons.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - extensions/file-icons/**
+      - .github/workflows/file-icons.yml
+
+defaults:
+  run:
+    working-directory: extensions/file-icons
+
+env:
+  PUPPETEER_SKIP_DOWNLOAD: true
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: extensions/file-icons/package.json
+
+      - name: Setup node
+        uses: actions/setup-node@v5
+        with:
+          cache: pnpm
+          cache-dependency-path: extensions/file-icons/pnpm-lock.yaml
+          node-version: lts/*
+
+      - name: Install dependencies
+        run: pnpm i --frozen-lockfile
+
+      - name: Lint files
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Integrity
+        run: pnpm integrity
+
+      - name: Build extension
+        id: build
+        run: pnpm build
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.vsixPath }}
+          path: extensions/file-icons/${{ steps.build.outputs.vsixPath }}
