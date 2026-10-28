@@ -23,7 +23,7 @@ function deferred<T>() {
 function withFactory(factory: (options: SessionOptions) => Promise<AgentSession>): Harness {
   const paths = prepareHarnessRoot();
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, factory as never);
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, factory as never);
   return { ...paths, sidebar, output };
 }
 
@@ -31,52 +31,6 @@ async function close(harness: Harness): Promise<void> {
   await harness.sidebar.dispose().catch(() => undefined);
   rmSync(harness.root, { recursive: true, force: true });
 }
-
-test('a model confirmation accepted after newChat cannot write the old choice into the replacement front', async () => {
-  resetVscode();
-  const harness = withFactory(async () => ({
-    sessionId: 'round13-confirm-session',
-    async run(_prompt: string, _signal: AbortSignal, emit: (update: AgentUpdate) => void) {
-      emit({ id: 'round13-confirm-answer', role: 'assistant', text: 'existing conversation', final: true });
-    },
-    async dispose() {},
-  }));
-  const model: AgentModel = { id: 'round13-confirmed-model', label: 'Confirmed model' };
-  harness.sidebar.listAvailableModels = async () => [model];
-  const warningShown = deferred<void>();
-  const decision = deferred<string | undefined>();
-  const originalWarning = window.showWarningMessage;
-  window.showWarningMessage = ((message: string) => {
-    window.warningMessages.push(message);
-    warningShown.resolve();
-    return decision.promise as never;
-  }) as typeof window.showWarningMessage;
-  try {
-    await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: 'preserve old conversation' });
-    const oldController = harness.sidebar.controller;
-    const oldState = oldController.snapshot();
-    const choosing = harness.sidebar.handleMessage({ type: 'setModel', modelId: model.id });
-    await warningShown.promise;
-    assert.match(window.warningMessages.at(-1) ?? '', /new session/i);
-
-    await harness.sidebar.handleMessage({ type: 'newChat' });
-    const replacement = harness.sidebar.controller;
-    decision.resolve('Start new session');
-    await choosing;
-
-    assert.notEqual(replacement, oldController);
-    assert.equal(replacement.snapshot().selection.model, '');
-    assert.equal(replacement.snapshot().messages.length, 0);
-    assert.equal(replacement.hasSession(), false);
-    assert.equal(oldController.snapshot().selection.model, '');
-    assert.deepEqual(oldController.snapshot().messages, oldState.messages);
-    assert.equal(harness.context.workspaceState.get('ai-agents.selectedModels'), undefined);
-  } finally {
-    window.showWarningMessage = originalWarning;
-    decision.resolve(undefined);
-    await close(harness);
-  }
-});
 
 test('a delayed Cursor model update remains owned by its original conversation after the front changes', async () => {
   resetVscode();

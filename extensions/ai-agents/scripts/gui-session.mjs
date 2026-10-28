@@ -113,7 +113,7 @@ async function start() {
     sharedData: join(root, 'profile', 'shared-data'), home: join(root, 'isolated-home'),
     codexHome: join(root, 'isolated-home', '.codex'), cursorHome: join(root, 'isolated-home', '.cursor'),
     cache: join(root, 'vscode-cache'), tmp: join(root, 'tmp'), fixtureBin: join(root, 'fixture-bin'),
-    mockExecutable: join(root, 'fixture-bin', 'codex-app-server'),
+    mockExecutable: join(root, 'fixture-bin', 'codex-cli'),
   };
   const manifest = JSON.parse(await readFile(join(paths.extension, 'package.json'), 'utf8'));
   const receipt = {
@@ -134,14 +134,14 @@ async function start() {
   const receiptPath = join(root, 'session.json');
   await Promise.all(Object.entries(paths).filter(([key, value]) => value && key !== 'extension' && key !== 'mockExecutable').map(([, value]) => mkdir(value, { recursive: true })));
   const shellQuote = (value) => `'${value.replaceAll("'", `'"'"'`)}'`;
-  await writeFile(paths.mockExecutable, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(join(paths.extension, 'test/fixtures/mock-app-server.cjs'))} "$@"\n`, { mode: 0o755 });
+  await writeFile(paths.mockExecutable, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(join(paths.extension, 'test/fixtures/mock-codex.cjs'))} "$@"\n`, { mode: 0o755 });
   await mkdir(join(paths.userData, 'User'), { recursive: true });
   await writeFile(join(paths.userData, 'User', 'settings.json'), `${JSON.stringify({
     // executablePath has machine scope, so VS Code ignores it in workspace settings.
     'ai-agents.codex.executablePath': paths.mockExecutable,
   }, null, 2)}\n`);
   await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
-  const mockBackend = resolve(extensionRoot, 'test/fixtures/mock-app-server.cjs');
+  const mockBackend = resolve(extensionRoot, 'test/fixtures/mock-codex.cjs');
   const mockRuntime = resolve(extensionRoot, 'test/fixtures/synthetic-runtime.cjs');
   await access(mockBackend); await access(mockRuntime);
   await writeFile(join(paths.workspace, 'README.md'), '# Isolated AI Agents GUI acceptance workspace\n\nDisposable synthetic workspace. No user source files or credentials are copied here.\n');
@@ -151,11 +151,10 @@ async function start() {
     'workbench.colorTheme': 'Dark Modern',
     'ai-agents.history.enabled': true,
     'ai-agents.defaultProvider': 'codex',
-    'ai-agents.codex.backend': 'app-server',
     'ai-agents.autoApprove': false,
   }, null, 2)}\n`);
   await writeFile(join(paths.workspace, '.ai-agents-gui-session.json'), JSON.stringify({
-    fixture: 'deterministic-mock-app-server', mockBackend, mockRuntime, mockExecutable: paths.mockExecutable, credentialsCopied: false,
+    fixture: 'deterministic-mock-cli', mockBackend, mockRuntime, mockExecutable: paths.mockExecutable, credentialsCopied: false,
   }, null, 2));
 
   let executable;

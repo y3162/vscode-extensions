@@ -96,7 +96,7 @@ async function close(harness: Harness): Promise<void> {
 function openSidebarWithFactory(factory: (options: SessionOptions) => Promise<AgentSession>): Harness {
   const paths = prepareHarnessRoot();
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, factory as never);
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, factory as never);
   return { ...paths, sidebar, output };
 }
 
@@ -133,40 +133,6 @@ test('refreshSessions merges backend results and retains existing sessions when 
   }
 });
 
-test('refreshSessions merges Cursor SDK store entries and preserves them if the store later fails', async () => {
-  resetVscode();
-  let fail = false;
-  let receivedCwd = '';
-  const paths = prepareHarnessRoot();
-  const output = window.createOutputChannel('AI Agents');
-  const storedSession: SessionSummary = {
-    id: 'cursor-store-session', title: 'from local store', updatedAt: '2026-10-17T01:00:00.000Z',
-    provider: 'cursor', cwd: paths.workspacePath,
-  };
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, async (options) => {
-    receivedCwd = options.cwd;
-    if (fail) throw new Error('synthetic Cursor store failure');
-    return [storedSession];
-  });
-  const harness: Harness = { ...paths, sidebar, output };
-  const view = createView();
-  try {
-    await ready(sidebar, view);
-    await sidebar.handleMessage({ type: 'select', provider: 'cursor', cwd: paths.workspacePath });
-    await sidebar.handleMessage({ type: 'refreshSessions' });
-    assert.equal(receivedCwd, paths.workspacePath);
-    assert.deepEqual(sidebar.controller.snapshot().sessions.map((item) => item.id), ['cursor-store-session']);
-    assert.deepEqual(harness.context.workspaceState.get<SessionSummary[]>('ai-agents.sessionIndex')?.map((item) => item.id), ['cursor-store-session']);
-
-    fail = true;
-    await sidebar.handleMessage({ type: 'refreshSessions' });
-    assert.deepEqual(sidebar.controller.snapshot().sessions.map((item) => item.id), ['cursor-store-session']);
-    assert.ok(output.lines.some((line) => line.includes('synthetic Cursor store failure')));
-  } finally {
-    await close(harness);
-  }
-});
-
 test('the normal controller factory passes execution controls and records background session identity safely', async () => {
   resetVscode();
   let options: SessionOptions | undefined;
@@ -179,7 +145,7 @@ test('the normal controller factory passes execution controls and records backgr
     await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: 'start provider session' });
     assert.equal(options?.provider, 'codex');
     assert.equal(options?.cwd, harness.workspacePath);
-    assert.equal(options?.backend, 'sdk');
+    assert.equal(options?.backend, 'cli');
     assert.equal(options?.sandbox, 'workspace-write');
     assert.equal(options?.approval, 'never');
     assert.equal(options?.codexPath, '/usr/bin/false');
@@ -197,11 +163,11 @@ test('the normal controller factory passes execution controls and records backgr
     options?.onIdentity?.(summary);
     await settle();
 
-    assert.ok(backgroundController.snapshot().sessions.some((item) => item.id === 'identity-thread' && item.backend === 'sdk'));
+    assert.ok(backgroundController.snapshot().sessions.some((item) => item.id === 'identity-thread' && item.backend === 'cli'));
     assert.ok(harness.sidebar.controller.snapshot().sessions.some((item) => item.id === 'identity-thread'));
     const persisted = harness.context.workspaceState.get<SessionSummary[]>('ai-agents.sessionIndex') ?? [];
     const saved = persisted.find((item) => item.id === 'identity-thread');
-    assert.equal(saved?.backend, 'sdk');
+    assert.equal(saved?.backend, 'cli');
     assert.ok(saved?.conversationId);
     assert.ok(saved?.cwd === harness.workspacePath);
   } finally {

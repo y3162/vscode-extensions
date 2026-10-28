@@ -22,7 +22,7 @@ function withSession(factory?: () => Promise<AgentSession>): Harness {
     },
     async dispose() {},
   }));
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, sessionFactory as never);
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, sessionFactory as never);
   return { ...paths, sidebar, output };
 }
 

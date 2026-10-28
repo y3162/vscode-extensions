@@ -18,8 +18,8 @@ test('settings and interaction routes preserve validated approval and resolve on
   const harness = openSidebar();
   try {
     await harness.sidebar.handleMessage({ type: 'configure', backend: 'app-server', approval: 'on-request' });
-    assert.equal(harness.context.workspaceState.get<Record<string, { backend: string; approval: string }>>('ai-agents.controls')?.codex?.backend, 'app-server');
-    assert.equal(harness.context.workspaceState.get<Record<string, { backend: string; approval: string }>>('ai-agents.controls')?.codex?.approval, 'on-request');
+    assert.equal(harness.context.workspaceState.get<Record<string, { backend: string; approval: string }>>('ai-agents.controls')?.codex?.backend, 'cli');
+    assert.equal(harness.context.workspaceState.get<Record<string, { backend: string; approval: string }>>('ai-agents.controls')?.codex?.approval, 'never');
 
     const permission = harness.sidebar.controller.interactions.requestPermission({ id: 'late-permission', title: 'Write file', detail: 'notes.md', kind: 'write' });
     await new Promise((resolve) => setImmediate(resolve));

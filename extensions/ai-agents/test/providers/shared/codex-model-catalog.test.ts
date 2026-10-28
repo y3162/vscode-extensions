@@ -1,4 +1,3 @@
-import '../../support/register-cursor-models-sdk.mjs';
 
 import assert from 'node:assert/strict';
 
@@ -16,7 +15,7 @@ import path from 'node:path';
 
 import { mock, test } from 'node:test';
 
-import { codexModel, cursorModels, listModels } from '../../../src/providers/models.js';
+import { codexModel, listModels } from '../../../src/providers/models.js';
 
 async function withEnv(values: Record<string, string | undefined>, action: () => Promise<void>): Promise<void> {
   const previous = new Map(Object.keys(values).map((key) => [key, process.env[key]]));

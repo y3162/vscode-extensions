@@ -511,8 +511,6 @@ function defaultConfiguration(): Record<string, Record<string, unknown>> {
   return {
     'ai-agents': {
       defaultProvider: 'codex',
-      'codex.backend': 'sdk',
-      'cursor.backend': 'sdk',
       'codex.model': '',
       'cursor.model': 'auto',
       autoApprove: false,

@@ -3,7 +3,7 @@ import { test, type TestContext } from 'node:test';
 import { chmod, cp, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { codexModel, cursorModels, listModels } from '../../../src/providers/models.js';
+import { codexModel, listModels } from '../../../src/providers/models.js';
 
 async function fixture(t: TestContext, mode = '') {
   const cwd = await mkdtemp(join(tmpdir(), 'ai-agents-models-'));
@@ -33,43 +33,6 @@ test('closing a waiting model picker aborts discovery instead of leaving a subpr
   const abort = new AbortController();
   abort.abort();
   await assert.rejects(listModels({ ...options, signal: abort.signal }), { name: 'AbortError' });
-});
-
-test('Cursor effort, context, and speed combinations produce one base-model row', () => {
-  const models = cursorModels([{
-    id: 'fixture-model', displayName: 'Fixture Model',
-    parameters: [
-      { id: 'effort', displayName: 'Effort', values: [{ value: 'low' }, { value: 'high' }] },
-      { id: 'context', displayName: 'Context size', values: [{ value: '200k' }, { value: '1m' }] },
-      { id: 'fast', values: [{ value: 'false' }, { value: 'true' }] },
-    ],
-    variants: [
-      { displayName: 'Fixture Model Low 200K', params: [{ id: 'effort', value: 'low' }, { id: 'context', value: '200k' }] },
-      { displayName: 'Fixture Model High 1M', isDefault: true, params: [{ id: 'effort', value: 'high' }, { id: 'context', value: '1m' }] },
-    ],
-  }]);
-  assert.equal(models.length, 1);
-  assert.equal(models[0]?.label, 'Fixture Model');
-  assert.deepEqual(models[0]?.defaultParams, [{ id: 'effort', value: 'high' }, { id: 'context', value: '1m' }, { id: 'fast', value: 'false' }]);
-  assert.deepEqual(models[0]?.parameters?.[1], {
-    id: 'context', label: 'Context size', role: 'context', presentation: 'menu', defaultValue: '1m', values: [
-      { value: '200k', label: '200K' }, { value: '1m', label: '1M' },
-    ],
-  });
-  assert.equal(models[0]?.parameters?.[2]?.presentation, 'toggle');
-  assert.equal(models[0]?.parameters?.[0]?.role, 'effort');
-  assert.equal(models[0]?.presets?.length, 2);
-});
-
-test('different model versions remain separate even when the SDK shares aliases', () => {
-  const models = cursorModels([
-    { id: 'fixture-v1', displayName: 'Fixture 1', aliases: ['fixture', 'fixture-one'] },
-    { id: 'fixture-v2', displayName: 'Fixture 2', aliases: ['fixture', 'fixture-two'] },
-    { id: 'fixture-v2', displayName: 'Fixture 2', aliases: ['fixture', 'fixture-two'] },
-  ]);
-  assert.deepEqual(models.map((model) => model.id), ['fixture-v1', 'fixture-v2']);
-  assert.deepEqual(models[0]?.aliases, ['fixture-one']);
-  assert.deepEqual(models[1]?.aliases, ['fixture-two']);
 });
 
 test('Codex keeps effort capabilities on one model entry for a separate detail control', () => {

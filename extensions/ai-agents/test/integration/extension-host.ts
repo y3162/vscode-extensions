@@ -23,9 +23,6 @@ export async function run(): Promise<void> {
   const mockPath = join(cwd, 'mock-codex.cjs');
   await chmod(mockPath, 0o755);
   await config.update('codex.executablePath', mockPath, vscode.ConfigurationTarget.Global);
-  // This host checks Codex SDK argv (`--model`, resume). CLI is the product default.
-  await config.update('codex.backend', 'sdk', vscode.ConfigurationTarget.Global);
-  await config.update('cursor.backend', 'sdk', vscode.ConfigurationTarget.Global);
   const extension = vscode.extensions.getExtension<{ sidebar: AgentsSidebar }>('y3162.ai-agents');
   assert.ok(extension, 'Extension is discoverable');
   const expectedExtensionPath = process.env.AI_AGENTS_EXPECTED_EXTENSION_PATH;
@@ -121,8 +118,8 @@ export async function run(): Promise<void> {
   assert.equal(state.messages.filter((message) => message.role === 'assistant').length, 2);
   assert.ok(state.messages.some((message) => message.role === 'tool' && message.text.includes('fixture content')));
   const invocations = JSON.parse(await readFile(join(cwd, 'invocations.json'), 'utf8')) as { args: string[] }[];
-  assert.ok(invocations[1]?.args.includes('resume'), 'The second turn resumes the SDK thread');
-  console.log('PASS: sidebar → Codex SDK → subprocess → responses, tool output, and follow-up');
+  assert.ok(invocations[1]?.args.includes('resume'), 'The second turn resumes the CLI thread');
+  console.log('PASS: sidebar → Codex CLI → subprocess → responses, tool output, and follow-up');
 
   const contextOwner = sidebar.controller;
   const preparingContext = send('/diff CONTEXT_OWNER_RACE');
@@ -193,7 +190,7 @@ export async function run(): Promise<void> {
   assert.ok(sidebar.controller.snapshot().messages.some((message) => message.role === 'assistant' && message.text.includes('queued follow-up')));
   await sidebar.newChat();
   assert.deepEqual(sidebar.controller.snapshot().messages, []);
-  console.log('PASS: Stop terminates a running SDK subprocess; a queued prompt survives Stop and can be sent; New Chat clears the conversation');
+  console.log('PASS: Stop terminates a running CLI subprocess; a queued prompt survives Stop and can be sent; New Chat clears the conversation');
 
   const background = send('WAIT_FOR_STOP');
   await until(() => sidebar.controller.snapshot().busy && Boolean(sidebar.controller.sessionId()));
@@ -227,8 +224,8 @@ export async function run(): Promise<void> {
   await send('use the selected model');
   const selectedInvocations = JSON.parse(await readFile(join(cwd, 'invocations.json'), 'utf8')) as { args: string[] }[];
   const selectedArgs = selectedInvocations.at(-1)!.args;
-  assert.equal(selectedArgs[selectedArgs.indexOf('--model') + 1], 'fixture-model');
-  console.log('PASS: models are discovered, chosen in the native picker, and passed to the SDK');
+  assert.equal(selectedArgs[selectedArgs.indexOf('-m') + 1], 'fixture-model');
+  console.log('PASS: models are discovered, chosen in the native picker, and passed to the CLI');
 
   const beforeCancel = sidebar.controller.snapshot();
   const cancelledPicker = sidebar.selectModel();
@@ -262,7 +259,7 @@ export async function run(): Promise<void> {
   await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
   await configuring;
   assert.deepEqual(sidebar.controller.snapshot().selection.modelParams, [{ id: 'modelReasoningEffort', value: 'low' }]);
-  assert.deepEqual(sidebar.controller.snapshot().messages, []);
+  assert.ok(sidebar.controller.snapshot().messages.length > 0);
   const beforeUnsupported = sidebar.controller.snapshot().selection;
   await sidebar.handleMessage({ type: 'setModelParam', id: 'context', value: '1m' });
   assert.deepEqual(sidebar.controller.snapshot().selection, beforeUnsupported);
@@ -271,7 +268,7 @@ export async function run(): Promise<void> {
   await send('use the configured effort');
   const configured = JSON.parse(await readFile(join(cwd, 'invocations.json'), 'utf8')) as { args: string[] }[];
   assert.ok(configured.at(-1)!.args.some((arg) => arg.includes('model_reasoning_effort') && arg.includes('medium')));
-  console.log('PASS: detail changes apply atomically and Codex SDK forwards the selected effort');
+  console.log('PASS: detail changes apply atomically and Codex CLI forwards the selected effort');
 
   const beforeDetailsCancel = sidebar.controller.snapshot();
   const cancellingDetails = sidebar.configureModel();
@@ -309,35 +306,12 @@ export async function run(): Promise<void> {
   assert.ok(vscode.window.tabGroups.all.flatMap((group) => group.tabs).some((tab) => tab.label.includes('note.txt')));
   await sidebar.handleMessage({ type: 'revertFile', path: note });
   assert.equal(await readFile(note, 'utf8'), 'original\n');
-  const appServer = join(cwd, 'mock-app-server.cjs');
-  await chmod(appServer, 0o755);
-  await config.update('codex.executablePath', appServer, vscode.ConfigurationTarget.Global);
-  await sidebar.handleMessage({ type: 'configure', backend: 'app-server' });
-  const approving = send('NEED_APPROVAL');
-  await until(() => sidebar.controller.snapshot().pendingPermission?.title === 'npm test');
-  const token = sidebar.controller.interactionTokens().permission;
-  assert.ok(token);
-  await sidebar.handleMessage({ type: 'resolvePermission', id: sidebar.controller.snapshot().pendingPermission?.id, decision: 'allow-once', token });
-  await approving;
-  assert.ok(sidebar.controller.snapshot().messages.some((message) => message.text.includes('approved:accept')));
-  const terminalOwner = sidebar.controller;
-  await send('BACKGROUND');
-  assert.equal(terminalOwner.snapshot().terminals.length, 1);
-  const terminalSession = terminalOwner.sessionId();
-  await sidebar.newChat();
-  assert.notEqual(sidebar.controller, terminalOwner, 'New Chat must retain an idle parent with a live terminal');
-  await sidebar.handleMessage({ type: 'restoreSession', id: terminalSession });
-  assert.equal(sidebar.controller, terminalOwner);
-  await until(() => terminalOwner.snapshot().terminals.length === 0);
-  assert.ok(terminalOwner.snapshot().messages.some((message) => message.tool?.exitCode === 0 && message.text.includes('stdout done')));
-  await config.update('codex.executablePath', mockPath, vscode.ConfigurationTarget.Global);
-  await sidebar.handleMessage({ type: 'configure', backend: 'sdk' });
   await vscode.commands.executeCommand('ai-agents.showHistory');
   await until(async () => (await sidebar.probe()).history);
   const probed = await sidebar.probe();
   assert.equal(probed.history, true);
   assert.equal(typeof probed.turns, 'number');
-  console.log('PASS: provider switch, history, sandbox reset, diff revert, approval token, and webview probe');
+  console.log('PASS: provider switch, history, sandbox reset, diff revert and webview probe');
 
   assert.equal(config.get<number>('maxBackgroundSessions', 3), 3);
   await config.update('maxBackgroundSessions', 1, vscode.ConfigurationTarget.Global);
@@ -388,83 +362,9 @@ export async function run(): Promise<void> {
     } finally { clearTimeout(timer); }
   }
 
-  if (process.env.AI_AGENTS_LIVE_RUNTIME === '1') {
-    const { Agent, JsonlLocalAgentStore } = createRequire(join(extension.extensionPath, 'package.json'))('@cursor/sdk') as typeof import('@cursor/sdk');
-    const agent = await Agent.create({ model: { id: 'composer-2.5' }, local: { cwd, store: new JsonlLocalAgentStore(join(cwd, 'sdk-host-store')), sandboxOptions: { enabled: true }, settingSources: [] } });
-    try {
-      const run = await agent.send('Explicit verification: use Task to launch two independent children concurrently. Each child must run a shell command printing its name, sleeping 3 seconds, then printing done. No file changes. Return actual results. Do not simulate children.');
-      const deadline = setTimeout(() => { void run.cancel(); }, 90000);
-      try {
-        const tasks: { id: string; status: string }[] = [];
-        for await (const event of run.stream()) if (event.type === 'tool_call' && event.name.toLowerCase() === 'task') tasks.push({ id: event.call_id, status: event.status });
-        const result = await run.wait();
-        console.log('SDK_HOST_RUNTIME', JSON.stringify({ node: process.versions.node, status: result.status, error: result.error ? errorMessage(new Error(result.error.message)) : undefined, tasks }));
-      } finally { clearTimeout(deadline); }
-    } catch (error) { console.log('SDK_HOST_LIMITATION', process.versions.node, errorMessage(error)); }
-    finally { await agent[Symbol.asyncDispose](); }
-  }
-
-  if (process.env.AI_AGENTS_TERMINAL_UI_HOLD === '1') {
-    await sidebar.newChat();
-    await sidebar.handleMessage({ type: 'select', provider: 'cursor', cwd });
-    await sidebar.handleMessage({ type: 'configure', backend: 'sdk' });
-    await sidebar.handleMessage({ type: 'setModel', modelId: 'composer-2.5' });
-    await sidebar.openPanel('chat');
-    await sidebar.handleMessage({ type: 'send', provider: 'cursor', cwd, prompt: 'Use the Shell tool native background mode with block_until_ms 0 to run exactly: python3 -u -c \'import time; print("TERMINAL_UI_READY",flush=True); time.sleep(45)\'. Do not use & or nohup. Return immediately, do not poll or wait. No file changes.' });
-    assert.ok(sidebar.controller.snapshot().terminals.length);
-    console.log('TERMINAL_GUI_READY', JSON.stringify(sidebar.controller.snapshot().terminals.map(({ command, status }) => ({ command, status }))));
-    await new Promise((resolve) => setTimeout(resolve, 55000));
-  }
-
-  if (process.env.AI_AGENTS_UI_HOLD === '1') {
-    createGitFixture(cwd);
-    snapshotGitFixture(cwd);
-    await config.update('codex.executablePath', '', vscode.ConfigurationTarget.Global);
-    await sidebar.handleMessage({ type: 'configure', backend: 'app-server', mode: 'plan', sandbox: 'workspace-write', approval: 'never' });
-    await sidebar.handleMessage({ type: 'loadModelCatalog', refresh: true, requestId: 990 });
-    await sidebar.handleMessage({ type: 'setModel', modelId: 'gpt-6-luna' });
-    await sidebar.controller.send('Create a concise plan to change note.txt to hello followed by a newline. Do not edit or implement. Stop after the plan.');
-    await vscode.commands.executeCommand('ai-agents.open');
-    console.log('UI_HOST_READY', cwd);
-    await until(async () => { try { await readFile(join(cwd, 'ui-done')); return true; } catch { return false; } }, 1200000);
-  }
-  if (process.env.AI_AGENTS_REWIND_UI_HOLD === '1') {
-    createGitFixture(cwd);
-    snapshotGitFixture(cwd);
-    const useMock = process.env.AI_AGENTS_REWIND_UI_MOCK === '1';
-    await config.update('codex.executablePath', useMock ? join(cwd, 'mock-app-server.cjs') : '', vscode.ConfigurationTarget.Global);
-    await sidebar.handleMessage({ type: 'configure', backend: 'app-server', mode: 'agent', sandbox: 'workspace-write', approval: 'never' });
-    if (!useMock) {
-      await sidebar.handleMessage({ type: 'loadModelCatalog', refresh: true, requestId: 991 });
-      await sidebar.handleMessage({ type: 'setModel', modelId: 'gpt-6-luna' });
-    }
-    await sidebar.controller.send('touch a.txt');
-    await sidebar.controller.send('write abcd into a.txt');
-    assert.equal(await readFile(join(cwd, 'a.txt'), 'utf8'), 'abcd');
-    const oldTargetTurnId = sidebar.controller.snapshot().turns[1]?.id;
-    const oldSessionId = sidebar.controller.sessionId();
-    assert.ok(oldTargetTurnId);
-    Object.defineProperty(vscode.window, 'showWarningMessage', {
-      configurable: true,
-      value: async (message: string, _options: { modal?: boolean }, ...items: string[]) =>
-        vscode.window.showQuickPick(items, { title: 'Confirm rewind', placeHolder: message }),
-    });
-    await sidebar.openPanel('chat');
-    await vscode.commands.executeCommand('ai-agents.open');
-    console.log('REWIND_GUI_READY', cwd);
-    await until(async () => { try { await readFile(join(cwd, 'ui-done')); return true; } catch { return false; } }, 1200000);
-    assert.equal(await readFile(join(cwd, 'a.txt'), 'utf8'), '1234');
-    const state = sidebar.controller.snapshot();
-    assert.deepEqual(state.messages.filter((item) => item.role === 'user').map((item) => item.text), ['touch a.txt', 'write 1234 into a.txt']);
-    assert.equal(state.messages.some((item) => item.id.startsWith(`${oldTargetTurnId}:`)), false);
-    assert.equal(state.turns.length, 2);
-    assert.notEqual(sidebar.controller.sessionId(), oldSessionId);
-    console.log('PASS: real Extension Development Host edited a prompt, branched history, and restored the file checkpoint');
-  }
   if (process.env.AI_AGENTS_GUI_MOCK_HOLD === '1') {
     await sidebar.newChat();
     await sidebar.handleMessage({ type: 'select', provider: 'codex', cwd });
-    await sidebar.handleMessage({ type: 'configure', backend: 'sdk' });
     await send('GUI fixture: 日本語 copy and session restore');
     await sidebar.openPanel('chat');
     const clipboardBefore = await vscode.env.clipboard.readText();
@@ -475,42 +375,6 @@ export async function run(): Promise<void> {
     } finally { await vscode.env.clipboard.writeText(clipboardBefore); }
     console.log('GUI_MOCK_READY', cwd);
     await until(async () => { try { await readFile(join(cwd, 'ui-done')); return true; } catch { return false; } }, 1200000);
-  }
-  if (process.env.AI_AGENTS_SUBAGENT_GUI_HOLD === '1') {
-    createGitFixture(cwd);
-    snapshotGitFixture(cwd);
-    await config.update('codex.executablePath', join(cwd, 'mock-app-server.cjs'), vscode.ConfigurationTarget.Global);
-    await sidebar.newChat();
-    await sidebar.handleMessage({ type: 'select', provider: 'codex', cwd, model: 'gpt-6-luna' });
-    await sidebar.handleMessage({ type: 'configure', backend: 'app-server', mode: 'agent', sandbox: 'workspace-write', approval: 'never' });
-    await sidebar.openPanel('chat');
-    const pending = sidebar.controller.send('SUBAGENT_GUI_STAGED');
-    console.log('SUBAGENT_GUI_READY', cwd);
-    const stagedStates = async () => {
-      await until(async () => { try { await readFile(join(cwd, 'gui-child-a.done')); return true; } catch { return false; } }, 600000);
-      await until(() => sidebar.controller.snapshot().subagents.find((child) => child.id === 'gui-child-a')?.status === 'completed', 30000);
-      let state = sidebar.controller.snapshot();
-      assert.equal(state.busy, true, 'the parent must still be running while child B is active');
-      assert.ok(state.subagentWaiting, 'the explicit parent wait must remain active');
-      assert.equal(state.subagents.find((child) => child.id === 'gui-child-b')?.status, 'running');
-      await writeFile(join(cwd, 'subagent-a-verified'), 'parent waiting; A completed; B running');
-      await until(async () => { try { await readFile(join(cwd, 'gui-child-b.done')); return true; } catch { return false; } }, 600000);
-      await pending;
-      state = sidebar.controller.snapshot();
-      assert.equal(state.subagents.find((child) => child.id === 'gui-child-b')?.status, 'completed');
-      assert.equal(state.subagentWaiting, undefined);
-    };
-    await stagedStates();
-    const state = sidebar.controller.snapshot();
-    assert.deepEqual(state.subagents.map((child) => child.status), ['completed', 'completed']);
-    assert.equal(state.subagentWaiting, undefined);
-    assert.equal(state.turns.at(-1)?.status, 'completed');
-    assert.ok(state.messages.some((message) => message.role === 'assistant' && message.final && message.text.includes('Both independent acceptance tasks completed.')));
-    if (process.env.AI_AGENTS_SUBAGENT_GUI_FINAL_HOLD === '1') {
-      console.log('SUBAGENT_GUI_FINAL_READY', cwd);
-      await until(async () => { try { await readFile(join(cwd, 'gui-final-ui.done')); return true; } catch { return false; } }, 1200000);
-    }
-    console.log('PASS: staged App Server GUI fixture kept each child status independent until its own completion gate');
   }
   await sidebar.dispose();
   if (process.env.AI_AGENTS_TEST_SUCCESS_EVIDENCE && process.env.AI_AGENTS_RELIABILITY !== '1') {

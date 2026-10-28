@@ -17,7 +17,7 @@ import { createView, openSidebar, prepareHarnessRoot, settle, waitFor, type Harn
 function openWithFactory(factory: (options: SessionOptions) => Promise<AgentSession>): Harness {
   const paths = prepareHarnessRoot();
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, factory as never);
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, factory as never);
   return { ...paths, sidebar, output };
 }
 
@@ -64,7 +64,7 @@ test('Cursor model changes update the live session for the next send without cle
     assert.equal(harness.sidebar.controller.snapshot().messages.length, priorMessages);
     assert.deepEqual(live.runs, ['keep this conversation']);
     assert.equal(harness.context.workspaceState.get<Record<string, { model: string }>>('ai-agents.selectedModels')?.cursor?.model, model.id);
-    assert.ok(harness.output.lines.some((line) => line.includes('[cursor/sdk]')));
+    assert.ok(harness.output.lines.some((line) => line.includes('[cursor/cli]')));
   } finally {
     await close(harness);
   }

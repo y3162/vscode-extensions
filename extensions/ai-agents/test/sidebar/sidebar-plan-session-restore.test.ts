@@ -45,7 +45,7 @@ test('restoring a saved session reapplies its persisted current Plan after openi
     id: conversationId,
     sessionId,
     updatedAt: '2026-10-18T00:00:00.000Z',
-    controls: { mode: 'plan', sandbox: 'workspace-write', approval: 'on-request', backend: 'sdk', network: false, webSearch: '', additionalDirectories: [] },
+    controls: { mode: 'plan', sandbox: 'workspace-write', approval: 'on-request', backend: 'cli', network: false, webSearch: '', additionalDirectories: [] },
     state: {
       selection: { provider: 'codex', cwd: paths.workspacePath, model: '' }, busy: false,
       messages: [{ id: 'restored-user', role: 'user', text: 'resume planning' }], queue: [], status: 'idle', usage: null,
@@ -55,7 +55,7 @@ test('restoring a saved session reapplies its persisted current Plan after openi
   };
   writeFileSync(path.join(historyDirectory, `${conversationId}.json`), JSON.stringify(record));
   const optionsSeen: SessionOptions[] = [];
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, (async (options: SessionOptions): Promise<AgentSession> => {
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, (async (options: SessionOptions): Promise<AgentSession> => {
     optionsSeen.push(options);
     return {
       sessionId,

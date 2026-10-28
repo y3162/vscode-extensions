@@ -374,8 +374,8 @@ test('the access banner follows the real sandbox and can be dismissed', () => {
   assert.equal(hidden.risky, true);
   const sdk = buildShell({
     ...source,
-    capabilities: capabilitiesFor('codex', 'sdk'),
-    controls: defaultControls('codex', 'sdk'),
+    capabilities: capabilitiesFor('codex', 'cli'),
+    controls: defaultControls('codex', 'cli'),
   });
   assert.equal(sdk.showMode, false);
   assert.equal(sdk.banner, null);

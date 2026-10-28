@@ -1,5 +1,7 @@
 # 2026-10-18 検証更新
 
+> この文書は以前の実装の記録です。現在の会話は CLI で実行し、SDK や実行方式の選択画面は使用しません。現行の構成は [実行方式](../BACKENDS.md) を参照してください。
+
 2026-10-18の現在のコード/Backend/GUI検証と、未検証範囲は[VERIFICATION.md](VERIFICATION.md)に追記した。実BackendでCodex App ServerとCursor ACPの子2件が重複実行した回を確認したが、すべての要求での並列保証ではない。Cursor ACPのresult previewはBackendが実際に返した本文がある場合のみ表示する。CI fixのGitHub Actions成功、Linux実行、GUI全テーマ・幅、全Prompt Rewind liveは未確認であり、以前の行にある「成功」は当時の証拠として読む。
 
 # 0.10.0 再監査による更新（2026-10-17）

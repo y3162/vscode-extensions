@@ -28,7 +28,7 @@ test('a sandbox confirmation cannot apply after another settings change supersed
   const paths = prepareHarnessRoot();
   const output = window.createOutputChannel('AI Agents');
   let disposed = 0;
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, (async () => ({
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, (async () => ({
     sessionId: 'settings-race-session',
     async run(_prompt: string, _signal: AbortSignal, emit: (update: AgentUpdate) => void) {
       emit({ id: 'settings-race-answer', role: 'assistant', text: 'session is live', final: true });
@@ -50,16 +50,15 @@ test('a sandbox confirmation cannot apply after another settings change supersed
     const disabling = sidebar.handleMessage({ type: 'configure', sandbox: 'disabled' });
     await promptShown.promise;
 
-    await sidebar.handleMessage({ type: 'configure', backend: 'acp' });
+    await sidebar.handleMessage({ type: 'configure', mode: 'plan' });
     confirmation.resolve('保護を解除する');
     await disabling;
 
     const saved = paths.context.workspaceState.get<Record<string, { sandbox: string; backend: string }>>('ai-agents.controls')?.cursor;
     assert.equal(saved?.sandbox, 'enabled');
-    assert.equal(saved?.backend, 'acp');
+    assert.equal(saved?.backend, 'cli');
     assert.equal(disposed, 1, 'the independent network setting change safely reset the active session once');
     assert.equal(sidebar.controller.snapshot().messages.some((message) => message.text === 'keep policy safe'), false);
-    assert.ok(sidebar.controller.snapshot().messages.some((message) => message.text.includes('設定を変更')));
     assert.ok(sessionMessages.some((message) => message.text === 'keep policy safe'));
   } finally {
     confirmation.resolve(undefined);

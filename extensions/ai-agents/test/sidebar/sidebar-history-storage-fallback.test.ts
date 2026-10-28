@@ -34,7 +34,7 @@ test('history uses global storage when the workspace storage URI is unavailable'
   const paths = prepareHarnessRoot();
   Object.defineProperty(paths.context, 'storageUri', { value: undefined });
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, async () => session('global-storage-fallback'));
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, async () => session('global-storage-fallback'));
   const harness: Harness = { ...paths, sidebar, output };
   try {
     await sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: paths.workspacePath, prompt: 'save through global storage' });

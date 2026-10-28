@@ -18,7 +18,7 @@ function withSession(factory: (options: SessionOptions) => Promise<AgentSession>
   const paths = prepareHarnessRoot();
   prepare?.(paths);
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, factory as never);
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, factory as never);
   return { ...paths, sidebar, output };
 }
 

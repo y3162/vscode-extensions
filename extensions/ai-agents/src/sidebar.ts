@@ -11,14 +11,14 @@ import { BackgroundTerminalViews } from './background-terminal.js';
 import { ChatController } from './chat-controller.js';
 import { discardTurnRewindJournal, readTurnRewindJournal, rollbackTurnRewindJournal } from './turn-rewind.js';
 import { builtinCommand, expandPrompt } from './context-text.js';
-import { cursorRuntimeDiagnostics, runProcess } from './diagnostics.js';
+import { runProcess } from './diagnostics.js';
 import { agentLaunch, codexLaunch } from './providers/codex-binary.js';
 import { localeFrom } from './i18n.js';
 import { sanitizeImages } from './images.js';
 import { baseModelLabel, matchesModel, selectBaseModel } from './model-selection.js';
 import { ModelDetails } from './model-details.js';
 import { catalogIsCurrent, ModelSettingsDraft, sameModelParams, toCatalogModel } from './model-settings.js';
-import { createSession, listCursorSdkSessions, writeBaselineFile } from './providers/index.js';
+import { createSession, writeBaselineFile } from './providers/index.js';
 import { listModels } from './providers/models.js';
 import type { HostToWebview, ProbeResult, ViewMessage } from './protocol.js';
 import { mergeRegistrySessions, upsertSession } from './session-index.js';
@@ -71,7 +71,6 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly output: vscode.OutputChannel,
-    private readonly cursorSessionLister: typeof listCursorSdkSessions = listCursorSdkSessions,
     private readonly sessionFactory: typeof createSession = createSession,
   ) {
     const historyRoot = path.join((context.storageUri ?? context.globalStorageUri).fsPath, 'history', 'v1');
@@ -82,8 +81,8 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     const provider = config.get<Provider>('defaultProvider', 'codex');
     const storedControls = context.workspaceState.get<Partial<Record<Provider, AgentControls>>>('ai-agents.controls', {});
     this.controls = {
-      codex: normalizeControls('codex', { ...defaultControls('codex', config.get<Backend>('codex.backend', 'cli')), ...storedControls.codex }),
-      cursor: normalizeControls('cursor', { ...defaultControls('cursor', config.get<Backend>('cursor.backend', 'cli')), ...storedControls.cursor }),
+      codex: normalizeControls('codex', { ...defaultControls('codex', 'cli'), ...storedControls.codex, backend: 'cli' }),
+      cursor: normalizeControls('cursor', { ...defaultControls('cursor', 'cli'), ...storedControls.cursor, backend: 'cli' }),
     };
     this.selectedModels = context.workspaceState.get('ai-agents.selectedModels', {});
     this.dismissedWarning = context.workspaceState.get<string>('ai-agents.dismissedWarning') ?? null;
@@ -886,7 +885,6 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     const mode = read('mode');
     const sandbox = read('sandbox');
     const approval = read('approval');
-    const backend = read('backend');
     const network = read('network');
     const webSearch = read('webSearch');
     const next = normalizeControls(provider, {
@@ -894,7 +892,6 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       ...(mode === 'agent' || mode === 'plan' || mode === 'ask' ? { mode } : {}),
       ...(typeof sandbox === 'string' ? { sandbox } : {}),
       ...(typeof approval === 'string' ? { approval } : {}),
-      ...(backend === 'sdk' || backend === 'acp' || backend === 'app-server' || backend === 'cli' ? { backend } : {}),
       ...(typeof network === 'boolean' ? { network } : {}),
       ...(typeof webSearch === 'string' ? { webSearch } : {}),
     });
@@ -1212,15 +1209,15 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       this.postState();
       return;
     }
-    let backend = savedConversation?.controls.backend ?? summary.backend;
-    if (!backend) {
-      backend = await vscode.window.showQuickPick(provider === 'cursor' ? ['sdk', 'acp', 'cli'] as const : ['sdk', 'app-server', 'cli'] as const, { title: 'この過去チャットのバックエンドを選択してください' }) as Backend | undefined;
-      if (!backend) return;
+    const backend = savedConversation?.controls.backend ?? summary.backend;
+    if (backend !== 'cli') {
+      this.controller.notify('CLI で作成されたことを確認できない履歴は再開できません。元の履歴は保持されています。');
+      return;
     }
     const selection = savedConversation?.state.selection ?? { ...this.controller.snapshot().selection, cwd: summary.cwd ?? this.controller.snapshot().selection.cwd };
     this.requireWorkspace(selection.cwd);
     await this.flushHistory();
-    this.controls[provider] = savedConversation?.controls ?? { ...this.controls[provider], backend };
+    this.controls[provider] = savedConversation ? normalizeControls(provider, { ...savedConversation.controls, backend: 'cli' }) : this.controls[provider];
     const target = this.makeController(selection);
     const key = randomUUID();
     this.registry.add({ key, controller: target, mode: this.controls[provider].mode });
@@ -1269,14 +1266,6 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     let sessions = mergeRegistrySessions(this.controller.snapshot().sessions, this.history.summaries());
     const selection = this.controller.snapshot().selection;
     try {
-      if (selection.provider === 'cursor' && this.controls.cursor.backend === 'sdk' && selection.cwd) {
-        const listed = await this.cursorSessionLister({
-          cwd: selection.cwd,
-          storagePath: path.join(this.context.globalStorageUri.fsPath, 'cursor-agents'),
-          apiKey: await this.context.secrets.get('ai-agents.cursor.apiKey'),
-        });
-        for (const session of listed) sessions = upsertSession(sessions, session);
-      }
       const live = await this.controller.currentSession()?.listSessions?.();
       for (const session of live ?? []) sessions = upsertSession(sessions, session);
     } catch (error) {
@@ -1296,20 +1285,12 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       const version = await runProcess(launch.command, ['--version'], selection.cwd || undefined);
       checks.push({ ...version, label: `Cursor CLI (${launch.kind}) ${launch.command}` });
       checks.push(await runProcess(launch.command, ['status'], selection.cwd || undefined));
-      try {
-        const { Cursor } = await import('@cursor/sdk');
-        const status = await Cursor.auth.status();
-        checks.push({ label: 'Cursor SDK auth', ok: status.status === 'logged-in', output: status.status });
-      } catch (error) {
-        checks.push({ label: 'Cursor SDK auth', ok: false, output: errorMessage(error) });
-      }
     } else {
       const launch = codexLaunch(config.get<string>('codex.executablePath') || undefined, []);
       const version = await runProcess(launch.command, [...launch.args, '--version'], selection.cwd || undefined);
       checks.push({ ...version, label: `Codex CLI (${launch.kind})` });
     }
     const backend = this.controls[selection.provider].backend;
-    if (selection.provider === 'cursor' && backend === 'sdk') checks.push(...cursorRuntimeDiagnostics(selection.cwd));
     checks.push({ label: 'Backend', ok: true, output: `${selection.provider}/${backend}` });
     this.post({ type: 'inspector', title: 'Diagnostics', text: checks.map((check) => `${check.ok ? 'OK' : 'FAIL'} ${check.label}\n${check.output}`).join('\n\n') });
   }
@@ -1322,15 +1303,14 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
 
   async signIn(): Promise<void> {
     const provider = this.controller.snapshot().selection.provider;
-    if (provider === 'cursor' && this.controls.cursor.backend === 'cli') {
+    if (provider === 'cursor') {
       const launch = agentLaunch(vscode.workspace.getConfiguration('ai-agents').get<string>('cursor.agentPath'), ['login']);
       const terminal = vscode.window.createTerminal('Cursor CLI Login');
       terminal.sendText(terminalCommand(launch.command, launch.args));
       terminal.show();
       return;
     }
-    if (provider === 'cursor') await vscode.commands.executeCommand('ai-agents.cursorLogin');
-    else {
+    {
       const terminal = vscode.window.createTerminal('Codex Login');
       terminal.sendText('codex login');
       terminal.show();

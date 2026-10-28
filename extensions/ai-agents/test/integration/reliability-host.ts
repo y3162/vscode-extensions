@@ -39,7 +39,7 @@ export async function runReliability(sidebar: AgentsSidebar, cwd: string): Promi
       console.log(`RELIABILITY_RELOAD_PASS ${row.provider}/${row.backend}`);
     }
   } else {
-    for (const [provider, backend] of [['cursor', 'sdk'], ['cursor', 'acp'], ['codex', 'sdk'], ['codex', 'app-server']] as [Provider, Backend][]) {
+    for (const [provider, backend] of [['cursor', 'cli'], ['codex', 'cli']] as [Provider, Backend][]) {
       await sidebar.newChat();
       await sidebar.handleMessage({ type: 'select', provider, cwd });
       await sidebar.handleMessage({ type: 'configure', backend, mode: 'agent', sandbox: provider === 'cursor' ? 'enabled' : 'read-only', approval: 'never' });
@@ -54,8 +54,8 @@ export async function runReliability(sidebar: AgentsSidebar, cwd: string): Promi
       assert.equal(before.messages.filter((m) => m.role === 'user').length, 3);
       assertFinalAnswers(sidebar, 3);
       assert.match(before.messages.filter((m) => m.role === 'assistant')[1]!.text, /reliability/i);
-      if (backend !== 'acp') { assert.ok(before.usage?.totalTokens && before.usage.totalTokens > 0); assert.equal(before.usage.source, `${provider}-${backend}`); }
-      else assert.equal(before.usage, null, 'ACP does not provide usage');
+      if (provider === 'codex') { assert.ok(before.usage?.totalTokens && before.usage.totalTokens > 0); assert.equal(before.usage.source, `${provider}-${backend}`); }
+      else assert.equal(before.usage, null, 'Cursor CLI does not provide usage');
       await sidebar.handleMessage({ type: 'refreshSessions' });
       await sidebar.openPanel('history');
       assert.ok((sidebar as any).history.get(id), 'snapshot exists before New Chat');

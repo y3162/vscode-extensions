@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { codexUpdate, cursorUpdate } from '../../../src/providers/events.js';
+import { codexUpdate } from '../../../src/providers/events.js';
 import { usageDifference } from '../../../src/usage.js';
 
 test('Codex command snapshots keep output and file changes keep paths', () => {
@@ -8,47 +8,6 @@ test('Codex command snapshots keep output and file changes keep paths', () => {
     id: 'shell', type: 'command_execution', command: 'npm test', status: 'completed', aggregated_output: 'passed', exit_code: 0,
   }), { id: 'shell', role: 'tool', text: 'completed: npm test\npassed' });
   assert.match(codexUpdate({ id: 'patch', type: 'file_change', status: 'completed', changes: [{ kind: 'add', path: 'src/main.ts' }] })!.text, /add: src\/main.ts/);
-});
-
-test('Cursor assistant content extracts text and tool updates use a stable call ID', () => {
-  const base = { agent_id: 'agent-1', run_id: 'run-1' };
-  assert.deepEqual(cursorUpdate({
-    ...base, type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '<script>literal</script>' }] },
-  }, 0), { id: 'assistant-0', role: 'assistant', text: '<script>literal</script>' });
-  const started = cursorUpdate({ ...base, type: 'tool_call', call_id: 'tool1', name: 'Read', status: 'running' }, 1);
-  const completed = cursorUpdate({ ...base, type: 'tool_call', call_id: 'tool1', name: 'Read', status: 'completed', result: { ok: true } }, 2);
-  assert.equal(started?.id, completed?.id);
-  assert.match(completed?.text ?? '', /^completed: Read/);
-  assert.match(completed?.text ?? '', /"ok": true/);
-  assert.equal(cursorUpdate({ ...base, type: 'status', status: 'FINISHED', message: 'finished' }, 3), undefined);
-  assert.equal(cursorUpdate({ ...base, type: 'status', status: 'RUNNING' }, 6), undefined);
-  assert.equal(cursorUpdate({ ...base, type: 'status', status: 'ERROR', message: 'needs input' }, 7)?.text, 'needs input');
-  assert.equal(cursorUpdate({ ...base, type: 'status', status: 'ERROR' }, 8)?.text, 'ERROR');
-  assert.equal(cursorUpdate({ ...base, type: 'task', text: 'follow up' }, 9)?.text, 'follow up');
-  assert.equal(cursorUpdate({ ...base, type: 'task', text: '' }, 4), undefined);
-  assert.equal(cursorUpdate({
-    ...base, type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: 't', name: 'Read', input: {} }, { type: 'text', text: 'after' }] },
-  }, 10)?.text, 'after');
-  assert.equal(cursorUpdate({ ...base, type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'hi' }] } }, 11), undefined);
-});
-
-test('Cursor terminal results show output and exit code while other results keep JSON', () => {
-  const base = { agent_id: 'agent-1', run_id: 'run-1', type: 'tool_call', call_id: 'shell', name: 'Shell', status: 'completed' } as const;
-  assert.equal(cursorUpdate({ ...base, result: { stdout: 'hello\n', stderr: 'warning\n', exitCode: 2 } }, 0)?.text,
-    'completed: Shell\nhello\nwarning\nExit code: 2');
-  assert.equal(cursorUpdate({ ...base, result: { status: 'success', value: { stdout: 'done', stderr: '', exitCode: 0 } } }, 0)?.text,
-    'completed: Shell\ndone\nExit code: 0');
-  assert.equal(cursorUpdate({ ...base, result: { success: { value: { stdout: '', stderr: 'failed', exit_code: 1 } } } }, 0)?.text,
-    'completed: Shell\nfailed\nExit code: 1');
-  assert.equal(cursorUpdate({ ...base, result: { stdout: '', stderr: '' } }, 0)?.text, 'completed: Shell\n');
-  assert.equal(cursorUpdate({ ...base, result: { stdout: 'first', stderr: 'second' } }, 0)?.text,
-    'completed: Shell\nfirst\nsecond');
-  assert.equal(cursorUpdate({ ...base, result: { stdout: 'only stdout' } }, 0)?.text,
-    'completed: Shell\nonly stdout');
-  assert.equal(cursorUpdate({ ...base, result: { stderr: 'only stderr' } }, 0)?.text,
-    'completed: Shell\nonly stderr');
-  assert.equal(cursorUpdate({ ...base, result: null }, 0)?.text, 'completed: Shell\nnull');
-  assert.match(cursorUpdate({ ...base, name: 'Read', result: { ok: true } }, 0)?.text ?? '', /"ok": true/);
 });
 
 test('Codex errors, unknown items, and cache-write deltas stay explicit', () => {

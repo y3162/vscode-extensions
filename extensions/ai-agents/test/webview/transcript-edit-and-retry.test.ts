@@ -18,18 +18,18 @@ import type { ViewMessage, ViewShell, VsCodeApi } from '../../src/protocol.js';
 
 function shell(extra: Partial<ViewShell> = {}): ViewShell {
   return {
-    provider: 'codex', providerLabel: 'Codex · SDK', cwd: '/workspace', busy: false, presence: 'idle',
+    provider: 'codex', providerLabel: 'Codex · CLI', cwd: '/workspace', busy: false, presence: 'idle',
     statusText: 'Ready', sessionTitle: 'New chat', modelLabel: 'gpt', effortLabel: 'High', modelSettings: 'new-session',
-    accessLabel: 'Workspace write', risky: false, banner: null, backendLabel: 'SDK', folderName: 'workspace',
+    accessLabel: 'Workspace write', risky: false, banner: null, backendLabel: 'CLI', folderName: 'workspace',
     folders: [{ name: 'workspace', path: '/workspace' }],
     modes: [{ id: 'agent', label: 'Agent' }, { id: 'plan', label: 'Plan' }], mode: 'agent', showMode: true,
     sandboxChoices: [{ id: 'workspace-write', label: 'Workspace write' }], sandbox: 'workspace-write',
     approvalChoices: [], approval: 'never', showApproval: false, webSearchChoices: [], webSearch: '', showWebSearch: false,
-    network: false, showNetwork: false, backendChoices: [{ id: 'sdk', label: 'SDK' }], backend: 'sdk',
+    network: false, showNetwork: false, backend: 'cli',
     additionalDirectories: [], autoApprove: false, steer: false, interactiveApproval: false, queue: [], changes: [],
     additions: 0, deletions: 0, sessions: [], usage: null, permission: null, plan: null, question: null,
     conversationId: 'front', planView: null, timings: [], subagents: [], terminals: [],
-    activeFile: null, locale: 'en', providers: [{ id: 'codex', label: 'Codex', detail: 'SDK' }], ...extra,
+    activeFile: null, locale: 'en', providers: [{ id: 'codex', label: 'Codex', detail: 'CLI' }], ...extra,
   };
 }
 
@@ -108,7 +108,7 @@ test('Resend calls onRewind with the edited text and original turn id', () => {
 
 test('a completed Cursor message can be prepared as a new send without rewind', () => {
   const { window, sent, emit, input } = mount();
-  emit(shell({ provider: 'cursor', providerLabel: 'Cursor · SDK' }), [
+  emit(shell({ provider: 'cursor', providerLabel: 'Cursor · CLI' }), [
     { id: 'old-user', role: 'user', text: 'Run this again', at: 1, canRewind: false },
     { id: 'old-answer', role: 'assistant', text: 'Done', final: true, at: 2 },
   ]);

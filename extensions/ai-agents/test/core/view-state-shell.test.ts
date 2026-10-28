@@ -126,8 +126,8 @@ test('the shell shows every rewind phase, access banner, and optional plan or me
   assert.equal(cursor.providers[1]?.detail, 'SDK');
   const off = buildShell(shellSource({
     state: chatState('/workspace'),
-    controls: { ...defaultControls('cursor', 'sdk'), sandbox: 'disabled' },
-    capabilities: capabilitiesFor('cursor', 'sdk'),
+    controls: { ...defaultControls('cursor', 'cli'), sandbox: 'disabled' },
+    capabilities: capabilitiesFor('cursor', 'cli'),
     locale: 'ja',
   }));
   assert.equal(off.banner?.title, 'サンドボックスがオフです');

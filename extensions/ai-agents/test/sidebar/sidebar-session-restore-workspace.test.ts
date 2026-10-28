@@ -24,12 +24,12 @@ test('restoreSession uses the active workspace when a saved index entry has no c
   const paths = prepareHarnessRoot();
   const summary: SessionSummary = {
     id: 'legacy-session-without-cwd', title: 'Older session', updatedAt: '2026-10-18T00:00:00.000Z',
-    provider: 'codex', backend: 'sdk',
+    provider: 'codex', backend: 'cli',
   };
   await paths.context.workspaceState.update('ai-agents.sessionIndex', [summary]);
   const output = window.createOutputChannel('AI Agents');
   const optionsSeen: ProviderSessionOptions[] = [];
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, (async (options: ProviderSessionOptions): Promise<AgentSession> => {
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, (async (options: ProviderSessionOptions): Promise<AgentSession> => {
     optionsSeen.push(options);
     return { sessionId: summary.id, async run() {}, async dispose() {} };
   }) as never);

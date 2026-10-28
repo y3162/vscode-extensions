@@ -24,7 +24,7 @@ function fixture() {
 const child = (id: string, status: ViewSubagent['status']): ViewSubagent => ({
   id, parentTurnId: 'turn-1', name: 'Explorer', task: `Map ${id} coverage`, model: 'gpt-6-luna',
   status, background: true, startedAt: 1000, ...(status === 'completed' ? { endedAt: 2400, durationMs: 1400, resultPreview: `Result ${id}` } : {}),
-  ...(status === 'running' ? { progress: 'Reading SDK seams' } : {}),
+  ...(status === 'running' ? { progress: 'Reading runtime seams' } : {}),
 });
 
 test('subagent panel deduplicates IDs, preserves collapse choice, and opens the selected child', () => {
@@ -37,7 +37,7 @@ test('subagent panel deduplicates IDs, preserves collapse choice, and opens the 
   assert.match(host.querySelector('.subagent-panel-heading')?.textContent ?? '', /2 background subagents/);
   assert.equal(host.querySelectorAll('.subagent-panel-row').length, 2);
   assert.equal(host.querySelector('.subagent-panel-rows')?.hidden, false);
-  assert.equal(host.querySelector('.subagent-panel-row.running .subagent-panel-progress')?.textContent, 'Reading SDK seams');
+  assert.equal(host.querySelector('.subagent-panel-row.running .subagent-panel-progress')?.textContent, 'Reading runtime seams');
   (host.querySelector('.subagent-panel-heading') as HTMLButtonElement).click();
   assert.equal(expansion, false);
   panel.render(shell, strings('en'), false);

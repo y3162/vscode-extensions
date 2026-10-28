@@ -69,13 +69,19 @@ async function exercise(options: SessionOptions): Promise<void> {
   } finally { await session.dispose(); }
 }
 
-test('Cursor SDK live inference', { skip: !on('AI_AGENTS_LIVE_CURSOR_TEST'), timeout: 240000 }, async () => {
+test('Cursor CLI live inference', { skip: !on('AI_AGENTS_LIVE_CURSOR_TEST'), timeout: 240000 }, async () => {
+  const agentPath = which('agent');
+  assert.ok(agentPath);
   const { cwd, cleanup } = await temporary();
   try {
-    await exercise({
-      provider: 'cursor', backend: 'sdk', cwd, model: 'composer-2.5', storagePath: cwd, sandbox: 'enabled', interactions,
-    });
-    console.log('PASS cursor sdk text stream follow-up cancel resume');
+    await exercise({ provider: 'cursor', backend: 'cli', cwd, model: 'composer-2.5', storagePath: cwd, agentPath, sandbox: 'enabled' });
+  } finally { await cleanup(); }
+});
+
+test('Codex CLI live inference', { skip: !on('AI_AGENTS_LIVE_TEST'), timeout: 240000 }, async () => {
+  const { cwd, cleanup } = await temporary();
+  try {
+    await exercise({ provider: 'codex', backend: 'cli', cwd, model: 'gpt-6-luna', storagePath: cwd, sandbox: 'read-only', approval: 'never' });
   } finally { await cleanup(); }
 });
 
@@ -134,17 +140,6 @@ test('Cursor ACP: all three controller final answers match backend assistant tex
   } finally { await controller.dispose(); await cleanup(); }
 });
 
-test('Codex SDK live inference', { skip: !on('AI_AGENTS_LIVE_TEST'), timeout: 240000 }, async () => {
-  const { cwd, cleanup } = await temporary();
-  try {
-    await exercise({
-      provider: 'codex', backend: 'sdk', cwd, model: 'gpt-6-luna', storagePath: cwd, sandbox: 'read-only', approval: 'never',
-      modelParams: [{ id: 'modelReasoningEffort', value: 'low' }], interactions,
-    });
-    console.log('PASS codex sdk text stream follow-up cancel resume effort');
-  } finally { await cleanup(); }
-});
-
 test('Codex App Server live inference', { skip: !on('AI_AGENTS_LIVE_APP_SERVER_TEST'), timeout: 240000 }, async () => {
   const { cwd, cleanup } = await temporary();
   try {
@@ -159,8 +154,8 @@ test('Codex App Server live inference', { skip: !on('AI_AGENTS_LIVE_APP_SERVER_T
 test('provider switch keeps each live backend on its own session', { skip: !on('AI_AGENTS_LIVE_TEST') || !on('AI_AGENTS_LIVE_CURSOR_TEST'), timeout: 240000 }, async () => {
   const { cwd, cleanup } = await temporary();
   const controls = {
-    codex: { mode: 'agent' as const, sandbox: 'read-only', approval: 'never', backend: 'sdk' as const, network: false, webSearch: '', additionalDirectories: [] as string[] },
-    cursor: { mode: 'agent' as const, sandbox: 'enabled', approval: 'never', backend: 'sdk' as const, network: false, webSearch: '', additionalDirectories: [] as string[] },
+    codex: { mode: 'agent' as const, sandbox: 'read-only', approval: 'never', backend: 'cli' as const, network: false, webSearch: '', additionalDirectories: [] as string[] },
+    cursor: { mode: 'agent' as const, sandbox: 'enabled', approval: 'never', backend: 'cli' as const, network: false, webSearch: '', additionalDirectories: [] as string[] },
   };
   try {
     const controller = new ChatController({ provider: 'codex', cwd, model: 'gpt-6-luna' }, async (selection: Selection) => createSession({
@@ -174,6 +169,6 @@ test('provider switch keeps each live backend on its own session', { skip: !on('
     assert.match(controller.snapshot().messages.map((message) => message.text).join('\n'), /pong/i);
     assert.equal(controller.snapshot().selection.provider, 'cursor');
     await controller.dispose();
-    console.log('PASS provider switch codex-sdk to cursor-sdk');
+    console.log('PASS provider switch codex-cli to cursor-cli');
   } finally { await cleanup(); }
 });

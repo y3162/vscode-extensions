@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Real Codex SDK transport, deterministic agent output; no network credentials needed.
+// Deterministic CLI output and model catalog; no network credentials needed.
 const fs = require('node:fs');
 const path = require('node:path');
-const cwdIndex = process.argv.indexOf('--cd');
+const cwdIndex = process.argv.indexOf('-C');
 if (cwdIndex >= 0) process.chdir(process.argv[cwdIndex + 1]);
 const emit = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
 if (process.argv.includes('app-server')) {
@@ -13,6 +13,7 @@ if (process.argv.includes('app-server')) {
     const request = JSON.parse(line);
     if (request.method === 'initialize') emit({ id: request.id, result: { userAgent: 'fixture' } });
     if (request.method === 'initialized') initialized = true;
+    if (request.method === 'thread/resume') { emit({ id: request.id, error: { message: 'fixture history unavailable' } }); return; }
     if (request.method !== 'model/list') return;
     if (!initialized) { emit({ id: request.id, error: { message: 'Not initialized' } }); return; }
     if (mode === 'wait') return;

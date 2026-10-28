@@ -26,7 +26,7 @@ function deferred<T>() {
 function withFactory(factory: (options: SessionOptions) => Promise<AgentSession>): Harness {
   const paths = prepareHarnessRoot();
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, factory as never);
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, factory as never);
   return { ...paths, sidebar, output };
 }
 

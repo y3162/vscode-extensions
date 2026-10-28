@@ -23,7 +23,7 @@ async function tempDir(prefix: string): Promise<string> {
 }
 
 function saved(id: string, state = chatState()): SavedConversation {
-  return { version: 1, id, sessionId: `session-${id}`, updatedAt: '2026-10-17T00:00:00.000Z', controls: defaultControls('codex', 'sdk'), state };
+  return { version: 1, id, sessionId: `session-${id}`, updatedAt: '2026-10-17T00:00:00.000Z', controls: defaultControls('codex', 'cli'), state };
 }
 
 function capturedTurn(id: string, root: string, files: TurnFileSnapshot[], extra: Partial<TurnRecord> = {}): TurnRecord {

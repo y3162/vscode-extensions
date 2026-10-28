@@ -27,7 +27,7 @@ test('a model lookup that completes after newChat cannot apply to the replacemen
   resetVscode();
   const paths = prepareHarnessRoot();
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, (async () => ({
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, (async () => ({
     sessionId: 'stale-model-session',
     async run(_prompt: string, _signal: AbortSignal, emit: (update: AgentUpdate) => void) {
       emit({ id: 'stale-model-answer', role: 'assistant', text: 'old conversation answer', final: true });

@@ -9,10 +9,10 @@ function shell(extra) {
   const ja = locale === 'ja';
   return {
     conversationId: 'preview', planView: null, timings: [], subagents: [], terminals: [], subagentWaiting: null,
-    provider: 'codex', providerLabel: 'Codex · SDK', cwd: '/workspace', busy: false, presence: 'idle',
+    provider: 'codex', providerLabel: 'Codex · CLI', cwd: '/workspace', busy: false, presence: 'idle',
     statusText: ja ? '準備完了' : 'Ready', sessionTitle: ja ? '認証フローと長いセッションタイトルの表示を確認する' : 'Review authentication flow and long session title',
     modelLabel: 'GPT-6.1 Sol Long Context', effortLabel: 'Extra High', modelSettings: 'new-session', accessLabel: 'Workspace write', risky: false, banner: null,
-    backendLabel: 'SDK', folderName: 'vscode-extensions',
+    backendLabel: 'CLI', folderName: 'vscode-extensions',
     folders: [{ name: 'vscode-extensions', path: '/workspace' }],
     modes: [{ id: 'agent', label: 'Agent' }, { id: 'plan', label: 'Plan' }, { id: 'ask', label: 'Ask' }], mode: 'agent', showMode: true,
     sandboxChoices: [
@@ -22,13 +22,13 @@ function shell(extra) {
     ],
     sandbox: 'workspace-write', approvalChoices: [], approval: 'never', showApproval: false,
     webSearchChoices: [], webSearch: '', showWebSearch: false, network: false, showNetwork: true,
-    backendChoices: [{ id: 'sdk', label: 'SDK' }, { id: 'app-server', label: 'App Server' }], backend: 'sdk',
+    backend: 'cli',
     additionalDirectories: [], autoApprove: false, steer: false, interactiveApproval: false, queue: [],
     changes: [{ path: '/workspace/README.md', name: 'README.md', kind: 'update', additions: 4, deletions: 1, canRevert: true, canDiff: true, synthetic: false }],
     additions: 4, deletions: 1,
     sessions: homeSessions(),
     usage: null, permission: null, plan: null, question: null, activeFile: null, locale,
-    providers: [{ id: 'codex', label: 'Codex', detail: 'SDK' }, { id: 'cursor', label: 'Cursor', detail: 'SDK' }],
+    providers: [{ id: 'codex', label: 'Codex', detail: 'CLI' }, { id: 'cursor', label: 'Cursor', detail: 'CLI' }],
     sessionId: 'pr',
     ...extra,
     ...(params.get('stress') === '1' ? { modelLabel: 'GPT-6.1 Sol Long Context Research Preview Extended', sessionTitle: ja ? '日本語の長いセッションタイトルと認証処理の実装を確認するための会話' : 'An exceptionally long authentication implementation and review session title' } : {}),

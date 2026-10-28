@@ -762,7 +762,7 @@ export class Composer {
     if (!shell) return;
     this.post({
       type: 'configure', mode: shell.mode, sandbox: shell.sandbox, approval: shell.approval,
-      backend: shell.backend, network: shell.network, webSearch: shell.webSearch, ...extra,
+      network: shell.network, webSearch: shell.webSearch, ...extra,
     });
   }
 }

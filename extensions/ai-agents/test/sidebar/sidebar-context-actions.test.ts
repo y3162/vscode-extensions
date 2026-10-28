@@ -19,7 +19,7 @@ import { createView, openSidebar, prepareHarnessRoot, waitFor, type Harness } fr
 function withFactory(factory: (options: SessionOptions) => Promise<AgentSession>): Harness {
   const paths = prepareHarnessRoot();
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, factory as never);
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, factory as never);
   return { ...paths, sidebar, output };
 }
 
@@ -70,8 +70,8 @@ test('the diff built-in sends a synthetic workspace summary and keeps the origin
     assert.match(runs[0] ?? '', /synthetic diff context/);
     assert.equal(harness.sidebar.controller.snapshot().messages.some((message) => message.role === 'user' && message.text === '/diff Summarize @change-notes.md'), true);
     assert.equal(harness.sidebar.controller.snapshot().messages.some((message) => message.role === 'assistant' && message.text === 'summary returned'), true);
-    assert.ok(harness.output.lines.some((line) => line.includes('[codex/sdk]') && line.includes(' start')));
-    assert.ok(harness.output.lines.some((line) => line.includes('[codex/sdk] idle')));
+    assert.ok(harness.output.lines.some((line) => line.includes('[codex/cli]') && line.includes(' start')));
+    assert.ok(harness.output.lines.some((line) => line.includes('[codex/cli] idle')));
   } finally {
     await close(harness);
   }

@@ -17,7 +17,7 @@ import { createView, openSidebar, prepareHarnessRoot, type Harness } from '../su
 function withSession(): Harness {
   const paths = prepareHarnessRoot();
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, (async () => ({
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, (async () => ({
     sessionId: 'round11-late-session',
     async run(prompt: string, _signal: AbortSignal, emit: (update: AgentUpdate) => void) {
       emit({ id: `round11-answer-${prompt.length}`, role: 'assistant', text: 'synthetic answer', final: true });

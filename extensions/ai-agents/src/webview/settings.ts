@@ -51,7 +51,7 @@ export class SettingsPanel {
 
   render(shell: ViewShell, copy: Copy): void {
     this.shell = shell;
-    const signature = JSON.stringify([shell.locale, shell.busy, shell.backendChoices, shell.backend, shell.sandboxChoices, shell.sandbox, shell.showApproval, shell.approvalChoices, shell.approval, shell.showWebSearch, shell.webSearchChoices, shell.webSearch, shell.showNetwork, shell.network, shell.additionalDirectories, shell.autoApprove]);
+    const signature = JSON.stringify([shell.locale, shell.busy, shell.backend, shell.sandboxChoices, shell.sandbox, shell.showApproval, shell.approvalChoices, shell.approval, shell.showWebSearch, shell.webSearchChoices, shell.webSearch, shell.showNetwork, shell.network, shell.additionalDirectories, shell.autoApprove]);
     if (signature === this.signature) return;
     this.signature = signature;
     this.applying = true;
@@ -63,7 +63,6 @@ export class SettingsPanel {
     bar.append(close);
     this.body.append(bar);
     this.body.append(this.dom.el('h3', 'section-label', copy.executionSettings));
-    this.body.append(this.select(copy.backend, 'backend', shell.backendChoices, shell.backend));
     this.body.append(this.select(copy.access, 'sandbox', shell.sandboxChoices, shell.sandbox));
     if (shell.showApproval) this.body.append(this.select(copy.approvalPolicy, 'approval', shell.approvalChoices, shell.approval));
     if (shell.showWebSearch) this.body.append(this.select(copy.webSearch, 'webSearch', shell.webSearchChoices, shell.webSearch));
@@ -136,7 +135,6 @@ export class SettingsPanel {
       mode: this.shell.mode,
       sandbox: this.shell.sandbox,
       approval: this.shell.approval,
-      backend: this.shell.backend,
       network: this.shell.network,
       webSearch: this.shell.webSearch,
       [key]: value,

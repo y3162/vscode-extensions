@@ -20,7 +20,7 @@ function withSession(factory: (options: SessionOptions) => Promise<AgentSession>
   const paths = prepareHarnessRoot();
   prepare?.(paths);
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, factory as never);
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, factory as never);
   return { ...paths, sidebar, output };
 }
 
@@ -34,7 +34,7 @@ function seedHistory(paths: Pick<HarnessPaths, 'context' | 'workspacePath'>, id:
   mkdirSync(directory, { recursive: true });
   const record = {
     version: 1, id, sessionId, updatedAt: '2026-10-18T00:00:00.000Z',
-    controls: { mode: 'agent', sandbox: 'workspace-write', approval: 'on-request', backend: 'sdk', network: false, webSearch: '', additionalDirectories: [] },
+    controls: { mode: 'agent', sandbox: 'workspace-write', approval: 'on-request', backend: 'cli', network: false, webSearch: '', additionalDirectories: [] },
     state: {
       selection: { provider: 'codex', cwd: paths.workspacePath, model: '' }, busy: false,
       messages: [{ id: 'saved-user', role: 'user', text: 'other conversation' }], queue: [], status: 'idle', usage: null,

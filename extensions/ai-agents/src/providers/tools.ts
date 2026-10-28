@@ -1,14 +1,9 @@
-import type { SDKMessage } from '@cursor/sdk';
-import type { ThreadItem } from '@openai/codex-sdk';
+import type { ThreadItem } from './codex-items.js';
 import type { ToolInfo } from '../types.js';
 import { classifyTool, toolStatus } from '../tool-kind.js';
 import { readLocation } from './read-location.js';
 
 export { classifyTool, toolStatus };
-
-function textField(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value : undefined;
-}
 
 export function codexTool(item: ThreadItem): ToolInfo | undefined {
   switch (item.type) {
@@ -30,23 +25,6 @@ export function codexTool(item: ThreadItem): ToolInfo | undefined {
     default:
       return undefined;
   }
-}
-
-export function cursorTool(event: SDKMessage): ToolInfo | undefined {
-  if (event.type !== 'tool_call') return undefined;
-  const args = event.args && typeof event.args === 'object' ? event.args as Record<string, unknown> : {};
-  const target = textField(args.command) ?? textField(args.path) ?? textField(args.file_path) ?? textField(args.query)
-    ?? textField(args.pattern) ?? textField(args.glob_pattern);
-  const kind = classifyTool(event.name, target);
-  const location = kind === 'read' ? readLocation(event.name, target, args) : {};
-  return {
-    kind,
-    name: event.name,
-    status: toolStatus(event.status),
-    ...(location.path ? { target: location.path } : target ? { target } : {}),
-    ...(location.line ? { line: location.line } : {}),
-    ...(location.endLine ? { endLine: location.endLine } : {}),
-  };
 }
 
 export function describedTool(type: string, text: string, status?: string): ToolInfo {

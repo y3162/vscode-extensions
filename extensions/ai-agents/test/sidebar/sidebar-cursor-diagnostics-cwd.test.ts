@@ -22,25 +22,18 @@ test('diagnostics omit an empty workspace cwd and let Cursor CLI resolve from it
   const cli = path.join(harness.root, 'cursor-cwd-diagnostics.cjs');
   writeFileSync(cli, "process.stdout.write(process.cwd() + '\\n');\n");
   workspace.configuration['ai-agents']!['cursor.agentPath'] = cli;
-  const sdk = await import('@cursor/sdk');
-  const auth = sdk.Cursor.auth as unknown as { status: () => Promise<{ status: string }> };
-  const descriptor = Object.getOwnPropertyDescriptor(auth, 'status');
-  assert.ok(descriptor);
   try {
     await harness.sidebar.handleMessage({ type: 'select', provider: 'cursor', cwd: '' });
     harness.sidebar.resolveWebviewView(view as never);
     await harness.sidebar.handleMessage({ type: 'ready' }, view as never);
-    Object.defineProperty(auth, 'status', { configurable: true, writable: true, value: async () => ({ status: 'logged-in' }) });
 
     await harness.sidebar.handleMessage({ type: 'diagnose' });
 
     const report = String(view.messages.filter((message) => message.type === 'inspector').at(-1)?.text);
     assert.match(report, /OK Cursor CLI \(override\)/);
     assert.ok(report.split(process.cwd()).length - 1 >= 2, 'both version and status run without a workspace cwd');
-    assert.match(report, /OK Cursor SDK auth\nlogged-in/);
     assert.equal(harness.sidebar.controller.snapshot().selection.cwd, '');
   } finally {
-    Object.defineProperty(auth, 'status', descriptor);
     await close(harness);
   }
 });

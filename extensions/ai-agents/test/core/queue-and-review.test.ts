@@ -155,9 +155,9 @@ test('image attachments are limited to four safe base64 images', () => {
   assert.deepEqual(sanitizeImages([{ mimeType: 'image/png', data: Buffer.from('png').toString('base64'), name: 'a.png' }])[0]?.mimeType, 'image/png');
   assert.throws(() => sanitizeImages([{ mimeType: 'text/plain', data: Buffer.from('x').toString('base64') }]), /画像/);
   assert.equal(capabilitiesFor('cursor', 'acp').questions, true);
-  assert.equal(capabilitiesFor('cursor', 'sdk').interactiveApproval, false);
+  assert.equal(capabilitiesFor('cursor', 'cli').interactiveApproval, false);
   assert.equal(capabilitiesFor('codex', 'app-server').review, true);
-  assert.equal(capabilitiesFor('codex', 'sdk').steer, false);
+  assert.equal(capabilitiesFor('codex', 'cli').steer, false);
   assert.equal(upsertSession([{ id: 'a', title: 'old', updatedAt: '', provider: 'codex' }], { id: 'a', title: 'new', updatedAt: 'now', provider: 'codex' })[0]?.title, 'new');
 });
 

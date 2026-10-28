@@ -1,8 +1,6 @@
 export type Locale = 'ja' | 'en';
 
 const text = {
-  'error.signInCursor': ['Cursor SDKに未ログインです。サイドバーの「ログイン」または「APIキー」から認証してください。', 'Sign in to the Cursor SDK from the sidebar, or set an API key.'],
-  'error.node': ['Cursor SDKにはNode.js 22.13以降が必要です。VS Codeを更新してください。', 'The Cursor SDK requires Node.js 22.13 or newer. Update VS Code.'],
   'error.trust': ['このフォルダを信頼してから実行してください。', 'Trust this folder before running an agent.'],
   'error.noFolder': ['作業対象のフォルダをVS Codeで開いてください。', 'Open a workspace folder in VS Code first.'],
   'error.folderMissing': ['作業対象のフォルダが見つかりません。', 'The selected workspace folder could not be found.'],
@@ -11,12 +9,11 @@ const text = {
   'error.busyModel': ['実行が終わってからモデルを選択してください。', 'Wait for the current run to finish before choosing a model.'],
   'error.busyDetails': ['実行が終わってから詳細設定を変更してください。', 'Wait for the current run to finish before changing model details.'],
   'error.modelList': ['モデル一覧を取得できませんでした: {0}', 'Could not load the model list: {0}'],
-  'error.switchBackend': ['この承認ポリシーは対話操作が必要です。バックエンドを Codex App Server に切り替えてください。', 'This approval policy needs interactive prompts. Switch the Codex backend to App Server.'],
   'error.steer': ['このバックエンドは実行中の追加入力に対応していません。', 'This backend cannot steer a running turn.'],
   'error.outside': ['ワークスペース外のファイルは変更できません。', 'Refusing to change a file outside the workspace.'],
   'error.noBaseline': ['変更前の内容が無いため、このファイルは復元できません。', 'This file cannot be restored because its previous contents were not captured.'],
   'error.image': ['画像は PNG / JPEG / GIF / WebP を4枚まで、1枚5MB以下にしてください。', 'Attach up to 4 PNG, JPEG, GIF, or WebP images, each at most 5 MB.'],
-  'error.agentLaunch': ['Cursor CLI を起動できません。ACP を使う場合は agent コマンドのパスを確認してください。', 'Could not start the Cursor CLI. Check the agent path used for ACP.'],
+  'error.agentLaunch': ['Cursor CLI を起動できません。agent コマンドのパスを確認してください。', 'Could not start the Cursor CLI. Check the agent command path.'],
   'error.codexLaunch': ['Codex App Server を起動できません。', 'Could not start the Codex app server.'],
   'error.compact': ['このバックエンドはコンテキスト圧縮に対応していません。', 'This backend cannot compact the conversation.'],
   'error.fork': ['このバックエンドは会話の分岐に対応していません。', 'This backend cannot fork the conversation.'],

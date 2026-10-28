@@ -4,8 +4,7 @@ import { resolve, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { createVSIX } from '@vscode/vsce';
 
-// Stage a standalone extension so npm's workspace hoisting cannot omit SDKs from the VSIX.
-// Keep SDKs as real packages: both SDKs load native binaries/runtime files dynamically.
+// Stage the extension with its bundled Codex CLI.
 const extensionRoot = resolve(import.meta.dirname, '..');
 const staging = await realpath(await mkdtemp(join(tmpdir(), 'ai-agents-package-')));
 try {
@@ -21,7 +20,7 @@ try {
   }
   await writeFile(join(staging, 'package-lock.json'), JSON.stringify(locked, null, 2));
   await mkdir(join(staging, 'dist'));
-  for (const name of ['dist/extension.js', 'dist/managed-worker.cjs', 'dist/cursor-worker.cjs', 'dist/cursor-sdk', 'dist/webview', 'resources', 'README.md', 'CHANGELOG.md', 'RELEASE_NOTES.md', 'BACKENDS.md', 'INSTALL.md', 'package.nls.json', 'package.nls.ja.json', '.vscodeignore']) {
+  for (const name of ['dist/extension.js', 'dist/managed-worker.cjs', 'dist/webview', 'resources', 'README.md', 'CHANGELOG.md', 'RELEASE_NOTES.md', 'BACKENDS.md', 'INSTALL.md', 'package.nls.json', 'package.nls.ja.json', '.vscodeignore']) {
     await cp(join(extensionRoot, name), join(staging, name), { recursive: true });
   }
   const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';

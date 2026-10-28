@@ -17,8 +17,8 @@ const baseSelection: Selection = { provider: 'codex', cwd: '/workspace', model: 
 function displayStatus(extra: Partial<ChatState>, locale: 'en' | 'ja' = 'en'): string {
   return buildShell({
     state: state(extra), folders: [{ name: 'workspace', path: '/workspace' }], modelLabel: 'Fixture', hasModelDetails: false,
-    capabilities: capabilitiesFor('codex', 'sdk'), controls: defaultControls('codex', 'sdk'), locale,
-    tokens: { permission: null, plan: null, question: null }, backends: { codex: 'sdk', cursor: 'sdk' },
+    capabilities: capabilitiesFor('codex', 'cli'), controls: defaultControls('codex', 'cli'), locale,
+    tokens: { permission: null, plan: null, question: null }, backends: { codex: 'cli', cursor: 'cli' },
   }).statusText;
 }
 

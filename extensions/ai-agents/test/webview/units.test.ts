@@ -345,10 +345,10 @@ test('plan and question cards post only their own decisions', () => {
   const base = {
     provider: 'codex' as const, providerLabel: 'Codex', cwd: '/workspace', busy: false, presence: 'idle' as const,
     statusText: 'Ready', sessionTitle: 'New', modelLabel: 'gpt', effortLabel: null, modelSettings: 'new-session' as const,
-    accessLabel: 'Workspace write', risky: false, banner: null, backendLabel: 'SDK', folderName: 'workspace',
+    accessLabel: 'Workspace write', risky: false, banner: null, backendLabel: 'CLI', folderName: 'workspace',
     folders: [], modes: [], mode: 'agent', showMode: true, sandboxChoices: [], sandbox: 'workspace-write',
     approvalChoices: [], approval: 'never', showApproval: false, webSearchChoices: [], webSearch: '', showWebSearch: false,
-    network: false, showNetwork: false, backendChoices: [], backend: 'sdk' as const, additionalDirectories: [],
+    network: false, showNetwork: false, backend: 'cli' as const, additionalDirectories: [],
     autoApprove: false, steer: false, interactiveApproval: false, conversationId: 'front', queue: [], changes: [],
     planView: null, timings: [], subagents: [], terminals: [], additions: 0, deletions: 0, sessions: [], usage: null,
     permission: null, plan: null, question: null, activeFile: null, locale: 'en' as const, providers: [],

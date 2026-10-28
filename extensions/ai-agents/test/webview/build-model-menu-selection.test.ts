@@ -16,19 +16,19 @@ import { strings } from '../../src/webview/strings.js';
 
 function shell(extra: Partial<ViewShell> = {}): ViewShell {
   return {
-    provider: 'codex', providerLabel: 'Codex · SDK', cwd: '/workspace', busy: false, presence: 'idle',
+    provider: 'codex', providerLabel: 'Codex · CLI', cwd: '/workspace', busy: false, presence: 'idle',
     statusText: 'Ready', sessionTitle: 'New chat', modelLabel: 'Default model', effortLabel: '', modelSettings: 'new-session',
-    accessLabel: 'Workspace write', risky: false, banner: null, backendLabel: 'SDK', folderName: 'workspace',
+    accessLabel: 'Workspace write', risky: false, banner: null, backendLabel: 'CLI', folderName: 'workspace',
     folders: [{ name: 'workspace', path: '/workspace' }],
     modes: [{ id: 'agent', label: 'Agent' }, { id: 'plan', label: 'Plan' }], mode: 'agent', showMode: true,
     sandboxChoices: [{ id: 'workspace-write', label: 'Workspace write' }], sandbox: 'workspace-write',
     approvalChoices: [{ id: 'never', label: 'Never' }], approval: 'never', showApproval: false,
     webSearchChoices: [{ id: '', label: 'Off' }], webSearch: '', showWebSearch: false, network: false, showNetwork: false,
-    backendChoices: [{ id: 'sdk', label: 'SDK' }], backend: 'sdk', additionalDirectories: [], autoApprove: false,
+    backend: 'cli', additionalDirectories: [], autoApprove: false,
     steer: false, interactiveApproval: false, queue: [], changes: [], additions: 0, deletions: 0,
     sessions: [], usage: null, permission: null, plan: null, question: null, conversationId: 'thread-1',
     planView: null, timings: [], subagents: [], terminals: [], activeFile: null, locale: 'en',
-    providers: [{ id: 'codex', label: 'Codex', detail: 'SDK' }], ...extra,
+    providers: [{ id: 'codex', label: 'Codex', detail: 'CLI' }], ...extra,
   };
 }
 

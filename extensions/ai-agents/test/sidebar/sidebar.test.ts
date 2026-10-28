@@ -80,7 +80,7 @@ test('rewind journals restore an interrupted file, leave a matching session unto
     const conversationId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
     const savedConversation = (id: string, sessionId: string) => ({
       version: 1, id, sessionId, updatedAt: '2026-01-01T00:00:00.000Z',
-      controls: { mode: 'agent', sandbox: 'workspace-write', approval: 'never', backend: 'sdk', network: false, webSearch: '', additionalDirectories: [] },
+      controls: { mode: 'agent', sandbox: 'workspace-write', approval: 'never', backend: 'cli', network: false, webSearch: '', additionalDirectories: [] },
       state: {
         selection: { provider: 'codex', cwd: workspacePath, model: '' }, busy: false,
         messages: [{ id: 'user-1', role: 'user', text: 'saved' }], queue: [], status: 'idle', usage: null,
@@ -346,7 +346,7 @@ test('webview messages drive the sidebar without starting an agent session', asy
     assert.deepEqual(states(view).at(-1)?.shell.additionalDirectories, []);
 
     await sidebar.signIn();
-    assert.equal(commands.executed.at(-1)?.command, 'ai-agents.cursorLogin');
+    assert.equal(window.terminals.at(-1)?.name, 'Cursor CLI Login');
     await sidebar.handleMessage({ type: 'select', provider: 'codex', cwd: workspacePath });
     await sidebar.signIn();
     assert.equal(window.terminals.at(-1)?.sent[0], 'codex login');
@@ -403,7 +403,7 @@ test('restored messages get icon decorations and file review does not touch unre
     mkdirSync(history, { recursive: true });
     writeFileSync(path.join(history, `${id}.json`), JSON.stringify({
       version: 1, id, updatedAt: '2026-01-01T00:00:00.000Z',
-      controls: { mode: 'agent', sandbox: 'workspace-write', approval: 'never', backend: 'sdk', network: false, webSearch: '', additionalDirectories: [] },
+      controls: { mode: 'agent', sandbox: 'workspace-write', approval: 'never', backend: 'cli', network: false, webSearch: '', additionalDirectories: [] },
       state: {
         selection: { provider: 'codex', cwd: workspacePath, model: '' }, busy: false,
         messages: [
@@ -475,8 +475,7 @@ test('restored messages get icon decorations and file review does not touch unre
     assert.equal(readFileSync(path.join(harness.workspacePath, 'edit.txt'), 'utf8'), 'old');
     assert.match(harness.sidebar.controller.snapshot().messages.at(-1)?.text ?? '', /Reverted edit\.txt/);
     await harness.sidebar.handleMessage({ type: 'configure', backend: 'app-server' });
-    assert.match(harness.sidebar.controller.snapshot().messages.at(-1)?.text ?? '', /新しい会話/);
-    assert.equal(harness.sidebar.controller.snapshot().messages.some((message) => message.role === 'user'), false);
+    assert.ok(harness.sidebar.controller.snapshot().messages.some((message) => message.role === 'user'));
   } finally {
     await close(harness);
   }
@@ -532,7 +531,7 @@ test('model menu selection uses a local codex stub and asks before replacing a c
     mkdirSync(history, { recursive: true });
     writeFileSync(path.join(history, `${id}.json`), JSON.stringify({
       version: 1, id, updatedAt: '2026-01-01T00:00:00.000Z',
-      controls: { mode: 'agent', sandbox: 'workspace-write', approval: 'never', backend: 'sdk', network: false, webSearch: '', additionalDirectories: [] },
+      controls: { mode: 'agent', sandbox: 'workspace-write', approval: 'never', backend: 'cli', network: false, webSearch: '', additionalDirectories: [] },
       state: {
         selection: { provider: 'codex', cwd: workspacePath, model: '' }, busy: false,
         messages: [{ id: 'user-1', role: 'user', text: 'keep this chat' }],
@@ -548,11 +547,7 @@ test('model menu selection uses a local codex stub and asks before replacing a c
     await again.sidebar.handleMessage({ type: 'restoreSession', id });
     assert.ok(again.sidebar.controller.snapshot().messages.some((message) => message.role === 'user'));
     await again.sidebar.handleMessage({ type: 'setModel', modelId: 'gpt-test' });
-    assert.match(window.warningMessages.at(-1) ?? '', /new session/i);
-    assert.equal(again.sidebar.controller.snapshot().selection.model, '');
     assert.ok(again.sidebar.controller.snapshot().messages.some((message) => message.text === 'keep this chat'));
-    window.warningQueue.push({ value: 'Start new session' });
-    await again.sidebar.handleMessage({ type: 'setModel', modelId: 'gpt-test' });
     assert.equal(again.sidebar.controller.snapshot().selection.model, 'gpt-test');
   } finally {
     await close(again);

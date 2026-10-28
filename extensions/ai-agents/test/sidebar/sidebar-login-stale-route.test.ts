@@ -22,7 +22,9 @@ test('login ignores a stale conversation action and still signs in from the curr
   try {
     harness.sidebar.resolveWebviewView(view as never);
     await harness.sidebar.handleMessage({ type: 'ready' }, view as never);
-    await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: 'WAIT_FOR_STOP' });
+    const originalController = harness.sidebar.controller;
+    const running = harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: 'WAIT_FOR_STOP' });
+    await waitFor(() => originalController.snapshot().busy, 'active CLI turn');
     await waitFor(() => view.messages.some((message) => message.type === 'state' && (message.shell as { conversationId?: string } | undefined)?.conversationId === 'front'), 'initial conversation identity');
 
     await harness.sidebar.handleMessage({ type: 'newChat' });
@@ -35,6 +37,8 @@ test('login ignores a stale conversation action and still signs in from the curr
     assert.equal(window.terminals[0]?.name, 'Codex Login');
     assert.deepEqual(window.terminals[0]?.sent, ['codex login']);
     assert.equal(window.terminals[0]?.shown, 1);
+    originalController.stop();
+    await running;
   } finally {
     await close(harness);
   }

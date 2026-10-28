@@ -117,10 +117,6 @@
         "title": "AI Agents: Configure Model Details"
       },
       {
-        "command": "ai-agents.cursorLogin",
-        "title": "AI Agents: Sign in to Cursor"
-      },
-      {
         "command": "ai-agents.setCursorApiKey",
         "title": "AI Agents: Set Cursor API Key"
       },
@@ -216,33 +212,13 @@
           "type": "string",
           "default": "",
           "scope": "machine",
-          "description": "Optional absolute path to a Codex CLI. Empty uses the SDK's bundled CLI."
-        },
-        "ai-agents.codex.backend": {
-          "type": "string",
-          "enum": [
-            "sdk",
-            "app-server",
-            "cli"
-          ],
-          "default": "cli",
-          "description": "Codex transport. SDK keeps the verified exec path. App Server enables interactive approvals, plan mode, review, and thread management. CLI runs codex exec --json once per turn."
-        },
-        "ai-agents.cursor.backend": {
-          "type": "string",
-          "enum": [
-            "sdk",
-            "acp",
-            "cli"
-          ],
-          "default": "cli",
-          "description": "Cursor transport. SDK uses @cursor/sdk. ACP uses the local Cursor CLI protocol for interactive approvals and Ask mode. CLI runs agent --print once per turn."
+          "description": "Optional absolute path to a Codex CLI. Empty uses the bundled CLI."
         },
         "ai-agents.cursor.agentPath": {
           "type": "string",
           "default": "agent",
           "scope": "machine",
-          "description": "Command used to launch the Cursor CLI for ACP."
+          "description": "Command used to launch the Cursor CLI."
         },
         "ai-agents.maxBackgroundSessions": {
           "type": "number",
@@ -279,9 +255,7 @@
     "test:ui": "npm run build && node scripts/capture-ui.mjs"
   },
   "dependencies": {
-    "@cursor/sdk": "1.0.37",
-    "@openai/codex": "0.162.1",
-    "@openai/codex-sdk": "0.162.1"
+    "@openai/codex": "0.162.1"
   },
   "devDependencies": {
     "c8": "12.0.0"

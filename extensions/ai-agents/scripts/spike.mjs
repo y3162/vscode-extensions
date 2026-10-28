@@ -188,53 +188,6 @@ async function spikeAppServerShape() {
   }
 }
 
-async function spikeCursorSdk() {
-  const cwd = await mkdtemp(path.join(tmpdir(), 'ai-agents-spike-sdk-'));
-  try {
-    const { Agent, Cursor, JsonlLocalAgentStore } = await import('@cursor/sdk');
-    const auth = await Cursor.auth.status();
-    const models = await Cursor.models.list();
-    const ids = models.map((model) => model.id);
-    note('s2-models', { auth: auth.status, composer: ids.includes('composer-2.5'), fast: ids.includes('composer-2.5-fast') });
-    if (auth.status !== 'logged-in' || !ids.includes('composer-2.5')) return;
-    const agent = await Agent.create({
-      model: { id: 'composer-2.5' },
-      mode: 'plan',
-      local: { cwd, store: new JsonlLocalAgentStore(cwd), sandboxOptions: { enabled: true }, settingSources: [] },
-    });
-    const names = [];
-    try {
-      const run = await agent.send('Create a short plan to add hello.txt. Do not modify files.', { mode: 'plan', model: { id: 'composer-2.5' } });
-      for await (const event of run.stream()) {
-        if (event.type === 'tool_call') names.push(`${event.name}:${event.status}`);
-        if (names.length > 40) break;
-      }
-      const result = await run.wait();
-      const follow = await agent.send('Reply with the single word BUILD. Do not create a plan.', { mode: 'agent', model: { id: 'composer-2.5-fast' } });
-      let followText = '';
-      for await (const event of follow.stream()) {
-        if (event.type === 'assistant') followText += event.message?.content?.filter((block) => block.type === 'text').map((block) => block.text).join('') ?? '';
-      }
-      const followResult = await follow.wait();
-      note('s2-plan-build', {
-        ok: true,
-        tools: names.slice(0, 30),
-        status: result.status,
-        model: result.model?.id ?? null,
-        followStatus: followResult.status,
-        followModel: followResult.model?.id ?? null,
-        followHasBuild: /BUILD/i.test(followText),
-      });
-    } finally {
-      await agent[Symbol.asyncDispose]();
-    }
-  } catch (error) {
-    note('s2-plan-build', { ok: false, error: redact(error instanceof Error ? error.message : error) });
-  } finally {
-    await rm(cwd, { recursive: true, force: true });
-    await save();
-  }
-}
 
 async function main() {
   await mkdir(outDir, { recursive: true });
@@ -242,7 +195,7 @@ async function main() {
   await spikeAppServerShape();
   if (process.env.AI_AGENTS_SPIKE_INFERENCE === '1') {
     await spikeAcpPlan('cancelled');
-    await spikeCursorSdk();
+
   } else note('inference', { skipped: true, reason: 'Set AI_AGENTS_SPIKE_INFERENCE=1 to run billed plan spikes.' });
   await save();
   console.log('SPIKE_DONE');

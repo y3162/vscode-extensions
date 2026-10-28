@@ -1,4 +1,3 @@
-import '../support/register-cursor-sdk.mjs';
 
 import assert from 'node:assert/strict';
 

@@ -15,7 +15,7 @@ test('display history survives a new controller without resubmitting old prompts
   const factory = async () => ({ sessionId: 'thread', async run(prompt: string, _signal: AbortSignal, emit: (update: AgentUpdate) => void) {
     calls.push(prompt); const count = calls.length;
     emit({ id: 'answer', role: 'assistant', text: `${prompt} 日本語\n${'long'.repeat(10000)}` });
-    emit({ id: 'usage', role: 'status', text: '', meta: { type: 'usage', usage: { inputTokens: count * 10, outputTokens: count, totalTokens: count * 11, scope: 'session', source: 'codex-sdk' } } });
+    emit({ id: 'usage', role: 'status', text: '', meta: { type: 'usage', usage: { inputTokens: count * 10, outputTokens: count, totalTokens: count * 11, scope: 'session', source: 'codex-cli' } } });
   }, async dispose() {} });
   const controller = new ChatController(selection, factory, () => {});
   for (const prompt of ['one', 'two', 'three']) await controller.send(prompt);
@@ -24,7 +24,7 @@ test('display history survives a new controller without resubmitting old prompts
   assert.ok(controller.snapshot().messages.at(-1)!.text.length > 32000);
   const root = await mkdtemp(path.join(tmpdir(), 'ai-history-test-'));
   const store = new HistoryStore(root);
-  store.schedule({ version: 1, id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', sessionId: 'thread', updatedAt: new Date().toISOString(), controls: defaultControls('codex', 'sdk'), state: controller.snapshot() });
+  store.schedule({ version: 1, id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', sessionId: 'thread', updatedAt: new Date().toISOString(), controls: defaultControls('codex', 'cli'), state: controller.snapshot() });
   await store.flush();
   const reloaded = new HistoryStore(root); await reloaded.load();
   const saved = reloaded.get('thread')!; assert.ok(saved);
@@ -59,20 +59,6 @@ test('configuration failure stops queued automatic resubmission and Retry preser
 test('usage repeated snapshots replace values and preserve unavailable cache/reasoning', () => {
   assert.deepEqual(usageDifference({ inputTokens: 32003, outputTokens: 11, cachedInputTokens: 28416 }, { inputTokens: 15991, outputTokens: 5, cachedInputTokens: 12544 }), { inputTokens: 16012, outputTokens: 6, cachedInputTokens: 15872, scope: 'turn' });
   assert.equal(usageDifference({ inputTokens: 1, outputTokens: 1 }, { inputTokens: 10, outputTokens: 10 }), undefined);
-});
-
-test('Cursor public stored turn restores its user, thoughts, tools and answer', async () => {
-  const { cursorStoredMessages } = await import('../../src/providers/cursor-history.js');
-  const messages = cursorStoredMessages([{ uuid: 'agent:0', message: { agentConversationTurn: { userMessage: { text: 'Hi', startedAtMs: '120' }, steps: [{ thinkingMessage: { text: 'Public summary' } }, { toolCall: { shell: { args: { command: 'printf hi' }, result: { stdout: 'hi' } } } }, { assistantMessage: { text: '**Hi**' } }] } } }], [{ id: 'run-1', createdAt: 100 }]);
-  assert.deepEqual(messages.map((m) => m.role), ['user', 'status', 'tool', 'assistant']);
-  assert.ok(messages.every((m) => m.backendTurnId === 'run-1'));
-  assert.equal(messages.at(-1)?.final, true); assert.match(messages[2]!.text, /stdout/);
-});
-
-test('Cursor protobuf oneof objects are normalized before JSON serialization', async () => {
-  const { cursorStoredMessages } = await import('../../src/providers/cursor-history.js');
-  const messages = cursorStoredMessages([{ uuid: 'agent:0', message: { turn: { case: 'agentConversationTurn', value: { userMessage: { text: 'Hi', startedAtMs: 120n }, steps: [{ message: { case: 'assistantMessage', value: { text: 'Hello' } } }] } } } }], [{ id: 'run-1', createdAt: 100 }]);
-  assert.deepEqual(messages.map((m) => m.role), ['user', 'assistant']); assert.equal(messages[0]?.backendTurnId, 'run-1');
 });
 
 test('a backend error event followed by the same rejected run produces one error card', async () => {

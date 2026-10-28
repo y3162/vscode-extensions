@@ -7,12 +7,12 @@ import { capabilitiesFor, defaultControls, normalizeControls, type AgentControls
 const mode = 0o644;
 
 test('normalizeControls drops unsupported sandbox, search, network, and directories per backend', () => {
-  const codex = capabilitiesFor('codex', 'sdk');
+  const codex = capabilitiesFor('codex', 'cli');
   assert.equal(codex.compact, false);
   assert.equal(codex.rateLimits, false);
-  assert.equal(codex.modelSettings, 'new-session');
+  assert.equal(codex.modelSettings, 'next-send');
   assert.equal(codex.webSearch.some((item) => item.id === 'cached'), true);
-  assert.equal(capabilitiesFor('cursor', 'sdk').networkToggle, false);
+  assert.equal(capabilitiesFor('cursor', 'cli').networkToggle, false);
   assert.equal(capabilitiesFor('cursor', 'acp').additionalDirectories, false);
   assert.equal(defaultControls('cursor', 'acp').sandbox, 'enabled');
   assert.equal(defaultControls('codex', 'app-server').sandbox, 'workspace-write');
@@ -30,7 +30,7 @@ test('normalizeControls drops unsupported sandbox, search, network, and director
   assert.equal(kept.webSearch, 'cached');
   assert.equal(kept.network, true);
   assert.deepEqual(kept.additionalDirectories, ['/workspace/extra']);
-  const invalid = normalizeControls('codex', { ...defaultControls('codex', 'sdk'), mode: 'ask' as AgentControls['mode'], sandbox: 'enabled', approval: 'on-request', webSearch: 'nope' });
+  const invalid = normalizeControls('codex', { ...defaultControls('codex', 'cli'), mode: 'ask' as AgentControls['mode'], sandbox: 'enabled', approval: 'on-request', webSearch: 'nope' });
   assert.equal(invalid.mode, 'agent');
   assert.equal(invalid.sandbox, 'workspace-write');
   assert.equal(invalid.approval, 'never');

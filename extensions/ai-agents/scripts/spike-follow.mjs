@@ -76,27 +76,6 @@ async function acp() {
   } finally { rpc.kill(); await rm(cwd, { recursive: true, force: true }); }
 }
 
-async function sdk() {
-  const cwd = await mkdtemp(path.join(tmpdir(), 'ai-agents-spike-sdk2-'));
-  try {
-    const { Agent, JsonlLocalAgentStore } = await import('@cursor/sdk');
-    const agent = await Agent.create({ model: { id: 'composer-2.5' }, mode: 'plan', local: { cwd, store: new JsonlLocalAgentStore(cwd), sandboxOptions: { enabled: true }, settingSources: [] } });
-    const names = [];
-    try {
-      const run = await agent.send('Create a short plan to add hello.txt. Do not modify files.', { mode: 'plan', model: { id: 'composer-2.5' } });
-      for await (const event of run.stream()) if (event.type === 'tool_call') names.push(`${event.name}:${event.status}`);
-      const result = await run.wait();
-      const follow = await agent.send('Reply with the single word BUILD. Do not create a plan and do not use tools.', { mode: 'agent', model: { id: 'composer-2' } });
-      let text = '';
-      for await (const event of follow.stream()) if (event.type === 'assistant') text += event.message?.content?.filter((block) => block.type === 'text').map((block) => block.text).join('') ?? '';
-      const followResult = await follow.wait();
-      note('s2-plan-then-model', { ok: true, tools: names.slice(0, 20), status: result.status, followModel: followResult.model?.id ?? null, followStatus: followResult.status, saidBuild: /BUILD/i.test(text) });
-    } finally { await agent[Symbol.asyncDispose](); }
-  } catch (error) {
-    note('s2-plan-then-model', { ok: false, error: String(error).slice(0, 400) });
-  } finally { await rm(cwd, { recursive: true, force: true }); }
-}
-
 async function appServer() {
   const cwd = await mkdtemp(path.join(tmpdir(), 'ai-agents-spike-app2-'));
   const cli = path.resolve(root, '../../node_modules/@openai/codex/bin/codex.js');
@@ -134,7 +113,7 @@ async function appServer() {
 
 await mkdir(path.dirname(out), { recursive: true });
 await acp();
-await sdk();
+
 await appServer();
 await writeFile(out, `${JSON.stringify({ at: new Date().toISOString(), steps }, null, 2)}\n`);
 console.log('SPIKE_DONE');

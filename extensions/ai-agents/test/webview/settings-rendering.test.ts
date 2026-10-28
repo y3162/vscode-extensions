@@ -10,9 +10,9 @@ import type { ViewMessage, ViewShell, VsCodeApi } from '../../src/protocol.js';
 
 function shell(extra: Partial<ViewShell> = {}): ViewShell {
   return {
-    provider: 'codex', providerLabel: 'Codex · SDK', cwd: '/workspace', busy: false, presence: 'idle',
+    provider: 'codex', providerLabel: 'Codex · CLI', cwd: '/workspace', busy: false, presence: 'idle',
     statusText: 'Ready', sessionTitle: 'New chat', modelLabel: 'gpt', effortLabel: 'High', modelSettings: 'new-session',
-    accessLabel: 'Workspace write', risky: false, banner: null, backendLabel: 'SDK', folderName: 'workspace',
+    accessLabel: 'Workspace write', risky: false, banner: null, backendLabel: 'CLI', folderName: 'workspace',
     folders: [{ name: 'workspace', path: '/workspace' }, { name: 'other', path: '/other' }],
     modes: [{ id: 'agent', label: 'Agent' }, { id: 'plan', label: 'Plan' }, { id: 'ask', label: 'Ask', description: 'Questions' }],
     mode: 'agent', showMode: true,
@@ -21,11 +21,11 @@ function shell(extra: Partial<ViewShell> = {}): ViewShell {
     approvalChoices: [{ id: 'never', label: 'Never' }, { id: 'on-request', label: 'On request' }],
     approval: 'never', showApproval: false, webSearchChoices: [{ id: '', label: 'Off' }, { id: 'live', label: 'Live' }],
     webSearch: '', showWebSearch: false, network: false, showNetwork: false,
-    backendChoices: [{ id: 'sdk', label: 'SDK' }, { id: 'app-server', label: 'App Server' }], backend: 'sdk',
+    backend: 'cli',
     additionalDirectories: [], autoApprove: false, steer: false, interactiveApproval: false, queue: [], changes: [],
     additions: 0, deletions: 0, sessions: [], usage: null, permission: null, plan: null, question: null,
     conversationId: 'front', planView: null, timings: [], subagents: [], terminals: [],
-    activeFile: null, locale: 'en', providers: [{ id: 'codex', label: 'Codex', detail: 'SDK' }], ...extra,
+    activeFile: null, locale: 'en', providers: [{ id: 'codex', label: 'Codex', detail: 'CLI' }], ...extra,
   };
 }
 
@@ -71,6 +71,7 @@ test('rendering settings does not post a configure event', () => {
   try {
     emit(shell({ showApproval: true, showNetwork: true }));
     assert.equal(posted(sent, 'configure'), undefined);
+    assert.equal(window.document.querySelector('select[data-key=backend]'), null);
     const approval = window.document.querySelector('select[data-key="approval"]') as HTMLSelectElement;
     approval.value = 'on-request';
     assert.equal(posted(sent, 'configure')?.approval, 'on-request');

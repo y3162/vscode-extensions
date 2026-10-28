@@ -132,13 +132,13 @@ test('a failed history flush keeps the previously saved conversation', async () 
     await controller.send('original');
     const id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
     const store = new HistoryStore(root);
-    store.schedule({ version: 1, id, updatedAt: new Date().toISOString(), controls: defaultControls('codex', 'sdk'), state: controller.snapshot() });
+    store.schedule({ version: 1, id, updatedAt: new Date().toISOString(), controls: defaultControls('codex', 'cli'), state: controller.snapshot() });
     await store.flush();
     await chmod(root, 0o500);
     const next = new ChatController(selection, async () => ({ async run() {}, async dispose() {} }), () => {});
     await next.send('replacement');
     const failing = new HistoryStore(root);
-    failing.schedule({ version: 1, id, updatedAt: new Date().toISOString(), controls: defaultControls('codex', 'sdk'), state: next.snapshot() });
+    failing.schedule({ version: 1, id, updatedAt: new Date().toISOString(), controls: defaultControls('codex', 'cli'), state: next.snapshot() });
     await assert.rejects(failing.flush(), /EACCES|permission/i);
     await chmod(root, 0o700);
     const reloaded = new HistoryStore(root);
@@ -154,7 +154,7 @@ test('clearing history removes the saved file and ignores a missing record', asy
     await controller.send('kept');
     const id = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
     const store = new HistoryStore(root);
-    store.schedule({ version: 1, id, updatedAt: new Date().toISOString(), controls: defaultControls('codex', 'sdk'), state: controller.snapshot() });
+    store.schedule({ version: 1, id, updatedAt: new Date().toISOString(), controls: defaultControls('codex', 'cli'), state: controller.snapshot() });
     await store.flush();
     await store.clear(id);
     assert.equal(store.get(id), undefined);
@@ -193,7 +193,7 @@ test('resume does not invent a zero usage baseline for the first restored turn',
   const controller = new ChatController(selection, async () => ({
     sessionId: 'thread',
     async run(_prompt, _signal, emit) {
-      emit({ id: 'usage', role: 'status', text: '', meta: { type: 'usage', usage: { inputTokens: 40, outputTokens: 4, totalTokens: 44, scope: 'session', source: 'codex-sdk' } } });
+      emit({ id: 'usage', role: 'status', text: '', meta: { type: 'usage', usage: { inputTokens: 40, outputTokens: 4, totalTokens: 44, scope: 'session', source: 'codex-cli' } } });
     },
     async dispose() {},
   }), () => {});

@@ -33,7 +33,7 @@ function chatState(cwd = '/work', messages: ChatState['messages'] = [{ id: 'm1',
 }
 
 function saved(id: string, state = chatState()): SavedConversation {
-  return { version: 1, id, sessionId: `session-${id}`, updatedAt: '2026-10-17T00:00:00.000Z', controls: defaultControls('codex', 'sdk'), state };
+  return { version: 1, id, sessionId: `session-${id}`, updatedAt: '2026-10-17T00:00:00.000Z', controls: defaultControls('codex', 'cli'), state };
 }
 
 test('history load rejects non-ENOENT failures, invalid records, and still reads a valid sibling', async () => {

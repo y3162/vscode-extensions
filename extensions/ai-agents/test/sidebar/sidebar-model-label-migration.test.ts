@@ -26,7 +26,7 @@ test('saved model labels migrate to their base name while selection parameters a
     cursor: { model: 'auto', label: 'Cursor — Fast', hasDetails: false },
   });
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, (async () => ({
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, (async () => ({
     sessionId: 'saved-model', async run() {}, async dispose() {},
   })) as never);
   const harness: Harness = { ...paths, sidebar, output };

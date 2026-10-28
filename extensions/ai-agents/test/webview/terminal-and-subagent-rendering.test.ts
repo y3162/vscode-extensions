@@ -14,18 +14,18 @@ import type { ViewMessage, ViewShell, VsCodeApi } from '../../src/protocol.js';
 
 function shell(extra: Partial<ViewShell> = {}): ViewShell {
   return {
-    provider: 'codex', providerLabel: 'Codex · SDK', cwd: '/workspace', busy: false, presence: 'idle',
+    provider: 'codex', providerLabel: 'Codex · CLI', cwd: '/workspace', busy: false, presence: 'idle',
     statusText: 'Ready', sessionTitle: 'New chat', modelLabel: 'gpt', effortLabel: 'High', modelSettings: 'new-session',
-    accessLabel: 'Workspace write', risky: false, banner: null, backendLabel: 'SDK', folderName: 'workspace',
+    accessLabel: 'Workspace write', risky: false, banner: null, backendLabel: 'CLI', folderName: 'workspace',
     folders: [{ name: 'workspace', path: '/workspace' }],
     modes: [{ id: 'agent', label: 'Agent' }, { id: 'plan', label: 'Plan' }], mode: 'agent', showMode: true,
     sandboxChoices: [{ id: 'workspace-write', label: 'Workspace write' }], sandbox: 'workspace-write',
     approvalChoices: [], approval: 'never', showApproval: false, webSearchChoices: [], webSearch: '', showWebSearch: false,
-    network: false, showNetwork: false, backendChoices: [{ id: 'sdk', label: 'SDK' }], backend: 'sdk',
+    network: false, showNetwork: false, backend: 'cli',
     additionalDirectories: [], autoApprove: false, steer: false, interactiveApproval: false, queue: [], changes: [],
     additions: 0, deletions: 0, sessions: [], usage: null, permission: null, plan: null, question: null,
     conversationId: 'front', planView: null, timings: [], subagents: [], terminals: [],
-    activeFile: null, locale: 'en', providers: [{ id: 'codex', label: 'Codex', detail: 'SDK' }], ...extra,
+    activeFile: null, locale: 'en', providers: [{ id: 'codex', label: 'Codex', detail: 'CLI' }], ...extra,
   };
 }
 
@@ -165,9 +165,9 @@ test('chat keeps live terminal state and output alongside the panel opener', () 
   assert.match(window.document.querySelectorAll('.terminal-row .error-block')[1]?.textContent ?? '', /completeness is unknown/);
 });
 
-test('finished SDK background terminals remain visible above the composer and in the header', () => {
+test('finished background terminals remain visible above the composer and in the header', () => {
   const { window, emit } = mount();
-  emit(shell({ provider: 'cursor', backend: 'sdk', terminals: [{ processId: 'sdk-1', command: 'sleep 120', status: 'cancelled', output: 'READY\nexit_code: unknown' }] }));
+  emit(shell({ provider: 'cursor', backend: 'cli', terminals: [{ processId: 'terminal-1', command: 'sleep 120', status: 'cancelled', output: 'READY\nexit_code: unknown' }] }));
   click(visible(window.document, '.new-chat'));
   assert.match(visible(window.document, '.terminal-open').textContent ?? '', /sleep 120.*cancelled/);
   assert.match(window.document.querySelector('.terminal-output')?.textContent ?? '', /READY/);

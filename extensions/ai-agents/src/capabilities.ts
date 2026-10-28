@@ -128,41 +128,6 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
       modelSettings: 'next-send',
     };
   }
-  if (provider === 'cursor') {
-    return {
-      provider, backend: 'sdk',
-      modes: agentPlan,
-      sandbox: [
-        { id: 'enabled', label: 'Sandbox', description: 'local.sandboxOptions.enabled を有効にします。範囲外の操作は対話確認できず拒否されます。' },
-        { id: 'disabled', label: 'Off', description: 'サンドボックスを無効にします。ローカルSDKは確認なしで操作を実行します。' },
-      ],
-      approval: [],
-      webSearch: [],
-      images: true,
-      sessionList: true,
-      resume: true,
-      fork: false,
-      compact: false,
-      steer: false,
-      interactiveApproval: false,
-      planApproval: false,
-      questions: false,
-      review: false,
-      usage: true,
-      rateLimits: false,
-      mcp: true,
-      skills: true,
-      rules: true,
-      todos: true,
-      subagentTracking: 'observe',
-      backgroundTerminals: 'none',
-      plan: 'events',
-      buildModel: 'next-send',
-      networkToggle: false,
-      additionalDirectories: true,
-      modelSettings: 'next-send',
-    };
-  }
   if (backend === 'app-server') {
     return {
       provider: 'codex', backend,
@@ -254,47 +219,7 @@ export function capabilitiesFor(provider: Provider, backend: Backend): ProviderC
       modelSettings: 'next-send',
     };
   }
-  return {
-    provider: 'codex', backend: 'sdk',
-    modes: [{ id: 'agent', label: 'Agent' }],
-    sandbox: [
-      { id: 'read-only', label: 'Read-only' },
-      { id: 'workspace-write', label: 'Workspace write' },
-      { id: 'danger-full-access', label: 'Full access', description: 'サンドボックスを無効にします。' },
-    ],
-    approval: [
-      { id: 'never', label: 'Never', description: 'SDK の exec は対話承認を受け取れません。' },
-    ],
-    webSearch: [
-      { id: '', label: 'Default' },
-      { id: 'disabled', label: 'Disabled' },
-      { id: 'cached', label: 'Cached' },
-      { id: 'live', label: 'Live' },
-    ],
-    images: true,
-    sessionList: true,
-    resume: true,
-    fork: false,
-    compact: false,
-    steer: false,
-    interactiveApproval: false,
-    planApproval: false,
-    questions: false,
-    review: false,
-    usage: true,
-    rateLimits: false,
-    mcp: true,
-    skills: true,
-    rules: true,
-    todos: true,
-    subagentTracking: 'none',
-    backgroundTerminals: 'none',
-    plan: 'none',
-    buildModel: 'new-session',
-    networkToggle: true,
-    additionalDirectories: true,
-    modelSettings: 'new-session',
-  };
+  throw new Error('Unsupported backend');
 }
 
 export function modelApplyMode(provider: Provider, backend: Backend): SupportedModelApplyMode {

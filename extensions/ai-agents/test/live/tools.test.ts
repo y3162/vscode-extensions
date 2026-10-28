@@ -47,8 +47,6 @@ async function run(options: SessionOptions, prompt: string, decide: (request: Pe
 const cases: Array<{ name: string; options: Omit<SessionOptions, 'cwd' | 'storagePath' | 'interactions'> }> = [
   { name: 'cursor-acp', options: { provider: 'cursor', backend: 'acp', model: 'composer-2.5', sandbox: 'enabled' } },
   { name: 'codex-app-server', options: { provider: 'codex', backend: 'app-server', model: 'gpt-6-luna', sandbox: 'workspace-write', approval: 'untrusted' } },
-  { name: 'cursor-sdk', options: { provider: 'cursor', backend: 'sdk', model: 'composer-2.5', sandbox: 'enabled' } },
-  { name: 'codex-sdk', options: { provider: 'codex', backend: 'sdk', model: 'gpt-6-luna', sandbox: 'workspace-write', approval: 'never', modelParams: [{ id: 'modelReasoningEffort', value: 'low' }] } },
 ];
 
 for (const item of cases) {
@@ -71,7 +69,7 @@ for (const item of cases) {
       const updates = await run(options,
         'Read note.txt and change it so its entire contents are exactly beta followed by a newline. Do not edit any other file.',
         async () => { prompts++; return interactive ? 'allow-once' : 'deny'; });
-      if (!interactive) assert.equal(prompts, 0, 'SDK backends must not require an interactive response');
+      if (!interactive) assert.equal(prompts, 0, 'CLI backends must not require an interactive response');
       assert.equal(await readFile(path.join(cwd, 'note.txt'), 'utf8'), 'beta\n');
       const change = filesOf(updates).find((file) => file.path.endsWith('note.txt'));
       assert.ok(change, `${item.name} did not report the edited file`);

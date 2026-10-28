@@ -58,9 +58,9 @@ test('display labels, search, and backend support do not invent unavailable sett
   assert.equal(parameterPresentation({ id: 'effort', values: [] }), 'hidden');
   assert.equal(catalogIsCurrent({ requestId: 2, provider: 'cursor', cwd: '/work' }, { requestId: 1, provider: 'cursor', cwd: '/work' }), false);
   assert.equal(modelApplyMode('cursor', 'acp'), 'next-send');
-  assert.equal(modelApplyMode('cursor', 'sdk'), 'next-send');
+  assert.equal(modelApplyMode('cursor', 'cli'), 'next-send');
   assert.equal(modelApplyMode('codex', 'app-server'), 'next-send');
-  assert.equal(modelApplyMode('codex', 'sdk'), 'new-session');
+  assert.equal(modelApplyMode('codex', 'cli'), 'next-send');
   const custom = annotateParameter({ id: 'custom-setting', label: '', values: [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }] });
   assert.equal(custom?.label, 'custom-setting', 'an unlabeled custom parameter uses its stable id as the display title');
   assert.equal(custom?.role, 'other');

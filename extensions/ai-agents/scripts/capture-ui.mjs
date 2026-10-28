@@ -136,9 +136,9 @@ try {
     await check('mode selection posts supported mode', `previewPosts.some(p=>p.type==='configure' && p.mode==='plan')`);
     await evaluate(`document.querySelector('.access-label').focus(); document.querySelector('.access-label').click()`);
     await check('settings has keyboard focus', `document.activeElement.closest('.settings-panel') !== null`);
-    await evaluate(`document.querySelector('select[data-key="backend"]').focus(); window.previewSetState({...previewState, shell: {...previewState.shell, statusText:'Updated'}})`);
+    await evaluate(`document.querySelector('select[data-key="sandbox"]').focus(); window.previewSetState({...previewState, shell: {...previewState.shell, statusText:'Updated'}})`);
     await evaluate('new Promise(r=>requestAnimationFrame(r))');
-    await check('unrelated updates preserve settings focus', `document.activeElement.matches('select[data-key="backend"]')`);
+    await check('unrelated updates preserve settings focus', `document.activeElement.matches('select[data-key="sandbox"]')`);
     await key('Escape');
     await check('settings restores trigger focus', `document.activeElement.matches('.access-label')`);
     await navigate('running');

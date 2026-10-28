@@ -1,4 +1,4 @@
-import type { ThreadItem } from '@openai/codex-sdk';
+import type { ThreadItem } from './codex-items.js';
 import { captureGitBaselines } from '../change-tracker.js';
 import { writeImageFiles } from '../images.js';
 import type { AgentSession, AgentUpdate } from '../types.js';
@@ -10,7 +10,7 @@ import { codexUpdate } from './events.js';
 import type { SessionOptions } from './session-options.js';
 import { codexTool } from './tools.js';
 
-const approvalError = 'この承認ポリシーは対話操作が必要です。バックエンドを Codex App Server に切り替えてください。';
+const approvalError = 'Codex CLI は対話承認に対応していません。';
 
 export function codexCliArgs(options: {
   cwd: string;

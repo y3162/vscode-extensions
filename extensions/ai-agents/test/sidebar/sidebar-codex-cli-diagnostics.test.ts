@@ -32,7 +32,7 @@ test('Codex diagnostics report a synthetic successful CLI check and redact its o
     assert.match(report, /Codex fixture 0\.1/);
     assert.match(report, /api_key=\[redacted\]/);
     assert.doesNotMatch(report, /fixture-secret-value/);
-    assert.match(report, /OK Backend\ncodex\/sdk/);
+    assert.match(report, /OK Backend\ncodex\/cli/);
   } finally {
     await close(harness);
   }

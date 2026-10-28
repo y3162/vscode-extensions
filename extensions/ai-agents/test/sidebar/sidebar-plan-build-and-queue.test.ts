@@ -93,7 +93,7 @@ async function close(harness: Harness): Promise<void> {
 function openSidebarWithFactory(factory: (options: SessionOptions) => Promise<AgentSession>): Harness {
   const paths = prepareHarnessRoot();
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, factory as never);
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, factory as never);
   return { ...paths, sidebar, output };
 }
 
@@ -164,6 +164,7 @@ test('buildPlan applies a validated model selection and restores Plan mode after
   installFakeFactory(harness, () => session);
   try {
     await ready(harness.sidebar, view);
+    await harness.sidebar.handleMessage({ type: 'select', provider: 'cursor', cwd: harness.workspacePath });
     await harness.sidebar.handleMessage({ type: 'configure', backend: 'app-server', mode: 'plan' });
     restoreReadyPlan(harness, 'plan-1', 1);
     await harness.sidebar.handleMessage({ type: 'setBuildParam', id: 'effort', value: 'high' });
@@ -176,7 +177,7 @@ test('buildPlan applies a validated model selection and restores Plan mode after
     assert.match(session.runs[0]?.prompt ?? '', /Implement the following plan/);
     assert.equal(harness.sidebar.controller.snapshot().plan.phase, 'implemented');
     assert.equal(latestShell<{ mode: string }>(view)?.mode, 'agent');
-    assert.equal(harness.context.workspaceState.get<Record<string, { model: string; label: string }>>('ai-agents.selectedModels')?.codex?.label, 'Fixture model');
+    assert.equal(harness.context.workspaceState.get<Record<string, { model: string; label: string }>>('ai-agents.selectedModels')?.cursor?.label, 'Fixture model');
 
     await harness.sidebar.handleMessage({ type: 'configure', mode: 'plan' });
     restoreReadyPlan(harness, 'plan-2', 2);
@@ -260,6 +261,7 @@ test('a rejected build model restores Plan mode and persistence without committi
   const view = createView();
   try {
     await ready(harness.sidebar, view);
+    await harness.sidebar.handleMessage({ type: 'select', provider: 'cursor', cwd: harness.workspacePath });
     await harness.sidebar.handleMessage({ type: 'configure', backend: 'app-server', mode: 'plan' });
     restoreReadyPlan(harness, 'rejected-build', 1);
     const previousSelection = harness.sidebar.controller.snapshot().selection;
@@ -273,17 +275,17 @@ test('a rejected build model restores Plan mode and persistence without committi
     assert.equal(harness.sidebar.controller.snapshot().plan.phase, 'ready');
     assert.deepEqual(harness.sidebar.controller.snapshot().selection, previousSelection);
     assert.equal(latestShell<{ mode: string }>(view)?.mode, 'plan');
-    assert.equal(harness.context.workspaceState.get<Record<string, { mode: string; backend: string }>>('ai-agents.controls')?.codex?.mode, 'plan');
-    assert.equal(harness.context.workspaceState.get<Record<string, { model?: string; label?: string }>>('ai-agents.selectedModels')?.codex?.model, undefined);
+    assert.equal(harness.context.workspaceState.get<Record<string, { mode: string; backend: string }>>('ai-agents.controls')?.cursor?.mode, 'plan');
+    assert.equal(harness.context.workspaceState.get<Record<string, { model?: string; label?: string }>>('ai-agents.selectedModels')?.cursor?.model, undefined);
     assert.ok(harness.sidebar.controller.snapshot().messages.some((message) => message.role === 'error' && message.text.includes('backend rejected build model')));
 
     await harness.sidebar.handleMessage({ type: 'newChat' });
-    await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: 'continue in Plan mode' });
+    await harness.sidebar.handleMessage({ type: 'send', provider: 'cursor', cwd: harness.workspacePath, prompt: 'continue in Plan mode' });
     assert.equal(createdOptions.length, 2);
     assert.equal(createdOptions[0]?.mode, 'agent', 'build temporarily requests Agent mode from the backend');
     assert.equal(createdOptions[1]?.mode, 'plan', 'the next conversation uses the restored Plan controller controls');
     assert.equal(harness.sidebar.controller.snapshot().selection.model, previousSelection.model);
-    assert.equal(harness.context.workspaceState.get<Record<string, { model?: string }>>('ai-agents.selectedModels')?.codex?.model, undefined);
+    assert.equal(harness.context.workspaceState.get<Record<string, { model?: string }>>('ai-agents.selectedModels')?.cursor?.model, undefined);
   } finally {
     await close(harness);
   }

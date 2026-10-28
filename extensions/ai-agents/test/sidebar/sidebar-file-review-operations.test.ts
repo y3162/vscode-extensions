@@ -93,7 +93,7 @@ interface RunCall {
   selection?: Selection;
 }
 
-test('compact and supported review built-ins use the live Session APIs without sending duplicate chat turns', async () => {
+test('compact and review built-ins use the available CLI session routes', async () => {
   resetVscode();
   const harness = openSidebar();
   const view = createView();
@@ -111,17 +111,17 @@ test('compact and supported review built-ins use the live Session APIs without s
     assert.ok(harness.sidebar.controller.snapshot().messages.some((message) => message.text.includes('コンテキストを圧縮しました')));
 
     await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: '/review' });
-    assert.deepEqual(session.reviews, ['uncommitted']);
-    assert.equal(session.runs.length, 1);
+    assert.deepEqual(session.reviews, []);
+    assert.equal(session.runs.length, 2);
+    assert.match(session.runs[1]?.prompt ?? '', /Review the current changes/);
     assert.equal(harness.sidebar.controller.snapshot().messages.filter((message) => message.role === 'user').length, userMessagesBefore + 1);
-    assert.ok(harness.sidebar.controller.snapshot().messages.some((message) => message.text === 'reviewed by fixture'));
 
     await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: '/diagnostics inspect errors' });
-    assert.match(session.runs[1]?.prompt ?? '', /inspect errors/);
-    assert.match(session.runs[1]?.prompt ?? '', /No errors or warnings/);
+    assert.match(session.runs[2]?.prompt ?? '', /inspect errors/);
+    assert.match(session.runs[2]?.prompt ?? '', /No errors or warnings/);
     await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: '/terminal inspect commands' });
-    assert.match(session.runs[2]?.prompt ?? '', /inspect commands/);
-    assert.match(session.runs[2]?.prompt ?? '', /VS Code/);
+    assert.match(session.runs[3]?.prompt ?? '', /inspect commands/);
+    assert.match(session.runs[3]?.prompt ?? '', /VS Code/);
   } finally {
     await close(harness);
   }

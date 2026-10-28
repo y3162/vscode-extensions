@@ -19,7 +19,7 @@ async function close(harness: Harness): Promise<void> {
   rmSync(harness.root, { recursive: true, force: true });
 }
 
-test('Cursor restore offers its backend choices and cancellation does not create a resumed session', async () => {
+test('Cursor history without a known CLI origin does not open a picker or resume', async () => {
   resetVscode();
   const paths = prepareHarnessRoot();
   const summary: SessionSummary = {
@@ -29,25 +29,18 @@ test('Cursor restore offers its backend choices and cancellation does not create
   await paths.context.workspaceState.update('ai-agents.sessionIndex', [summary]);
   const output = window.createOutputChannel('AI Agents');
   const optionsSeen: SessionOptions[] = [];
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, (async (options: SessionOptions): Promise<AgentSession> => {
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, (async (options: SessionOptions): Promise<AgentSession> => {
     optionsSeen.push(options);
     return { sessionId: summary.id, async run() {}, async dispose() {} };
   }) as never);
   const harness: Harness = { ...paths, sidebar, output };
   try {
     await sidebar.handleMessage({ type: 'select', provider: 'cursor', cwd: paths.workspacePath });
-    window.quickPickQueue.push(undefined);
     await sidebar.handleMessage({ type: 'restoreSession', id: summary.id });
-    assert.deepEqual(window.quickPickOffers.at(-1), ['sdk', 'acp', 'cli']);
+    assert.equal(window.quickPickOffers.length, 0);
     assert.equal(optionsSeen.length, 0);
     assert.equal(sidebar.controller.sessionId(), undefined);
-
-    window.quickPickQueue.push('acp');
-    await sidebar.handleMessage({ type: 'restoreSession', id: summary.id });
-    assert.equal(optionsSeen.length, 1);
-    assert.equal(optionsSeen[0]?.backend, 'acp');
-    assert.equal(optionsSeen[0]?.resumeId, summary.id);
-    assert.equal(sidebar.controller.snapshot().selection.provider, 'cursor');
+    assert.ok(sidebar.controller.snapshot().messages.some((message) => message.text.includes('確認できない')));
   } finally {
     await close(harness);
   }

@@ -29,7 +29,7 @@ async function close(harness: Harness): Promise<void> {
   rmSync(harness.root, { recursive: true, force: true });
 }
 
-test('restoring an indexed conversation without a backend safely handles picker cancel and resumes after selection', async () => {
+test('restoring an unknown session does not prompt or assume a CLI origin', async () => {
   resetVscode();
   const paths = prepareHarnessRoot();
   const summary: SessionSummary = {
@@ -43,26 +43,18 @@ test('restoring an indexed conversation without a backend safely handles picker 
   let factoryCalls = 0;
   let optionsSeen: SessionOptions | undefined;
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, (async (options: SessionOptions) => {
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, (async (options: SessionOptions) => {
     factoryCalls += 1;
     optionsSeen = options;
     return session(summary.id);
   }) as never);
   const harness = { ...paths, sidebar, output };
   try {
-    window.quickPickQueue.push(undefined);
     await sidebar.handleMessage({ type: 'restoreSession', id: summary.id });
-    assert.deepEqual(window.quickPickOffers.at(-1), ['sdk', 'app-server', 'cli']);
-    assert.equal(factoryCalls, 0, 'cancel must not construct or resume a backend session');
+    assert.equal(window.quickPickOffers.length, 0);
+    assert.equal(factoryCalls, 0);
     assert.equal(sidebar.controller.sessionId(), undefined);
-
-    window.quickPickQueue.push('app-server');
-    await sidebar.handleMessage({ type: 'restoreSession', id: summary.id });
-    assert.equal(factoryCalls, 1);
-    assert.equal(optionsSeen?.backend, 'app-server');
-    assert.equal(optionsSeen?.resumeId, summary.id);
-    assert.equal(sidebar.controller.sessionId(), summary.id);
-    assert.equal(sidebar.controller.snapshot().selection.cwd, paths.workspacePath);
+    assert.ok(sidebar.controller.snapshot().messages.some((message) => message.text.includes('確認できない')));
   } finally {
     await close(harness);
   }

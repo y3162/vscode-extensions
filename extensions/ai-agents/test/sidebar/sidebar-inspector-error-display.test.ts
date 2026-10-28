@@ -17,7 +17,7 @@ import { createView, openSidebar, prepareHarnessRoot, type Harness } from '../su
 function withSession(factory: (options: SessionOptions) => Promise<AgentSession>): Harness {
   const paths = prepareHarnessRoot();
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, factory as never);
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, factory as never);
   return { ...paths, sidebar, output };
 }
 
@@ -26,7 +26,7 @@ async function close(harness: Harness): Promise<void> {
   rmSync(harness.root, { recursive: true, force: true });
 }
 
-test('usage and instruction inspectors retain readable SDK errors instead of rejecting the webview request', async () => {
+test('usage and instruction inspectors retain readable runtime errors instead of rejecting the webview request', async () => {
   resetVscode();
   const harness = withSession(async () => ({
     sessionId: 'inspector-errors',

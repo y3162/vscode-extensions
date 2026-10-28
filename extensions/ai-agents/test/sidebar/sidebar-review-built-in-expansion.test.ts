@@ -19,7 +19,7 @@ import { createView, openSidebar, prepareHarnessRoot, waitFor, type Harness } fr
 function withSession(factory: (options: SessionOptions) => Promise<AgentSession>): Harness {
   const paths = prepareHarnessRoot();
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, factory as never);
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, factory as never);
   return { ...paths, sidebar, output };
 }
 
@@ -43,11 +43,11 @@ test('unsupported built-in review expands referenced files into the sent prompt 
   }));
   writeFileSync(path.join(harness.workspacePath, 'review-notes.md'), 'synthetic review context');
   try {
-    await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: 'seed the SDK session' });
+    await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: 'seed the CLI session' });
     await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: '/review @review-notes.md' });
     await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: '/review' });
 
-    assert.equal(reviews.length, 0, 'the SDK capability policy routes review through the prompt fallback');
+    assert.equal(reviews.length, 0, 'the CLI capability policy routes review through the prompt fallback');
     assert.equal(runs.length, 3);
     assert.match(runs[1] ?? '', /--- Context: review-notes\.md ---/);
     assert.match(runs[1] ?? '', /synthetic review context/);

@@ -167,7 +167,7 @@ test('Cursor CLI rejects images before launch and reads model ids from colored l
   }, fake.spawn);
   await assert.rejects(session.run('see', new AbortController().signal, () => undefined, {
     images: [{ mimeType: 'image/png', data: 'aaaa' }],
-  }), /ACP/);
+  }), /画像添付/);
   assert.equal(fake.requests.length, 0);
   const models = parseCursorCliModels([
     '\u001b[2mAvailable models\u001b[22m',
@@ -238,7 +238,7 @@ test('Codex CLI maps thread events, refuses interactive approval, and passes exe
   const refused = scripted([]);
   await assert.rejects(createCodexCliSession({
     provider: 'codex', backend: 'cli', cwd, model: '', storagePath: cwd, approval: 'on-request',
-  }, { spawn: refused.spawn }), /App Server/);
+  }, { spawn: refused.spawn }), /対話承認/);
   assert.equal(refused.requests.length, 0);
 
   const failed = scripted([json({ type: 'turn.failed', error: { message: 'backend failed' } })]);
@@ -352,42 +352,17 @@ test('Codex CLI disables rewind when history inspection fails or cannot match a 
   assert.match(unavailable.rewindUnsupportedReason?.() ?? '', /一意に対応付けられません/);
 });
 
-test('createSession routes CLI backends without loading an SDK', async (t) => {
+test('createSession routes both providers to CLI and rejects removed SDK sessions', async (t) => {
   const cwd = await directory(t);
-  const cursor = scripted([json({ type: 'result', subtype: 'success', result: 'ok', session_id: 'routed' })]);
-  const cursorSession = await createSession({
-    provider: 'cursor', backend: 'cli', cwd, model: '', storagePath: cwd,
-  }, {
-    codex: async () => { throw new Error('Codex SDK route must not run'); },
-    cursor: async () => { throw new Error('Cursor SDK route must not run'); },
-  }, false, { cliSpawn: cursor.spawn });
+  const cursor = scripted([json({ type: 'result', result: 'ok', session_id: 'routed' })]);
+  const cursorSession = await createSession({ provider: 'cursor', cwd, model: '', storagePath: cwd }, { cliSpawn: cursor.spawn });
   await cursorSession.run('hi', new AbortController().signal, () => undefined);
   assert.equal(cursor.requests.length, 1);
-
   const codex = scripted([json({ type: 'thread.started', thread_id: 'routed-codex' })]);
-  const codexSession = await createSession({
-    provider: 'codex', backend: 'cli', cwd, model: '', storagePath: cwd, approval: 'never',
-  }, {
-    codex: async () => { throw new Error('Codex SDK route must not run'); },
-    cursor: async () => { throw new Error('Cursor SDK route must not run'); },
-  }, false, { cliSpawn: codex.spawn });
+  const codexSession = await createSession({ provider: 'codex', cwd, model: '', storagePath: cwd }, { cliSpawn: codex.spawn });
   await codexSession.run('hi', new AbortController().signal, () => undefined);
-  assert.equal(codex.requests[0]?.args.includes('exec'), true);
-
-  const rejectingLoaders = {
-    codex: async () => { throw new Error('Codex SDK route must not run'); },
-    cursor: async () => { throw new Error('Cursor SDK route must not run'); },
-  };
-  const cursorDirect = await createSession({
-    provider: 'cursor', backend: 'cli', cwd, model: '', storagePath: cwd,
-  }, rejectingLoaders);
-  assert.equal(typeof cursorDirect.setMode, 'function');
-  await cursorDirect.dispose();
-  const codexDirect = await createSession({
-    provider: 'codex', backend: 'cli', cwd, model: '', storagePath: cwd, approval: 'never',
-  }, rejectingLoaders, false, { writeImages: async () => [] });
-  assert.equal(typeof codexDirect.setModel, 'function');
-  await codexDirect.dispose();
+  assert.ok(codex.requests[0]?.args.includes('exec'));
+  await assert.rejects(createSession({ provider: 'codex', backend: 'sdk', cwd, model: '', storagePath: cwd }), /no longer supported/);
 });
 
 test('history accepts a CLI backend and Cursor CLI login opens the agent command', async (t) => {
@@ -428,7 +403,7 @@ test('history accepts a CLI backend and Cursor CLI login opens the agent command
   assert.equal(window.terminals.at(-1)?.sent[0], "'/opt/My Agent/agent' login");
 });
 
-test('settings list CLI next to the existing Cursor and Codex backends', () => {
+test('settings report CLI without offering backend choices', () => {
   const chat = (provider: 'cursor' | 'codex'): ChatState => ({
     selection: { provider, cwd: '/work', model: '' },
     busy: false, messages: [], queue: [], status: 'idle', usage: null, changes: [], todos: [], sessions: [],
@@ -440,9 +415,9 @@ test('settings list CLI next to the existing Cursor and Codex backends', () => {
     capabilities: capabilitiesFor(provider, 'cli'), controls: defaultControls(provider, 'cli'), locale: 'en',
     tokens: { permission: null, plan: null, question: null }, backends: { cursor: 'cli', codex: 'cli' },
   });
-  assert.deepEqual(shell('cursor').backendChoices.map((choice) => choice.id), ['sdk', 'acp', 'cli']);
+  assert.equal('backendChoices' in shell('cursor'), false);
   assert.equal(shell('cursor').backendLabel, 'CLI');
-  assert.deepEqual(shell('codex').backendChoices.map((choice) => choice.id), ['sdk', 'app-server', 'cli']);
+  assert.equal('backendChoices' in shell('codex'), false);
   assert.equal(shell('codex').backendLabel, 'CLI');
 });
 

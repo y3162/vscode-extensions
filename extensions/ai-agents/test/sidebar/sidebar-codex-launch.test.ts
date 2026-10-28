@@ -17,7 +17,7 @@ import { createView, openSidebar, prepareHarnessRoot, waitFor, type Harness } fr
 function withFactory(factory: (options: SessionOptions) => Promise<AgentSession>): Harness {
   const paths = prepareHarnessRoot();
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, factory as never);
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, factory as never);
   return { ...paths, sidebar, output };
 }
 
@@ -42,7 +42,7 @@ test('empty Codex executable setting uses the bundled launcher and records its v
     await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: 'exercise bundled launch metadata' });
 
     const start = harness.output.lines.find((line) => line.includes(' start')) ?? '';
-    assert.match(start, /^\[codex\/sdk\] bundled \S+ /);
+    assert.match(start, /^\[codex\/cli\] bundled \S+ /);
     assert.match(start, /codex\.js start$/);
     assert.deepEqual(runs, ['exercise bundled launch metadata']);
     assert.equal(harness.sidebar.controller.snapshot().status, 'idle');

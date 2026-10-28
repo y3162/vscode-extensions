@@ -44,25 +44,6 @@ export function activate(context: vscode.ExtensionContext): { sidebar: AgentsSid
   for (const provider of ['cursor', 'codex'] as const) {
     register(provider === 'cursor' ? 'setCursorApiKey' : 'setCodexApiKey', () => setApiKey(provider));
   }
-  register('cursorLogin', () => vscode.window.withProgress({
-    location: vscode.ProgressLocation.Notification, title: 'Cursorにログイン', cancellable: true,
-  }, async (_progress, token) => {
-    const abort = new AbortController();
-    const subscription = token.onCancellationRequested(() => abort.abort());
-    try {
-      const { Cursor } = await import('@cursor/sdk');
-      if (token.isCancellationRequested) return;
-      await Cursor.auth.login({
-        signal: abort.signal,
-        openBrowser: async (url) => { await vscode.env.openExternal(vscode.Uri.parse(url)); },
-        apiKeyName: 'VS Code AI Agents',
-      });
-      await currentSidebar.newChat();
-      void vscode.window.showInformationMessage('Cursor SDKにログインしました。');
-    } catch (error) {
-      if (!abort.signal.aborted) throw error;
-    } finally { subscription.dispose(); }
-  }));
 
   async function setApiKey(provider: Provider): Promise<void> {
     const key = await vscode.window.showInputBox({

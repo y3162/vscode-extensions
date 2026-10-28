@@ -112,8 +112,8 @@ test('configure applies supported mode changes and resets a live session for exe
     await harness.sidebar.handleMessage({ type: 'configure', backend: 'app-server' });
     await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: 'start' });
     await harness.sidebar.handleMessage({ type: 'configure', mode: 'plan' });
-    assert.deepEqual(sessions[0]?.modes, ['plan']);
-    assert.equal(latestShell<{ mode: string }>(view)?.mode, 'plan');
+    assert.deepEqual(sessions[0]?.modes, []);
+    assert.equal(latestShell<{ mode: string }>(view)?.mode, 'agent');
 
     await harness.sidebar.handleMessage({ type: 'configure', network: true, webSearch: 'live' });
     assert.equal(sessions[0]?.disposed, 1);
@@ -122,7 +122,7 @@ test('configure applies supported mode changes and resets a live session for exe
     const saved = harness.context.workspaceState.get<Record<string, { network: boolean; webSearch: string; mode: string }>>('ai-agents.controls');
     assert.equal(saved?.codex?.network, true);
     assert.equal(saved?.codex?.webSearch, 'live');
-    assert.equal(saved?.codex?.mode, 'plan');
+    assert.equal(saved?.codex?.mode, 'agent');
     assert.match(harness.sidebar.controller.snapshot().messages.at(-1)?.text ?? '', /新しい会話/);
   } finally {
     await close(harness);
@@ -174,15 +174,15 @@ test('a backend that cannot change mode resets the live session while preserving
   installFakeFactory(harness, () => session);
   try {
     await ready(harness.sidebar, view);
-    await harness.sidebar.handleMessage({ type: 'configure', backend: 'app-server' });
-    await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: 'start' });
+    await harness.sidebar.handleMessage({ type: 'select', provider: 'cursor', cwd: harness.workspacePath });
+    await harness.sidebar.handleMessage({ type: 'send', provider: 'cursor', cwd: harness.workspacePath, prompt: 'start' });
     await harness.sidebar.handleMessage({ type: 'configure', mode: 'plan' });
 
     assert.equal(session.disposed, 1);
     assert.equal(harness.sidebar.controller.hasSession(), false);
     assert.equal(harness.sidebar.controller.snapshot().messages.some((message) => message.role === 'user'), false);
     assert.equal(latestShell<{ mode: string }>(view)?.mode, 'plan');
-    assert.equal(harness.context.workspaceState.get<Record<string, { mode: string }>>('ai-agents.controls')?.codex?.mode, 'plan');
+    assert.equal(harness.context.workspaceState.get<Record<string, { mode: string }>>('ai-agents.controls')?.cursor?.mode, 'plan');
   } finally {
     await close(harness);
   }

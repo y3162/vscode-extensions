@@ -162,7 +162,6 @@ export interface ViewShell {
   showWebSearch: boolean;
   network: boolean;
   showNetwork: boolean;
-  backendChoices: ViewChoice[];
   backend: Backend;
   additionalDirectories: string[];
   autoApprove: boolean;

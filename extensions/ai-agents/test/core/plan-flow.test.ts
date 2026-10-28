@@ -206,26 +206,6 @@ test('an earlier assistant segment stays in the log when the final answer comes 
   assert.equal(turns[0]?.waitMs, 500);
 });
 
-test('cursor file metadata reads result.value and ignores reads', async () => {
-  const { cursorMeta } = await import('../../src/providers/details.js');
-  const base = { agent_id: 'a', run_id: 'r', call_id: 'c', status: 'completed' as const };
-  const edit = cursorMeta({
-    ...base, type: 'tool_call', name: 'edit', args: { path: 'src/a.ts' },
-    result: { status: 'success', value: { linesAdded: 4, linesRemoved: 1, diffString: '+a' } },
-  });
-  assert.equal(edit?.type, 'files');
-  assert.equal(edit?.files?.[0]?.additions, 4);
-  assert.equal(edit?.files?.[0]?.deletions, 1);
-  const read = cursorMeta({ ...base, type: 'tool_call', name: 'read', args: { path: 'src/a.ts' }, result: { status: 'success', value: { content: 'x' } } });
-  assert.equal(read, undefined);
-  const task = cursorMeta({
-    ...base, type: 'tool_call', name: 'task', args: { description: 'Explore', prompt: 'look' },
-    result: { status: 'success', value: { isBackground: false, durationMs: 12 } },
-  });
-  assert.equal(task?.subagent?.background, false);
-  assert.equal(task?.subagent?.status, 'completed');
-});
-
 test('failed or stopped revision of an implemented plan never re-enables its old Build', async () => {
   const { beginPlanning, stageDraft, commitDraft, finishBuild, planningFailed } = await import('../../src/plan-state.js');
   const original = finishBuild(commitDraft(stageDraft(beginPlanning(emptyPlanState()), { markdown: 'original', source: 'assistant-text' }), selection), 'completed');

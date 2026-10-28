@@ -5,7 +5,7 @@
 ## 導入
 
 確認対象はmacOS arm64、VS Code 1.142.0です。manifestのminimum engineは1.109.0です。
-Nodeを使うCLI/SDK実行要件は22.13以上です。同梱CLIのarchitectureとVSIX targetを一致させます。
+Nodeを使うCLI実行要件は22.13以上です。同梱CLIのarchitectureとVSIX targetを一致させます。
 Cursorでの最終VSIX受入は未完了です。publisher/nameは`y3162.ai-agents`です。
 
 受入完了後、VS CodeのExtensionsメニューからInstall from VSIXを選び、

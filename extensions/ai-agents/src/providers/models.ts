@@ -1,7 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
-import type { SDKModel } from '@cursor/sdk';
 import { annotateParameter } from '../model-settings.js';
 import type { AgentModel, Backend, Provider } from '../types.js';
 import { listCursorCliModels } from './cursor-cli.js';
@@ -15,41 +14,6 @@ export interface ModelListOptions {
   codexPath?: string;
   agentPath?: string;
   signal?: AbortSignal;
-}
-
-export function cursorModels(models: SDKModel[]): AgentModel[] {
-  const unique = [...new Map(models.map((model) => [model.id, model])).values()];
-  const aliases = new Map<string, Set<string>>();
-  for (const model of unique) {
-    for (const alias of [model.id, ...(model.aliases ?? [])]) {
-      const owners = aliases.get(alias) ?? new Set<string>();
-      owners.add(model.id);
-      aliases.set(alias, owners);
-    }
-  }
-  return unique.map((model): AgentModel => {
-    const defaults = new Map((model.variants?.find((variant) => variant.isDefault)?.params ?? []).map((param) => [param.id, param.value]));
-    for (const parameter of model.parameters ?? []) {
-      if (!defaults.has(parameter.id) && parameter.values[0]) defaults.set(parameter.id, parameter.values[0].value);
-    }
-    // Parameters and presets describe a model; they do not create more model rows.
-    return {
-      id: model.id, label: model.displayName || model.id, description: model.description,
-      aliases: model.aliases?.filter((alias) => aliases.get(alias)?.size === 1),
-      defaultParams: [...defaults].map(([id, value]) => ({ id, value })),
-      parameters: model.parameters?.flatMap((parameter) => {
-        const annotated = annotateParameter({
-          id: parameter.id, label: parameter.displayName || parameter.id, defaultValue: defaults.get(parameter.id),
-          values: parameter.values.map((value) => ({ value: value.value, label: value.displayName || value.value })),
-        });
-        return annotated ? [annotated] : [];
-      }),
-      presets: model.variants?.map((variant) => ({
-        label: variant.displayName, description: variant.description,
-        isDefault: variant.isDefault, params: variant.params,
-      })),
-    };
-  });
 }
 
 export function codexModel(model: Record<string, unknown>): AgentModel | undefined {
@@ -73,37 +37,11 @@ export function codexModel(model: Record<string, unknown>): AgentModel | undefin
   };
 }
 
-function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const aborted = () => reject(signal.reason);
-    if (signal.aborted) { void promise.catch(() => undefined); reject(signal.reason); return; }
-    signal.addEventListener('abort', aborted, { once: true });
-    promise.then((value) => {
-      signal.removeEventListener('abort', aborted);
-      resolve(value);
-    }, (error: unknown) => {
-      signal.removeEventListener('abort', aborted);
-      reject(error);
-    });
-  });
-}
-
 export async function listModels(options: ModelListOptions): Promise<AgentModel[]> {
   const signal = AbortSignal.any([AbortSignal.timeout(20000), ...(options.signal ? [options.signal] : [])]);
   signal.throwIfAborted();
-  if (options.provider === 'cursor' && options.backend === 'cli') {
-    return listCursorCliModels({ cwd: options.cwd, apiKey: options.apiKey, agentPath: options.agentPath, signal });
-  }
   if (options.provider === 'cursor') {
-    const { Cursor } = await import('@cursor/sdk');
-    signal.throwIfAborted();
-    if (!options.apiKey && !process.env.CURSOR_API_KEY) {
-      const auth = await abortable(Cursor.auth.status(), signal);
-      if (auth.status !== 'logged-in') {
-        throw new Error('Cursor SDKに未ログインです。サイドバーの「ログイン」または「APIキー」から認証してください。');
-      }
-    }
-    return cursorModels(await abortable(Cursor.models.list({ apiKey: options.apiKey || undefined }), signal));
+    return listCursorCliModels({ cwd: options.cwd, apiKey: options.apiKey, agentPath: options.agentPath, signal });
   }
   return listCodexModels(options, signal);
 }

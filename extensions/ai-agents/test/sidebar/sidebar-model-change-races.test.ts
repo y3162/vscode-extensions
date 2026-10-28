@@ -17,7 +17,7 @@ import { openSidebar, prepareHarnessRoot, type Harness } from '../support/vscode
 function withSession(factory: (options: SessionOptions) => Promise<AgentSession>): Harness {
   const paths = prepareHarnessRoot();
   const output = window.createOutputChannel('AI Agents');
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, factory as never);
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, factory as never);
   return { ...paths, sidebar, output };
 }
 
@@ -99,40 +99,6 @@ test('a delayed model lookup cannot apply to a different provider selected while
     assert.equal(window.errorMessages.length, 0);
   } finally {
     releaseModels.resolve([]);
-    await close(harness);
-  }
-});
-
-test('confirming a model change after the conversation selection changed does not overwrite the newer model', async () => {
-  resetVscode();
-  const harness = withSession(async () => completedSession('confirm-stale-model'));
-  const model: AgentModel = { id: 'requested-model', label: 'Requested model' };
-  const warning = deferred<string | undefined>();
-  const warningShown = deferred<void>();
-  const originalWarning = window.showWarningMessage;
-  harness.sidebar.listAvailableModels = async () => [model];
-  try {
-    await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: 'keep the active session' });
-    window.showWarningMessage = ((message: string) => {
-      window.warningMessages.push(message);
-      warningShown.resolve();
-      return warning.promise as never;
-    }) as typeof window.showWarningMessage;
-
-    const changing = harness.sidebar.handleMessage({ type: 'setModel', modelId: model.id });
-    await warningShown.promise;
-    assert.match(window.warningMessages.at(-1) ?? '', /new session/i);
-
-    await harness.sidebar.controller.select({ ...harness.sidebar.controller.snapshot().selection, model: 'newer-user-selection' });
-    warning.resolve('Start new session');
-    await changing;
-
-    assert.equal(harness.sidebar.controller.snapshot().selection.model, 'newer-user-selection');
-    assert.equal(harness.context.workspaceState.get('ai-agents.selectedModels'), undefined);
-    assert.equal(harness.sidebar.controller.snapshot().busy, false);
-  } finally {
-    window.showWarningMessage = originalWarning;
-    warning.resolve(undefined);
     await close(harness);
   }
 });

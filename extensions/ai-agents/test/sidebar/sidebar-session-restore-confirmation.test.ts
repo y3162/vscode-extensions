@@ -23,7 +23,7 @@ async function close(harness: Harness): Promise<void> {
   rmSync(harness.root, { recursive: true, force: true });
 }
 
-test('an assistant-only restored conversation requires confirmation before replacing its model session', async () => {
+test('an assistant-only CLI conversation stays visible when changing models', async () => {
   resetVscode();
   const paths = prepareHarnessRoot();
   const output = window.createOutputChannel('AI Agents');
@@ -34,7 +34,7 @@ test('an assistant-only restored conversation requires confirmation before repla
     id: conversationId,
     sessionId,
     updatedAt: '2026-10-18T00:00:00.000Z',
-    controls: { mode: 'agent', sandbox: 'workspace-write', approval: 'never', backend: 'sdk', network: false, webSearch: '', additionalDirectories: [] },
+    controls: { mode: 'agent', sandbox: 'workspace-write', approval: 'never', backend: 'cli', network: false, webSearch: '', additionalDirectories: [] },
     state: {
       selection: { provider: 'codex', cwd: paths.workspacePath, model: 'restored-model' },
       busy: false,
@@ -54,7 +54,7 @@ test('an assistant-only restored conversation requires confirmation before repla
     async run() {},
     async dispose() { disposed += 1; },
   };
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, (async (options: SessionOptions) => {
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, (async (options: SessionOptions) => {
     sessionOptions.push(options);
     return restoredSession;
   }) as never);
@@ -72,27 +72,12 @@ test('an assistant-only restored conversation requires confirmation before repla
     assert.equal(sessionOptions[0]?.resumeId, sessionId);
 
     await sidebar.handleMessage({ type: 'setModel', modelId: replacement.id });
-    assert.match(window.warningMessages.at(-1) ?? '', /new session/i, 'an assistant-only transcript still requires user confirmation');
-    assert.equal(sidebar.controller, original);
-    assert.equal(original.snapshot().selection.model, 'restored-model');
-    assert.equal(original.snapshot().messages.length, 1, 'cancelling keeps the restored assistant answer visible');
-    assert.equal(original.sessionId(), sessionId);
-    assert.equal(disposed, 0, 'cancelling leaves the restored backend session alive');
-    assert.equal(harness.context.workspaceState.get('ai-agents.selectedModels'), undefined);
-
-    window.warningQueue.push({ value: 'Start new session' });
-    await sidebar.handleMessage({ type: 'setModel', modelId: replacement.id });
-
-    assert.equal(window.warningMessages.length, 2);
+    assert.equal(window.warningMessages.length, 0);
     assert.equal(sidebar.controller, original);
     assert.equal(original.snapshot().selection.model, replacement.id);
-    assert.deepEqual(original.snapshot().messages, [], 'accepting the confirmation clears the old assistant-only transcript');
-    assert.equal(original.hasSession(), false);
-    assert.equal(disposed, 1, 'the old backend session is disposed exactly once after confirmation');
-    assert.deepEqual(
-      harness.context.workspaceState.get<Record<string, { model: string; label: string }>>('ai-agents.selectedModels')?.codex,
-      { model: replacement.id, label: replacement.label, hasDetails: false },
-    );
+    assert.equal(original.snapshot().messages[0]?.text, 'A saved assistant-only response.');
+    assert.equal(original.sessionId(), sessionId);
+    assert.equal(disposed, 0);
   } finally {
     await close(harness);
   }

@@ -4,8 +4,6 @@ export interface SessionOptions extends Selection {
   storagePath: string;
   /** Profile-scoped local conversation identity for managed execution. */
   ownerKey?: string;
-  /** SDK terminal data root; ownership is checked against this worker process. */
-  cursorTerminalDataDir?: string;
   apiKey?: string;
   codexPath?: string;
   agentPath?: string;

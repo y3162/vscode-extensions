@@ -24,12 +24,12 @@ test('restore backend failure leaves an error state and logs the failure without
   const paths = prepareHarnessRoot();
   const summary: SessionSummary = {
     id: 'round10-unavailable-resume', title: 'Synthetic saved session', updatedAt: '2026-10-18T00:00:00.000Z',
-    provider: 'codex', backend: 'sdk', cwd: paths.workspacePath,
+    provider: 'codex', backend: 'cli', cwd: paths.workspacePath,
   };
   await paths.context.workspaceState.update('ai-agents.sessionIndex', [summary]);
   const output = window.createOutputChannel('AI Agents');
   const optionsSeen: SessionOptions[] = [];
-  const sidebar = new AgentsSidebar(paths.context as never, output as never, undefined, (async (options: SessionOptions): Promise<AgentSession> => {
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, (async (options: SessionOptions): Promise<AgentSession> => {
     optionsSeen.push(options);
     throw new Error('synthetic backend unavailable');
   }) as never);

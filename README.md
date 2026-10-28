@@ -5,7 +5,7 @@
 ```text
 extensions/
 └── ai-agents/          # Cursor / Codex を使うサイドバー
-    ├── src/            # 拡張機能・SDKアダプター
+    ├── src/            # 拡張機能・CLIアダプター
     ├── media/          # WebviewのJavaScript・CSS
     ├── resources/      # アイコン
     ├── test/           # 単体テスト・VS Code統合テスト
@@ -15,7 +15,7 @@ extensions/
 
 ## 開発
 
-Node.js 22.13以降、npm、VS Code 1.109以降を利用してください。Cursor SDKの実行にはVS Code内のNode.jsも22.13以降が必要です。古い場合はVS Codeを更新してください。
+Node.js 22.13以降、npm、VS Code 1.109以降を利用してください。
 
 ```sh
 npm ci
@@ -24,13 +24,13 @@ npm run build
 
 このリポジトリをVS Codeで開き、デバッグ構成 **Run AI Agents** を選んで **F5** を押します。起動したExtension Development Hostで作業対象のフォルダを開き、アクティビティバーの **AI Agents** を選択してください。
 
-Codexは既存の `codex login` を利用できます。CursorはSDK用の認証が必要です。詳しくは [AI AgentsのREADME](extensions/ai-agents/README.md) を参照してください。
+Codexは既存の `codex login` を利用できます。Cursorは `agent login` を利用できます。詳しくは [AI AgentsのREADME](extensions/ai-agents/README.md) を参照してください。
 
 ```sh
 npm run watch                 # AI Agentsの変更を監視
 npm run check                 # 型チェック・Webview JS構文チェック
 npm test                      # 単体テスト（API接続不要。ライブテストは含まない）
-npm run test:integration      # VS Code上で起動・SDK接続・停止を確認（API接続不要）
+npm run test:integration      # VS Code上で起動・CLI接続・停止を確認（API接続不要）
 npm run test:protocol         # インストール済み Cursor CLI と同梱 Codex の接続確認
 npm run test:live             # 既存ログインでの短い実推論（利用枠を使う）
 npm run test:tools            # 一時ディレクトリでの実ツール・承認・拒否
@@ -39,11 +39,11 @@ npm run package               # 実行環境のOS/CPU向けVSIXを作成
 
 ローカルのVS Codeへビルドしてインストールする場合は、対象拡張の `install.sh` を実行します。AI Agentsは `extensions/ai-agents/install.sh`、File Iconsは `extensions/file-icons/install.sh` です。Cursorを使う場合は `--editor cursor` を付けてください。AI Agentsには Node.js 22.13以降と npm、File Iconsには Node.js 20以降と pnpm（未導入なら corepack）、および対象エディターのCLI（`code` または `cursor`）が必要です。
 
-`npm run test:integration` はmacOSではインストール済みのVS Codeを使用し、それ以外はテスト用VS Codeをダウンロードします。`VSCODE_EXECUTABLE_PATH` でも実行ファイルを指定できます。ユーザー設定・拡張機能と作業ファイルはテスト専用の一時ディレクトリに分離します。
+`npm run test:integration` はテスト用VS Codeを使用します。`VSCODE_EXECUTABLE_PATH` でも実行ファイルを指定できます。ユーザー設定・拡張機能と作業ファイルはテスト専用の一時ディレクトリに分離します。
 
 File Icons の CI は `extensions/file-icons` で `pnpm install --frozen-lockfile` の後、`pnpm lint`、`pnpm typecheck`、`pnpm integrity`、`pnpm build` を実行します。プレビュー生成は同ディレクトリの `pnpm previews` を使い、Chrome と Catwalk が必要です。GitHub Actions のプレビュー更新 PR を作成するには、リポジトリの Actions 設定で GitHub Actions に pull request の作成を許可する必要があります。
 
-`test:protocol`、`test:live`、`test:tools` は通常の `npm test` では走りません。既存の `codex login` と `agent login`、Cursor SDK のログインを使います。APIキーへは切り替えません。ログインが無い場合は、Codex は `codex login`、Cursor CLI は `agent login`、Cursor SDK はサイドバーのログインを使ってください。SDK のログインと CLI のログインは別です。
+`test:protocol`、`test:live`、`test:tools` は通常の `npm test` では走りません。既存の `codex login` と `agent login` を使います。ログインが無い場合はそれぞれの CLI で認証してください。
 
 ```sh
 npm run test:coverage          # 行・分岐・関数カバレッジ（認証不要）

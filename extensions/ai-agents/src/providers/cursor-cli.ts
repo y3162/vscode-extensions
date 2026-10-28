@@ -95,7 +95,7 @@ export async function createCursorCliSession(options: SessionOptions, spawn: Cli
     },
     async setMode(next) { mode = next; },
     async run(prompt, signal, emit, extras, turn) {
-      if (extras?.images?.length) throw new Error('Cursor CLI の print モードは画像添付に対応していません。画像を送る場合は ACP を選んでください。');
+      if (extras?.images?.length) throw new Error('Cursor CLI の print モードは画像添付に対応していません。');
       const requestedMode = turn?.mode ?? mode;
       const selection = turn?.selection;
       const args = cursorCliArgs({

@@ -226,9 +226,6 @@ export function buildShell(source: ShellSource): ViewShell {
     showWebSearch: capabilities.webSearch.length > 1,
     network: controls.network,
     showNetwork: capabilities.networkToggle,
-    backendChoices: (state.selection.provider === 'cursor'
-      ? [choice('sdk', 'SDK'), choice('acp', 'ACP'), choice('cli', 'CLI')]
-      : [choice('sdk', 'SDK'), choice('app-server', 'App Server'), choice('cli', 'CLI')]),
     backend: controls.backend,
     additionalDirectories: controls.additionalDirectories,
     autoApprove: state.autoApprove,
