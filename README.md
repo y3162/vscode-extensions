@@ -41,6 +41,8 @@ npm run package               # 実行環境のOS/CPU向けVSIXを作成
 
 `npm run test:integration` はmacOSではインストール済みのVS Codeを使用し、それ以外はテスト用VS Codeをダウンロードします。`VSCODE_EXECUTABLE_PATH` でも実行ファイルを指定できます。ユーザー設定・拡張機能と作業ファイルはテスト専用の一時ディレクトリに分離します。
 
+File Icons の CI は `extensions/file-icons` で `pnpm install --frozen-lockfile` の後、`pnpm lint`、`pnpm typecheck`、`pnpm integrity`、`pnpm build` を実行します。プレビュー生成は同ディレクトリの `pnpm previews` を使い、Chrome と Catwalk が必要です。GitHub Actions のプレビュー更新 PR を作成するには、リポジトリの Actions 設定で GitHub Actions に pull request の作成を許可する必要があります。
+
 `test:protocol`、`test:live`、`test:tools` は通常の `npm test` では走りません。既存の `codex login` と `agent login`、Cursor SDK のログインを使います。APIキーへは切り替えません。ログインが無い場合は、Codex は `codex login`、Cursor CLI は `agent login`、Cursor SDK はサイドバーのログインを使ってください。SDK のログインと CLI のログインは別です。
 
 ```sh

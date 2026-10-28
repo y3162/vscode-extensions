@@ -1,0 +1,4 @@
+# Personal settings and secrets are not shared with the repository.
+config.toml
+*.local.*
+auth.json
