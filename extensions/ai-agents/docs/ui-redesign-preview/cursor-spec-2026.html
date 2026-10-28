@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>AI Agents Cursor-aligned layout spec</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #181818;
+      --fg: #f0f0f0;
+      --muted: color-mix(in srgb, var(--fg) 62%, transparent);
+      --stroke: color-mix(in srgb, var(--fg) 12%, transparent);
+      --stroke-strong: color-mix(in srgb, var(--fg) 20%, transparent);
+      --surface: var(--bg);
+      --fill: color-mix(in srgb, var(--fg) 6%, var(--bg));
+      --code: #141414;
+      --added: #3fb950;
+      --removed: #f85149;
+      --accent: #0078d4;
+      --warn: #cca700;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #111; color: var(--fg); font: 13px/1.57 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    header { padding: 20px 24px 8px; }
+    h1 { font-size: 18px; margin: 0 0 8px; }
+    header p { margin: 0; color: var(--muted); max-width: 760px; }
+    nav { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 24px 20px; }
+    nav a { color: var(--fg); text-decoration: none; border: 1px solid var(--stroke); border-radius: 999px; padding: 4px 10px; }
+    .board { display: flex; gap: 24px; align-items: flex-start; padding: 0 24px 48px; overflow: auto; }
+    .frame { background: #0e0e0e; padding: 12px; border-radius: 12px; flex: 0 0 auto; }
+    .frame h2 { margin: 0 0 8px; font-size: 12px; font-weight: 500; color: var(--muted); }
+    .pane { width: 390px; height: 720px; background: var(--bg); display: flex; flex-direction: column; border: 1px solid var(--stroke); }
+    .pane.wide { width: 1000px; }
+    .pane.wide .column { width: min(640px, 100%); margin: 0 auto; }
+    .top { height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 8px; }
+    .icon { width: 28px; height: 28px; border-radius: 6px; }
+    .title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .thread { flex: 1; overflow: auto; padding: 16px 12px 24px; }
+    .column { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+    .user { width: 100%; background: var(--fill); border: 1px solid var(--stroke); border-radius: 12px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+    .chip { border-radius: 6px; background: color-mix(in srgb, var(--fg) 8%, transparent); padding: 1px 6px; color: var(--muted); }
+    .activity { color: var(--muted); font-size: 12px; display: flex; flex-direction: column; gap: 6px; }
+    .row { display: flex; gap: 8px; align-items: flex-start; border-radius: 4px; padding: 1px 0 1px 8px; }
+    .answer h3 { font-size: 13px; margin: 12px 0 4px; }
+    .answer p, .answer li { margin: 0 0 8px; }
+    .answer ul { margin: 0; padding-left: 1.2em; }
+    pre { background: var(--code); border: 1px solid var(--stroke); border-radius: 8px; padding: 8px 10px; overflow: auto; }
+    .dock { border-top: 1px solid var(--stroke); padding: 8px 12px 10px; }
+    .review { display: flex; justify-content: space-between; align-items: center; min-height: 28px; color: var(--muted); font-size: 12px; }
+    .review b { color: var(--fg); font-weight: 500; }
+    .add { color: var(--added); } .del { color: var(--removed); }
+    .composer { margin-top: 8px; border: 1px solid var(--stroke); border-radius: 12px; background: var(--fill); }
+    .composer .input { min-height: 44px; padding: 8px 10px; color: var(--muted); }
+    .bar { height: 40px; display: flex; align-items: center; justify-content: space-between; padding: 8px; gap: 8px; }
+    .left, .right { display: flex; align-items: center; gap: 4px; min-width: 0; }
+    .pill { height: 24px; border-radius: 999px; padding: 0 8px; display: inline-flex; align-items: center; gap: 6px; max-width: 12em; }
+    .pill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .send { width: 24px; height: 24px; border-radius: 999px; background: var(--fg); color: var(--bg); display: grid; place-items: center; }
+    .card { border: 1px solid var(--stroke); border-radius: 12px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+    .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--stroke); border-radius: 6px; min-height: 28px; padding: 0 10px; }
+    button.primary { background: var(--accent); border-color: transparent; }
+    .running { color: var(--fg); }
+    .error { color: var(--removed); }
+    .queue { font-size: 12px; color: var(--muted); padding: 1px 0 1px 8px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI Agents レイアウト仕様プレビュー</h1>
+    <p>実装前の静的確認用。数値は Cursor 3.26.13 の実測と CSS 宣言を、VS Code サイドバー向けに変換したもの。CLI は動かない。</p>
+  </header>
+  <nav>
+    <a href="#chat390">Chat 390</a>
+    <a href="#chat1000">Chat 1000</a>
+    <a href="#activity">Activity</a>
+    <a href="#tool">Tool</a>
+    <a href="#plan">Plan</a>
+    <a href="#approval">Approval</a>
+  </nav>
+  <div class="board">
+    <section class="frame" id="chat390">
+      <h2>Chat 390 / Dark</h2>
+      <div class="pane">
+        <div class="top"><div class="icon"></div><div class="title">セッション</div></div>
+        <div class="thread">
+          <div class="column">
+            <article>
+              <div class="user"><div>README の誤字を直して</div><div class="chips"><span class="chip">README.md</span></div></div>
+              <div class="activity"><div class="row"><span>›</span><span>作業時間 1m 4s</span></div></div>
+              <div class="answer">
+                <p>見出しと手順を直しました。</p>
+                <h3>変更点</h3>
+                <ul><li>インストール手順を一文にまとめた</li><li>モデル選択の説明を現状に合わせた</li></ul>
+                <pre>export const version = "0.5.0";</pre>
+              </div>
+            </article>
+          </div>
+        </div>
+        <div class="dock">
+          <div class="review"><span>› <b>1 ファイル</b> <span class="add">+4</span> <span class="del">−1</span></span><span>Review</span></div>
+          <div class="composer">
+            <div class="input">Plan、質問、/ でコマンド、@ でファイル</div>
+            <div class="bar"><div class="left"><span class="pill">Agent</span><span class="pill"><span>GPT-5.1</span></span></div><div class="right"><span class="send">↑</span></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <section class="frame" id="chat1000">
+      <h2>Chat 1000 / Dark · 列は最大 640px</h2>
+      <div class="pane wide">
+        <div class="top"><div class="icon"></div><div class="title">セッション</div></div>
+        <div class="thread"><div class="column">
+          <article>
+            <div class="user">左端から右端まで伸びるユーザーカード。右寄せの吹き出しにはしない。</div>
+            <div class="activity"><div class="row"><span>›</span><span>作業時間 5m 25s</span></div></div>
+            <div class="answer"><p>回答は地の文。カードには入れない。</p></div>
+          </article>
+        </div></div>
+        <div class="dock"><div class="column">
+          <div class="review"><span>› <b>3 ファイル</b> <span class="add">+48</span> <span class="del">−12</span></span><span>Review</span></div>
+          <div class="composer"><div class="input">続きを書く</div><div class="bar"><div class="left"><span class="pill">Agent</span><span class="pill"><span>Composer 1.5</span></span></div><div class="right"><span class="send">↑</span></div></div></div>
+        </div></div>
+      </div>
+    </section>
+  </div>
+  <div class="board">
+    <section class="frame" id="activity">
+      <h2>Activity 展開</h2>
+      <div class="pane"><div class="thread"><div class="column">
+        <div class="user">調査して直して</div>
+        <div class="activity">
+          <div class="row"><span>⌄</span><span>作業時間 24s</span></div>
+          <div class="row"><span>›</span><span>Thought 2s</span></div>
+          <div class="row"><span>⌄</span><span>Explored 3 files, 2 searches</span></div>
+          <div class="row"><span></span><span>src/webview/turns.ts</span></div>
+          <div class="row"><span></span><span>src/webview/styles.css</span></div>
+          <div class="row"><span>›</span><span>Edited styles.css <span class="add">+12</span> <span class="del">−4</span></span></div>
+        </div>
+        <div class="answer"><p>折りたたみ後は「作業時間」だけを残す。</p></div>
+      </div></div></div>
+    </section>
+    <section class="frame" id="tool">
+      <h2>Tool 実行中</h2>
+      <div class="pane"><div class="thread"><div class="column">
+        <div class="user">テストを実行して</div>
+        <div class="activity">
+          <div class="row running"><span>›</span><span>Running npm test</span></div>
+          <div class="row error"><span>›</span><span>Run failed · exit 1</span></div>
+        </div>
+      </div></div>
+      <div class="dock"><div class="queue">キュー 1</div><div class="composer"><div class="input">次の依頼</div><div class="bar"><div class="left"><span class="pill">Agent</span><span class="pill"><span>Auto</span></span></div><div class="right"><span class="send">■</span></div></div></div></div>
+      </div>
+    </section>
+    <section class="frame" id="plan">
+      <h2>Plan</h2>
+      <div class="pane"><div class="thread"><div class="column">
+        <div class="user">UI 仕様を実装する計画</div>
+        <div class="card">
+          <strong>レイアウトを Cursor の列に合わせる</strong>
+          <div>ユーザーカード、作業ログ、回答、レビュー、Composer。</div>
+          <div class="actions"><button>View plan</button><button class="primary">Build</button></div>
+        </div>
+      </div></div>
+      <div class="dock"><div class="composer"><div class="input">計画を修正</div><div class="bar"><div class="left"><span class="pill">Plan</span><span class="pill"><span>Auto</span></span></div><div class="right"><span class="send">↑</span></div></div></div></div>
+      </div>
+    </section>
+    <section class="frame" id="approval">
+      <h2>Approval</h2>
+      <div class="pane"><div class="thread"><div class="column">
+        <div class="user">依存を更新して</div>
+        <div class="activity"><div class="row"><span>›</span><span>Waiting · npm install</span></div></div>
+      </div></div>
+      <div class="dock">
+        <div class="card">
+          <div>承認が必要です · shell</div>
+          <code>npm install</code>
+          <div class="actions"><button class="primary">許可</button><button>このセッションで許可</button><button>拒否</button></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

@@ -42,7 +42,12 @@ const copy = {
     planUnknown: 'Reload後、状態を確認できません',
     planNotReady: 'この計画はまだ Build できません',
     thought: '思考',
+    thinking: '思考中',
     thoughtBriefly: '少し考えました',
+    exploring: '調査中',
+    editing: '編集中',
+    interrupted: '中断',
+    sendBlocked: 'フォルダを開くと送信できます。',
     copy: 'コピー',
     copied: 'コピーしました',
     retry: '再試行',
@@ -184,7 +189,12 @@ const copy = {
     planUnknown: 'Plan state could not be checked after reload',
     planNotReady: 'This plan is not ready to build',
     thought: 'Thought',
+    thinking: 'Thinking',
     thoughtBriefly: 'Thought briefly',
+    exploring: 'Exploring',
+    editing: 'Editing',
+    interrupted: 'Interrupted',
+    sendBlocked: 'Open a folder before sending.',
     copy: 'Copy',
     copied: 'Copied',
     retry: 'Retry',
@@ -307,6 +317,44 @@ export function countLabel(locale: Locale, kind: ToolInfo['kind'], count: number
     other: [`${count}件のツール`, count === 1 ? '1 tool' : `${count} tools`],
   };
   return labels[kind][locale === 'ja' ? 0 : 1];
+}
+
+export function clipLine(text: string, limit = 80): string {
+  const line = text.split('\n')[0]?.trim() ?? '';
+  return line.length > limit ? `${line.slice(0, limit - 1)}…` : line;
+}
+
+export function exploreLabel(locale: Locale, reads: number, searches: number, running: boolean): string {
+  const summary = exploredSummary(locale, reads, searches);
+  if (!running) return summary;
+  return locale === 'ja'
+    ? summary.replace(/を調べました$/, 'を調べています').replace(/^調査$/, '調査中')
+    : summary.replace(/^Explored/, 'Exploring');
+}
+
+export function shellGroupLabel(locale: Locale, commands: readonly string[], running: boolean, failed: boolean): string {
+  const verb = failed ? (locale === 'ja' ? '失敗' : 'Failed') : running ? (locale === 'ja' ? '実行中' : 'Running') : (locale === 'ja' ? '実行' : 'Ran');
+  if (commands.length <= 1) {
+    const detail = clipLine(commands[0] ?? '');
+    return detail ? `${verb} ${detail}` : verb;
+  }
+  const count = locale === 'ja' ? `${commands.length}件のコマンド` : `${commands.length} commands`;
+  return `${verb} ${count}`;
+}
+
+export function editGroupLabel(
+  locale: Locale,
+  names: readonly string[],
+  running: boolean,
+  failed: boolean,
+  additions?: number,
+  deletions?: number,
+): string {
+  const verb = failed ? (locale === 'ja' ? '失敗' : 'Failed') : running ? (locale === 'ja' ? '編集中' : 'Editing') : (locale === 'ja' ? '編集' : 'Edited');
+  if (names.length <= 1) return names[0] ? `${verb} ${names[0]}` : verb;
+  const count = locale === 'ja' ? `${names.length}ファイル` : `${names.length} files`;
+  const stats = (additions ?? 0) === 0 && (deletions ?? 0) === 0 ? '' : ` +${additions ?? 0} −${deletions ?? 0}`;
+  return `${verb} ${count}${stats}`;
 }
 
 export function exploredSummary(locale: Locale, reads: number, searches: number): string {

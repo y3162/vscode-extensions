@@ -21,13 +21,17 @@ export function renderPending(host: HTMLElement, shell: ViewShell, dom: Dom, cop
   card.tabIndex = -1;
   if (shell.permission) {
     const { request, token } = shell.permission;
-    card.append(dom.el('h3', undefined, request.title));
+    const target = (request.detail || request.title).split('\n').map((line) => line.trim()).find(Boolean) || request.title;
+    card.append(dom.el('p', 'pending-target', target));
     card.append(dom.el('p', 'card-kind', `${copy.approvalRequired} · ${request.kind}`));
-    const detail = dom.el('pre', undefined, request.detail);
-    card.append(detail);
+    const extra = request.detail.split('\n').slice(1).join('\n').trim();
+    if (extra) card.append(dom.el('pre', 'pending-detail', extra));
     const actions = dom.el('div', 'card-actions');
+    const joiner = copy.allow === '許可' ? '、' : ', ';
     for (const [label, decision] of [[copy.allow, 'allow-once'], [copy.allowSession, 'allow-session'], [copy.deny, 'deny']] as const) {
       const button = dom.button(decision === 'allow-once' ? 'primary' : 'secondary', label);
+      button.dataset.decision = decision;
+      button.setAttribute('aria-label', `${label}${joiner}${target}`);
       button.addEventListener('click', () => post({ type: 'resolvePermission', id: request.id, decision, token }));
       actions.append(button);
     }

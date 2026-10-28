@@ -1,0 +1,27 @@
+{
+  "cursor": "3.26.13",
+  "chrome": "148.0.7778.280",
+  "electron": "42.10.0",
+  "measuredAt": "2026-10-28",
+  "method": "Isolated user-data-dir, CDP Emulation.setDeviceMetricsOverride, projects sidebar hidden",
+  "surface": "Agents Window empty state. No user or assistant transcript was present.",
+  "notMeasured": [
+    "Editor auxiliary-bar chat",
+    "Populated transcript",
+    "Thinking expanded body",
+    "Tool rows",
+    "File review",
+    "Plan card",
+    "Approval card",
+    "Light theme",
+    "High contrast"
+  ],
+  "rule": "box width = min(608px, viewport - 80px). 40px inset on each side until the 608px cap. The 608px cap is the 640px column minus 16px padding on each side.",
+  "widths": {
+    "300": { "panel": 300, "promptBox": { "x": 40, "y": 329, "w": 220, "h": 106 }, "editor": { "w": 218, "h": 64 }, "toolbar": { "w": 218, "h": 40 } },
+    "390": { "panel": 390, "promptBox": { "x": 40, "y": 344, "w": 310, "h": 106 }, "editor": { "w": 308, "h": 64 }, "toolbar": { "w": 308, "h": 40 } },
+    "600": { "panel": 600, "promptBox": { "x": 40, "y": 352, "w": 520, "h": 106 }, "editor": { "w": 518, "h": 64 }, "toolbar": { "w": 518, "h": 40 } },
+    "1000": { "panel": 1000, "promptBox": { "x": 196, "y": 359, "w": 608, "h": 106 }, "editor": { "w": 606, "h": 64 }, "toolbar": { "w": 606, "h": 40 } },
+    "1280": { "panel": 1280, "promptBox": { "x": 336, "y": 359, "w": 608, "h": 106 }, "editor": { "w": 606, "h": 64 }, "toolbar": { "w": 606, "h": 40 } }
+  }
+}

@@ -42,7 +42,7 @@ test('transcript uses live thinking duration and renders a file row with no prev
     { id: 'user', role: 'user', text: 'checking', at: start },
     { id: 'thinking', role: 'status', text: 'working', at: start, turnId: 'user', meta: { type: 'thinking' } },
   ], shell({ busy: true }), strings('en'));
-  assert.match(root.querySelector('.thought-toggle .btn-label')?.textContent ?? '', /Thought 1s/);
+  assert.match(root.querySelector('.thought-toggle .btn-label')?.textContent ?? '', /Thinking 1s/);
 
   transcript.render([
     { id: 'user', role: 'user', text: 'file change' },

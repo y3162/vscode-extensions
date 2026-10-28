@@ -6,8 +6,8 @@ import { fileIcon } from './file-icon.js';
 import { usageText } from '../usage.js';
 import { codeSources, highlightCode, renderMarkdown } from './markdown.js';
 import type { ViewMessage, ViewShell } from '../protocol.js';
-import { exploredSummary, formatDuration, type Copy, type Locale } from './strings.js';
-import { buildTurns, type FileRow, type Segment, type ToolRow, type TurnModel } from './turns.js';
+import { editGroupLabel, exploreLabel, formatDuration, shellGroupLabel, type Copy, type Locale } from './strings.js';
+import { buildTurns, workElapsedMs, type FileRow, type Segment, type ToolRow, type TurnModel } from './turns.js';
 import type { FileDiffLine, ToolInfo } from '../types.js';
 
 const previewFoldLimit = 7;
@@ -117,14 +117,15 @@ export class Transcript {
     const log = article.querySelector('.log');
     const hasLog = turn.log.length > 0;
     if (isButton(toggle)) {
-      toggle.hidden = !hasLog;
+      const summary = !turn.done && this.shell?.presence === 'waiting' ? this.shell.statusText : workSummary(turn, locale, copy);
+      const showHeader = summary.length > 0;
+      toggle.hidden = !showHeader;
       toggle.classList.toggle('is-active', !turn.done);
       toggle.dataset.turn = turn.id;
-      const summary = !turn.done && this.shell?.presence === 'waiting' ? this.shell.statusText : workSummary(turn, locale, copy);
       toggle.querySelector('.btn-label')!.textContent = summary;
       toggle.setAttribute('aria-label', summary);
-      const open = this.logOpen(turn);
-      toggle.setAttribute('aria-expanded', String(open && hasLog));
+      const open = showHeader ? this.logOpen(turn) : hasLog;
+      toggle.setAttribute('aria-expanded', String(open && hasLog && showHeader));
       if (isElement(log)) {
         log.hidden = !open || !hasLog;
         const previous = this.logSig.get(log);
@@ -205,14 +206,19 @@ export class Transcript {
     bubble.dataset.turn = turn.id;
     bubble.setAttribute('aria-label', this.labels?.editMessage ?? 'Edit message');
     bubble.disabled = Boolean(this.shell?.busy);
-    bubble.append(this.dom.el('span', 'user-body', turn.user.text));
+    bubble.append(this.dom.el('div', 'user-body', turn.user.text));
     if (turn.user.attachments?.length) {
-      const row = this.dom.el('div', 'chips');
-      for (const attachment of turn.user.attachments) row.append(this.dom.el('span', 'chip', attachment));
+      const row = this.dom.el('ul', 'chips');
+      for (const attachment of turn.user.attachments) {
+        const chip = this.dom.el('li', 'chip', basename(attachment));
+        chip.title = attachment;
+        row.append(chip);
+      }
       bubble.append(row);
     }
-    bubble.append(this.dom.icon('arrow-right'));
-    bubble.lastElementChild?.classList.add('user-affordance');
+    const actions = this.dom.el('div', 'user-actions');
+    actions.append(this.dom.icon('arrow-right'));
+    bubble.append(actions);
     host.append(bubble);
   }
 
@@ -351,7 +357,7 @@ export class Transcript {
         summary.setAttribute('aria-expanded', String(details.open));
         const icon = this.dom.icon('chevron-right');
         const duration = segment.durationMs ?? (running && segment.startedAt !== undefined ? Math.max(0, Date.now() - segment.startedAt) : undefined);
-        const label = duration === undefined ? copy.thought : duration < 1000 ? copy.thoughtBriefly : `${copy.thought} ${formatDuration(duration)}`;
+        const label = thoughtLabel(segment.text, duration, running, copy);
         summary.append(icon, this.dom.el('span', 'btn-label', label));
         details.addEventListener('toggle', () => {
           summary.setAttribute('aria-expanded', String(details.open));
@@ -361,27 +367,10 @@ export class Transcript {
         details.append(summary, this.dom.el('pre', undefined, segment.text));
         return details;
       }
-      case 'explore': {
-        const details = this.dom.el('details', 'explore');
-        details.dataset.id = segment.id;
-        const closedKey = `explore-closed:${segment.id}`;
-        const openedKey = `explore-open:${segment.id}`;
-        details.open = this.openDetails.has(openedKey) || (running && !this.openDetails.has(closedKey));
-        const summary = this.dom.el('summary', 'log-toggle explore-toggle');
-        summary.setAttribute('aria-expanded', String(details.open));
-        const reads = segment.tools.filter((tool) => tool.kind === 'read').length;
-        const searches = segment.tools.filter((tool) => tool.kind === 'search').length;
-        summary.append(this.dom.icon('chevron-right'), this.dom.el('span', 'btn-label', exploredSummary(this.shell?.locale ?? 'en', reads, searches)));
-        details.addEventListener('toggle', () => {
-          summary.setAttribute('aria-expanded', String(details.open));
-          if (details.open) { this.openDetails.add(openedKey); this.openDetails.delete(closedKey); }
-          else { this.openDetails.add(closedKey); this.openDetails.delete(openedKey); }
-        });
-        const rows = this.dom.el('div', 'explore-rows');
-        for (const tool of segment.tools) rows.append(this.toolRow(tool, copy));
-        details.append(summary, rows);
-        return details;
-      }
+      case 'explore':
+      case 'ran':
+      case 'edited':
+        return this.activityGroup(segment, copy, running);
       case 'subagent': {
         const group = this.dom.el('div', 'subagents');
         group.append(this.dom.el('p', 'subagent-label', copy.subagents));
@@ -419,9 +408,15 @@ export class Transcript {
         return block;
       }
       case 'files': {
-        const group = this.dom.el('div', 'file-group');
+        const additions = segment.files.reduce((sum, file) => sum + (file.additions ?? 0), 0);
+        const deletions = segment.files.reduce((sum, file) => sum + (file.deletions ?? 0), 0);
+        const hasStats = segment.files.some((file) => file.additions !== undefined || file.deletions !== undefined);
+        const label = editGroupLabel(this.shell?.locale ?? 'en', segment.files.map((file) => file.name), running, false, hasStats ? additions : undefined, hasStats ? deletions : undefined);
+        const details = this.activityShell('edited', segment.id, label, running);
+        const group = this.dom.el('div', 'file-group explore-rows');
         segment.files.forEach((file, index) => group.append(this.fileRow(file, `${segment.id}:${index}`, copy)));
-        return group;
+        details.append(group);
+        return details;
       }
       case 'tools': {
         const group = this.dom.el('div', 'tool-group');
@@ -429,6 +424,46 @@ export class Transcript {
         return group;
       }
     }
+  }
+
+  private activityGroup(segment: Extract<Segment, { type: 'explore' | 'ran' | 'edited' }>, copy: Copy, running: boolean): HTMLElement {
+    const locale = this.shell?.locale ?? 'en';
+    const failed = segment.tools.some((tool) => tool.status === 'error');
+    const label = segment.type === 'explore'
+      ? exploreFailureLabel(exploreLabel(locale, segment.tools.filter((tool) => tool.kind === 'read').length, segment.tools.filter((tool) => tool.kind === 'search').length, running), locale, failed)
+      : segment.type === 'ran'
+        ? shellGroupLabel(locale, segment.tools.map((tool) => tool.target || tool.name), running, failed)
+        : editGroupLabel(locale, segment.tools.map((tool) => basename(tool.target || tool.name)), running, failed);
+    const details = this.activityShell(segment.type, segment.id, label, running);
+    const rows = this.dom.el('div', 'explore-rows');
+    for (const tool of segment.tools) rows.append(this.toolRow(tool, copy));
+    details.append(rows);
+    const block = this.dom.el('div', 'activity-block');
+    block.append(details);
+    if (!details.open) {
+      for (const tool of segment.tools) {
+        if (tool.status === 'error') block.append(this.dom.el('p', 'tool-reason', this.toolReason(tool)));
+      }
+    }
+    return block;
+  }
+
+  private activityShell(kind: string, id: string, label: string, running: boolean): HTMLDetailsElement {
+    const details = this.dom.el('details', `activity-group ${kind}`);
+    details.dataset.id = id;
+    const closedKey = `${kind}-closed:${id}`;
+    const openedKey = `${kind}-open:${id}`;
+    details.open = this.openDetails.has(openedKey) || (running && !this.openDetails.has(closedKey));
+    const summary = this.dom.el('summary', `log-toggle activity-row ${kind}-toggle`);
+    summary.setAttribute('aria-expanded', String(details.open));
+    summary.append(this.dom.icon('chevron-right'), this.dom.el('span', 'activity-verb', label));
+    details.addEventListener('toggle', () => {
+      summary.setAttribute('aria-expanded', String(details.open));
+      if (details.open) { this.openDetails.add(openedKey); this.openDetails.delete(closedKey); }
+      else { this.openDetails.add(closedKey); this.openDetails.delete(openedKey); }
+    });
+    details.append(summary);
+    return details;
   }
 
   private fileRow(file: FileRow, previewId: string, copy: Copy): HTMLElement {
@@ -716,8 +751,10 @@ function sameSegments(previous: Segment[] | undefined, next: Segment[]): boolean
       case 'note': return right.type === 'note' && left.text === right.text;
       case 'text': return right.type === 'text' && left.text === right.text && left.final === right.final;
       case 'tools':
-      case 'explore': {
-        if (right.type !== left.type || (right.type !== 'tools' && right.type !== 'explore')) return false;
+      case 'explore':
+      case 'ran':
+      case 'edited': {
+        if (right.type !== left.type || (right.type !== 'tools' && right.type !== 'explore' && right.type !== 'ran' && right.type !== 'edited')) return false;
         return left.tools.length === right.tools.length && left.tools.every((tool, toolIndex) => {
           const candidate = right.tools[toolIndex];
           return Boolean(candidate && tool.id === candidate.id && tool.name === candidate.name && tool.kind === candidate.kind
@@ -772,13 +809,35 @@ function fileLanguage(name: string): string {
   return base.slice(dot + 1).toLowerCase();
 }
 
-function workSummary(turn: TurnModel, locale: Locale, copy: Copy): string {
-  if (turn.status === 'unknown') return copy.turnUnknown;
+function workSummary(turn: TurnModel, _locale: Locale, copy: Copy): string {
+  if (turn.status === 'unknown') return turn.log.length ? copy.turnUnknown : '';
   const running = turn.log.flatMap(segmentTools).find((tool) => tool.status === 'running');
   if (!turn.done) return running ? `${copy.working} · ${running.target || running.name}` : copy.working;
-  const elapsed = turn.startedAt !== undefined && turn.endedAt !== undefined
-    ? Math.max(0, turn.endedAt - turn.startedAt - (turn.waitMs ?? 0)) : 0;
-  return elapsed > 0 ? `${copy.worked} ${formatDuration(elapsed)}` : copy.worked;
+  const elapsed = workElapsedMs(turn);
+  if (elapsed === undefined) return '';
+  const base = `${copy.worked} ${formatDuration(elapsed)}`;
+  return turn.status === 'cancelled' ? `${base} · ${copy.interrupted}` : base;
+}
+
+function thoughtLabel(text: string, duration: number | undefined, running: boolean, copy: Copy): string {
+  const heading = thoughtHeading(text);
+  const verb = running ? copy.thinking : (heading ?? copy.thought);
+  if (duration === undefined) return verb;
+  if (duration < 500) return running ? verb : copy.thoughtBriefly;
+  return `${verb} ${formatDuration(duration)}`;
+}
+
+function thoughtHeading(text: string): string | undefined {
+  const line = text.split('\n').map((item) => item.trim()).find(Boolean);
+  const match = line ? /^#{1,6}\s+(.+)$/.exec(line) : undefined;
+  const title = match?.[1]?.trim();
+  if (!title) return undefined;
+  return title.length > 80 ? `${title.slice(0, 79)}…` : title;
+}
+
+function exploreFailureLabel(label: string, locale: Locale, failed: boolean): string {
+  if (!failed) return label;
+  return locale === 'ja' ? label.replace(/を調べました$|を調べています$/, 'の調査に失敗しました').replace(/^調査中$|^調査$/, '調査に失敗しました') : `Failed ${label.replace(/^(Explored|Exploring)\s*/, '')}`;
 }
 
 function shellCaption(command: string, copy: Copy): string {
@@ -803,7 +862,7 @@ function basename(file: string): string {
 }
 
 function segmentTools(segment: Segment): ToolRow[] {
-  return segment.type === 'tools' || segment.type === 'explore' ? segment.tools : [];
+  return segment.type === 'tools' || segment.type === 'explore' || segment.type === 'ran' || segment.type === 'edited' ? segment.tools : [];
 }
 
 function shellOutput(detail: string, command: string): string {

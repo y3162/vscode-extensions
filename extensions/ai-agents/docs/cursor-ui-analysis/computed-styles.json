@@ -1,0 +1,138 @@
+{
+  "evidence": "A for computed values, B for stylesheet declarations that were not on the empty Agents screen",
+  "cursor": "3.26.13",
+  "chrome": "148.0.7778.280",
+  "electron": "42.10.0",
+  "surface": "Agents Window, empty chat, projects sidebar hidden, dark",
+  "method": "CDP Runtime.evaluate getComputedStyle after Emulation.setDeviceMetricsOverride",
+  "rootTokens": {
+    "--cursor-radius-xs": "2px",
+    "--cursor-radius-sm": "4px",
+    "--cursor-radius-base": "6px",
+    "--cursor-radius-lg": "8px",
+    "--cursor-radius-xl": "12px",
+    "--cursor-radius-2xl": "14px",
+    "--cursor-radius-3xl": "16px",
+    "--cursor-radius-4xl": "18px",
+    "--cursor-font-size-xs": "11px",
+    "--cursor-font-size-sm": "12px",
+    "--cursor-font-size-base": "13px",
+    "--cursor-font-size-lg": "14px",
+    "--cursor-line-height-xs": "14px",
+    "--cursor-line-height-sm": "16px",
+    "--cursor-line-height-base": "18px",
+    "--cursor-line-height-lg": "22px",
+    "--cursor-font-weight-normal": "400",
+    "--cursor-font-weight-medium": "500",
+    "--cursor-font-weight-semibold": "600",
+    "--vscode-input-background": "#181818",
+    "--vscode-editor-background": "#181818",
+    "--cursor-stroke-secondary": "color-mix(in srgb, #F0F0F0 12%, transparent)"
+  },
+  "promptContainer": {
+    "selector": ".ui-prompt-input__container",
+    "display": "block",
+    "backgroundColor": "color(srgb 0.130304 0.130329 0.130332)",
+    "border": "1px solid color(srgb 0.940872 0.941044 0.94106 / 0.08)",
+    "borderRadius": "20px",
+    "padding": "0px",
+    "maxWidth": "100%",
+    "emptyHeight": "106px"
+  },
+  "promptRoot": {
+    "selector": ".ui-prompt-input",
+    "display": "flex",
+    "flexDirection": "column",
+    "gap": "12px",
+    "backgroundColor": "transparent"
+  },
+  "promptEditor": {
+    "selector": "[data-component=prompt-input-editor]",
+    "emptyHeight": "64px",
+    "maxWidth": "100%"
+  },
+  "promptToolbar": {
+    "selector": "[data-component=prompt-input-toolbar]",
+    "display": "flex",
+    "flexDirection": "row",
+    "alignItems": "center",
+    "justifyContent": "space-between",
+    "height": "40px",
+    "padding": "8px",
+    "gap": "8px"
+  },
+  "promptToolbarLeft": {
+    "display": "flex",
+    "gap": "4px",
+    "height": "24px"
+  },
+  "modelTrigger": {
+    "height": "24px",
+    "borderRadius": "9999px",
+    "padding": "0px 6px 0px 8px",
+    "gap": "6px",
+    "fontSize": "13px"
+  },
+  "agentPanel": {
+    "display": "flex",
+    "flexDirection": "column",
+    "overflow": "hidden",
+    "fontSize": "13px",
+    "fontFamily": "-apple-system, system-ui, sans-serif",
+    "color": "oklch(0.955 0 0)",
+    "backgroundColor": "color(srgb 0.0781959 0.0782189 0.0782211 / 0.72)"
+  },
+  "declaredNotComputed": {
+    "source": "workbench.desktop.main.css and StyleX tokens in workbench.glass.main.js",
+    "humanMessage": {
+      "selector": ".composer-human-message:not(.standalone-glass)",
+      "width": "100%",
+      "minWidth": "150px",
+      "alignSelf": "flex-end",
+      "display": "flex",
+      "flexDirection": "column",
+      "backgroundColor": "var(--vscode-input-background)",
+      "border": "1px solid var(--cursor-stroke-secondary)",
+      "borderRadius": "var(--conversation-surface-border-radius)",
+      "surfaceRadius": "var(--cursor-radius-xl) = 12px"
+    },
+    "humanMessageContent": {
+      "padding": "8px 10px",
+      "gap": "6px",
+      "fontSize": "var(--conversation-text-font-size, 14px)",
+      "lineHeight": "22px"
+    },
+    "humanHover": {
+      "border": "1px solid var(--cursor-stroke-primary)",
+      "note": "stroke-primary is foreground at 20%"
+    },
+    "projectSendLayout": {
+      "selector": ".composer-messages-container[data-project-send-message-layout] .composer-human-message",
+      "width": "fit-content",
+      "maxWidth": "min(480px, 100%)",
+      "containerMarginLeft": "max(32px, clamp(0px, (100% - 480px) * 0.4, 20%))",
+      "adoptedForSidebar": false
+    },
+    "toolCard": {
+      "fontSize": "var(--conversation-tool-font-size)",
+      "lineHeight": "22px",
+      "cardChrome": "1px solid var(--cursor-stroke-secondary)",
+      "radius": "12px",
+      "simpleHeaderHeight": "28px",
+      "simpleHeaderGap": "8px"
+    },
+    "activityRow": {
+      "selector": ".composer-toolbar-goal-row",
+      "display": "flex",
+      "alignItems": "flex-start",
+      "gap": "8px",
+      "padding": "1px 0 1px 0.5rem",
+      "borderRadius": "4px",
+      "fontSize": "12px"
+    },
+    "stepListGap": "6px",
+    "composerBarMaxWidth": "840px",
+    "agentsEmptyColumnMaxWidth": "640px",
+    "conversationBlockGapStylesheet": "16px"
+  }
+}

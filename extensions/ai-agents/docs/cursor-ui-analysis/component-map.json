@@ -1,0 +1,34 @@
+{
+  "cursorToExtension": [
+    { "cursor": "composer-human-message", "extension": ".bubble.user-card", "change": "Keep full-width left card. Use input background, 1px 12% stroke, 12px radius, 8px 10px padding." },
+    { "cursor": "ThinkingLine / step group", "extension": "Segment thinking + log-toggle", "change": "Header only unless text is non-empty. Duration from timestamps. No simulated thinking copy." },
+    { "cursor": "step-group-display Explored/Ran/Edited", "extension": "presentActivity + tool-line", "change": "Collapse consecutive tools into one header row. Expanded body stays compact." },
+    { "cursor": "Worked for", "extension": "TurnModel startedAt/endedAt", "change": "Format with the same second-rounding rules. Hide when duration is unknown." },
+    { "cursor": "markdown-root answer", "extension": ".assistant .md", "change": "No bubble. Column text." },
+    { "cursor": "file count + +add -del", "extension": ".change-bar", "change": "One row above the composer: count, diff stats, Review." },
+    { "cursor": "ui-prompt-input toolbar", "extension": ".composer-row", "change": "40px row, 8px padding, mode and model on the left, send on the right." },
+    { "cursor": "View Plan", "extension": "plan-view", "change": "View plan expands markdown. Build stays a separate local action." },
+    { "cursor": "approval tray", "extension": "pending-card", "change": "Subject first, then allow once, allow session, deny." }
+  ],
+  "staleSelectorsNotInCursor3_26_13Css": [
+    "composer-rendered-message",
+    "ui-thinking-collapsible",
+    "composer-tool-former-message",
+    "composer-create-plan-container",
+    "composer-terminal-tool-call-block-container",
+    "composer-edit-file-review-wrapper",
+    "data-flat-index"
+  ],
+  "stillPresent": [
+    "composer-human-message",
+    "aislash-editor-input",
+    "aislash-editor-input-readonly",
+    "markdown-root",
+    "composer-unified-dropdown",
+    "ui-model-picker__trigger-text",
+    "ui-tool-call-line",
+    "composer-tool-call-block-card",
+    "composer-plan-container",
+    "ui-thinking-collapsible (JS rootClass only, no CSS rule)"
+  ]
+}

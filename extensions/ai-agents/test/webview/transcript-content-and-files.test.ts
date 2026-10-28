@@ -150,7 +150,8 @@ test('long assistant output appends while streaming and renders Markdown when co
 
 test('thought logs nest under Worked for and summarize brief or timed thoughts', () => {
   const cases = [
-    { endedAt: 800, label: 'Thought briefly' },
+    { endedAt: 650, label: 'Thought briefly' },
+    { endedAt: 900, label: 'Thought 1s' },
     { endedAt: 1_700, label: 'Thought 2s' },
   ];
   for (const item of cases) {

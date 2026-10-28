@@ -1,0 +1,57 @@
+{
+  "observed": {
+    "evidence": "A",
+    "note": "Empty Agents Window after Hide Sidebar. Text content omitted.",
+    "tree": {
+      "component": "agent-panel",
+      "role": "main",
+      "aria": "Chat",
+      "children": [
+        { "component": "content-pane-top-bar" },
+        {
+          "component": "agent-panel-empty-state",
+          "children": [
+            { "class": "agent-prompt-input-root", "children": [
+              { "class": "ui-prompt-input", "children": [
+                { "class": "ui-prompt-input__container", "children": [
+                  { "component": "prompt-input-editor" },
+                  { "component": "prompt-input-toolbar", "children": [
+                    { "component": "prompt-input-toolbar-left" },
+                    { "component": "prompt-input-toolbar-right" }
+                  ]}
+                ]}
+              ]}
+            ]}
+          ]
+        }
+      ]
+    }
+  },
+  "logicalTranscript": {
+    "evidence": "B",
+    "note": "Reconstructed from workbench.glass.main.js component and step-group code. Not observed in a live transcript.",
+    "tree": {
+      "name": "Conversation",
+      "children": [
+        {
+          "name": "HumanMessage",
+          "class": "composer-human-message",
+          "children": ["Mentions", "Text", "HoverActions"]
+        },
+        {
+          "name": "AssistantTurn",
+          "children": [
+            { "name": "TurnTiming", "textPattern": "Worked for {duration}" },
+            { "name": "StepList", "gap": "6px", "children": [
+              { "name": "ThinkingGroup", "loading": "Thinking", "done": "Thought | markdown header" },
+              { "name": "ToolGroup", "kinds": ["Explored", "Ran", "Edited", "Generated", "Monitored"] },
+              { "name": "Answer", "class": "composer-message-markdown markdown-root" }
+            ]}
+          ]
+        },
+        { "name": "FileChangeSummary", "pattern": "{n} file(s) +additions -deletions" },
+        { "name": "Composer", "children": ["Queue", "Input", "Mode", "Model", "SendOrStop"] }
+      ]
+    }
+  }
+}

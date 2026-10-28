@@ -28,6 +28,8 @@ export type Segment =
   | { type: 'thinking'; id: string; text: string; startedAt?: number; durationMs?: number }
   | { type: 'tools'; id: string; tools: ToolRow[] }
   | { type: 'explore'; id: string; tools: ToolRow[] }
+  | { type: 'ran'; id: string; tools: ToolRow[] }
+  | { type: 'edited'; id: string; tools: ToolRow[] }
   | { type: 'files'; id: string; files: FileRow[] }
   | { type: 'todo'; id: string; items: { content: string; status: string }[] }
   | { type: 'note'; id: string; text: string }
@@ -210,8 +212,13 @@ function pathKey(path: string): string {
   return path.replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
-function isExploration(tool: ToolRow): boolean {
-  return tool.kind === 'read' || tool.kind === 'search';
+type BatchKind = 'explore' | 'ran' | 'edited';
+
+function batchKind(tool: ToolRow): BatchKind | undefined {
+  if (tool.kind === 'read' || tool.kind === 'search') return 'explore';
+  if (tool.kind === 'shell') return 'ran';
+  if (tool.kind === 'edit') return 'edited';
+  return undefined;
 }
 
 function presentActivity(segments: Segment[]): Segment[] {
@@ -221,42 +228,46 @@ function presentActivity(segments: Segment[]): Segment[] {
     for (const file of segment.files) edited.add(pathKey(file.path));
   }
   const pruned = segments.flatMap((segment): Segment[] => {
+    if (segment.type === 'thinking') return segment.text.trim() ? [segment] : [];
     if (segment.type !== 'tools') return [segment];
     const tools = segment.tools.filter((tool) => !(tool.kind === 'edit' && tool.target && edited.has(pathKey(tool.target))));
     return tools.length ? [{ ...segment, tools }] : [];
   });
   const grouped: Segment[] = [];
   let batch: ToolRow[] = [];
+  let batchKindName: BatchKind | undefined;
   let batchId = '';
   const flush = () => {
-    if (!batch.length) return;
-    grouped.push({ type: 'explore', id: batchId, tools: batch });
+    if (!batch.length || !batchKindName) { batch = []; batchKindName = undefined; return; }
+    grouped.push({ type: batchKindName, id: batchId, tools: batch });
     batch = [];
+    batchKindName = undefined;
   };
   for (const segment of pruned) {
     if (segment.type !== 'tools') { flush(); grouped.push(segment); continue; }
-    let pending: ToolRow[] = [];
-    let pendingId = segment.id;
-    const flushPending = () => {
-      if (!pending.length) return;
-      if (!batch.length) batchId = pendingId;
-      batch.push(...pending);
-      pending = [];
-    };
     for (const tool of segment.tools) {
-      if (!isExploration(tool)) {
-        flushPending();
+      const next = batchKind(tool);
+      if (!next) {
         flush();
         grouped.push({ type: 'tools', id: tool.id, tools: [tool] });
         continue;
       }
-      if (!pending.length) pendingId = tool.id;
-      pending.push(tool);
+      if (batchKindName && batchKindName !== next) flush();
+      if (!batch.length) { batchId = tool.id; batchKindName = next; }
+      batch.push(tool);
     }
-    flushPending();
   }
   flush();
   return grouped;
+}
+
+/** Elapsed work time in milliseconds. Missing or sub-millisecond spans are omitted. */
+export function workElapsedMs(turn: Pick<TurnModel, 'startedAt' | 'endedAt' | 'status'>): number | undefined {
+  if (turn.status === 'unknown') return undefined;
+  if (turn.startedAt === undefined || turn.endedAt === undefined) return undefined;
+  const elapsed = turn.endedAt - turn.startedAt;
+  if (!Number.isFinite(elapsed) || elapsed < 1) return undefined;
+  return elapsed;
 }
 
 function closeThinking(segments: Segment[], endAt?: number): void {

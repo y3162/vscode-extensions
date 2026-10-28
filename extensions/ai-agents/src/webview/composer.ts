@@ -33,6 +33,7 @@ export class Composer {
   private readonly suggest: HTMLElement;
   private readonly banner: HTMLElement;
   private readonly changes: HTMLElement;
+  private readonly blocked: HTMLElement;
   private readonly mode: HTMLButtonElement;
   private readonly model: HTMLButtonElement;
   private readonly send: HTMLButtonElement;
@@ -74,12 +75,12 @@ export class Composer {
     this.banner.hidden = true;
     this.changes = dom.el('div', 'change-bar');
     this.changes.hidden = true;
-    const form = dom.el('form', 'composer-card');
+    const form = dom.el('form', 'composer composer-card');
     this.chipRow = dom.el('div', 'chips');
     this.imageError = dom.el('p', 'composer-error');
     this.imageError.hidden = true;
     this.imageError.setAttribute('role', 'alert');
-    this.queueRow = dom.el('div', 'queue');
+    this.queueRow = dom.el('ol', 'queue');
     this.suggest = dom.el('div', 'suggest');
     this.suggest.hidden = true;
     this.suggest.role = 'listbox';
@@ -90,8 +91,8 @@ export class Composer {
     const label = dom.el('label', 'sr-only', 'Prompt');
     label.htmlFor = 'prompt';
     this.input.id = 'prompt';
-    const row = dom.el('div', 'composer-row');
-    const left = dom.el('div', 'row-left');
+    const row = dom.el('div', 'composer-row composer-bar');
+    const left = dom.el('div', 'row-left composer-left');
     this.mode = dom.button('pill mode', 'Mode');
     const modeIcon = dom.icon('infinity');
     modeIcon.classList.add('mode-icon');
@@ -105,18 +106,21 @@ export class Composer {
     this.env.addEventListener('click', () => this.openEnvironment());
     this.access = dom.button('pill access-label', 'Access');
     this.access.addEventListener('click', () => this.onNavigate('settings'));
-    left.append(this.mode, this.model, this.env, this.access);
-    const right = dom.el('div', 'row-right');
+    const right = dom.el('div', 'row-right composer-right');
     this.attach = dom.button('icon-btn attach', 'Attach', 'attach');
     this.attach.addEventListener('click', () => this.openAttach(this.attach));
+    left.append(this.mode, this.model, this.attach, this.env, this.access);
     this.stop = dom.button('icon-btn stop', 'Stop', 'debug-stop');
     this.stop.hidden = true;
     this.stop.addEventListener('click', () => this.post({ type: 'stop' }));
     this.send = dom.button('send', 'Send', 'arrow-up');
     this.send.addEventListener('click', () => this.submit());
-    right.append(this.attach, this.stop, this.send);
+    right.append(this.stop, this.send);
     row.append(left, right);
-    form.append(this.chipRow, this.imageError, this.queueRow, this.suggest, label, this.input, row);
+    const blocked = dom.el('p', 'composer-note');
+    blocked.hidden = true;
+    this.blocked = blocked;
+    form.append(this.chipRow, this.imageError, this.queueRow, this.suggest, label, this.input, row, blocked);
     const file = dom.el('input');
     file.type = 'file';
     file.accept = 'image/png,image/jpeg,image/gif,image/webp';
@@ -272,11 +276,14 @@ export class Composer {
     if ((shell.busy || !adjustable) && this.modelMenu.isOpen) this.modelMenu.close(false);
     const imagesAllowed = shell.images !== false;
     this.attach.title = imagesAllowed ? copy.attach : copy.imagesUnsupported;
+    this.attach.setAttribute('aria-disabled', imagesAllowed ? 'false' : 'true');
     this.attach.setAttribute('aria-label', imagesAllowed ? copy.attach : copy.imagesUnsupported);
     if (imagesAllowed && this.imageError.textContent === copy.imagesUnsupported) this.clearImageError();
     if (shell.busy && this.mode.getAttribute('aria-expanded') === 'true') this.menu.close(false);
     this.mode.disabled = shell.busy;
     this.send.disabled = !shell.cwd;
+    this.blocked.hidden = Boolean(shell.cwd);
+    this.blocked.textContent = shell.cwd ? '' : copy.sendBlocked;
     this.updateSendState();
     this.send.querySelector('.btn-label')!.textContent = shell.busy ? copy.queue : copy.send;
     this.send.title = shell.busy ? copy.queue : copy.send;
@@ -330,9 +337,9 @@ export class Composer {
     if (shell.terminalError) this.changes.append(this.dom.el('p', 'error-block', `${copy.backgroundTerminals}: ${shell.terminalError}`));
     if (count) {
       const head = this.dom.el('div', 'change-head');
-      const noun = count === 1 ? copy.file : copy.files;
-      const stats = shell.additions || shell.deletions ? ` +${shell.additions} −${shell.deletions}` : '';
-      const toggle = this.dom.button('ghost change-toggle', `${count} ${noun}${stats}`, this.changesExpanded ? 'chevron-down' : 'chevron-right');
+      const name = count === 1 ? shell.changes[0]!.name : `${count} ${count === 1 ? copy.file : copy.files}`;
+      const stats = shell.additions === 0 && shell.deletions === 0 ? '' : ` +${shell.additions} −${shell.deletions}`;
+      const toggle = this.dom.button('ghost change-toggle', `${name}${stats}`, this.changesExpanded ? 'chevron-down' : 'chevron-right');
       toggle.setAttribute('aria-expanded', String(this.changesExpanded));
       const items = this.dom.el('div', 'change-items');
       items.hidden = !this.changesExpanded;
@@ -403,6 +410,15 @@ export class Composer {
       revert.title = `${copy.revert}: ${change.path}`;
       revert.addEventListener('click', () => this.post({ type: 'revertFile', path: change.path }));
       row.append(revert);
+    }
+    if (change.patch) {
+      const lines = change.patch.split('\n');
+      row.append(this.dom.el('pre', 'review-diff', lines.slice(0, 12).join('\n')));
+      if (lines.length > 12 && change.canDiff) {
+        const more = this.dom.button('ghost tiny review-more', copy.diff);
+        more.addEventListener('click', () => this.post({ type: 'openDiff', path: change.path }));
+        row.append(more);
+      }
     }
     return row;
   }

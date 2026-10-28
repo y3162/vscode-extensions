@@ -391,12 +391,14 @@ export class ModelMenu {
     this.element.style.left = '0px';
     this.element.style.top = '0px';
     const box = this.element.getBoundingClientRect();
-    const menuWidth = Math.min(box.width || 160, 256);
+    const menuWidth = Math.min(Math.max(box.width || rect.width || 160, rect.width || 0), 280);
     const menuHeight = box.height || 40;
+    this.element.style.maxWidth = '280px';
+    this.element.style.minWidth = `${Math.min(Math.max(rect.width || 0, 0), 280)}px`;
     const left = Math.max(8, Math.min(rect.left, width - menuWidth - 8));
     const below = rect.bottom + 6;
     const above = rect.top - menuHeight - 6;
-    const top = below + menuHeight <= height - 8 ? below : Math.max(8, above);
+    const top = above >= 8 ? above : Math.max(8, below);
     this.element.style.left = `${left}px`;
     this.element.style.top = `${top}px`;
   }

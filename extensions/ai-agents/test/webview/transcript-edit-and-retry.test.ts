@@ -87,7 +87,8 @@ test('message editing opens inline, preserves attachments, and Cancel restores t
   assert.equal(posted(sent, 'prepareRetry'), undefined);
   click(window.document.querySelector('[data-action="cancel-edit"]')!);
   assert.equal(window.document.querySelector('.edit-prompt'), null);
-  assert.equal(window.document.querySelector('.bubble')?.textContent, `${original}src/notes.md`);
+  assert.equal(window.document.querySelector('.bubble')?.textContent, `${original}notes.md`);
+  assert.equal(window.document.querySelector('.bubble .chip')?.getAttribute('title'), 'src/notes.md');
   assert.equal(posted(sent, 'send'), undefined);
 });
 

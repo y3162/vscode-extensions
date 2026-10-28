@@ -72,11 +72,12 @@ export function renderPlanView(
     model.addEventListener('click', () => onPickModel(model));
     buildGroup.append(model);
   }
-  const build = dom.button(plan.canBuild ? 'build' : 'build is-blocked', copy.build);
-  const buildReason = plan.canBuild ? copy.build : plan.phase === 'unknown' ? copy.planUnknown : copy.planNotReady;
-  build.disabled = !plan.canBuild;
+  const building = plan.phase === 'building';
+  const build = dom.button(plan.canBuild && !building ? 'build' : 'build is-blocked', building ? copy.planBuilding : copy.build);
+  const buildReason = plan.canBuild && !building ? copy.build : building ? copy.planBuilding : plan.phase === 'unknown' ? copy.planUnknown : copy.planNotReady;
+  build.disabled = !plan.canBuild || building;
   build.title = buildReason;
-  build.setAttribute('aria-label', plan.canBuild ? copy.build : `${copy.build}. ${buildReason}`);
+  build.setAttribute('aria-label', plan.canBuild && !building ? copy.build : `${copy.build}. ${buildReason}`);
   build.addEventListener('click', () => {
     build.disabled = true;
     post({ type: 'buildPlan', planId: plan.id, revision: plan.revision, modelId: plan.buildModelId, modelParams: plan.buildParams, label: plan.buildModelLabel });
