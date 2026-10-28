@@ -69,6 +69,11 @@ export async function createCodexCliSession(options: SessionOptions, dependencie
   return {
     get sessionId() { return sessionId; },
     ...(history ? {
+      ...(history.listThreads ? { listSessions: () => history.listThreads!() } : {}),
+      ...(history.transcript ? { loadTranscript: async (emit: (message: import('../types.js').ChatMessage) => void) => {
+        if (!sessionId) return;
+        for (const message of await history.transcript!(sessionId)) emit(message);
+      } } : {}),
       rewindUnsupportedReason: () => rewindReason || undefined,
       latestBackendTurnId: () => backendTurnId,
       verifyTurnHistory: async (ids: string[]) => {

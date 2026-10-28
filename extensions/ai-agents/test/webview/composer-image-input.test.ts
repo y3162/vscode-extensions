@@ -198,3 +198,20 @@ test('a late clipboard image read cannot enter the next conversation', () => {
   }
   window.happyDOM.abort();
 });
+
+test('an execution mode without images keeps the image action visible and refuses the file', () => {
+  const { window, host, composer, menu } = bootComposer();
+  composer.render(shell({ provider: 'cursor', images: false }), strings('en'));
+  const attach = host.querySelector<HTMLButtonElement>('.attach')!;
+  assert.match(attach.getAttribute('aria-label') ?? '', /cannot attach images/);
+  click(attach);
+  const image = [...host.querySelectorAll<HTMLButtonElement>('.menu-item')].find((item) => item.textContent?.includes('Image'));
+  assert.equal(image?.disabled, true);
+  (composer as unknown as { addImages(files: File[]): void }).addImages([
+    new window.File(['x'], 'shot.png', { type: 'image/png' }),
+  ]);
+  assert.match(host.querySelector('.composer-error')?.textContent ?? '', /cannot attach images/);
+  assert.equal(host.querySelectorAll('.chips img').length, 0);
+  menu.close(false);
+  window.happyDOM.abort();
+});

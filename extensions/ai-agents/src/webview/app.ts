@@ -110,7 +110,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   });
   const transcript = new Transcript(dom, thread, post, (text, retryId) => { composer.editDraft(text, retryId); save(); }, (anchor) => composer.openBuildModel(anchor),
     (turnId, editedText) => post({ type: 'rewind', turnId, editedText }), (id) => { selectedSubagentId = id; paint(); },
-    (expanded) => togglePlanView(expanded));
+    (expanded) => togglePlanView(expanded), (anchor) => composer.openSessionModel(anchor));
 
   function openSession(id: string): void {
     if (!shell) return;

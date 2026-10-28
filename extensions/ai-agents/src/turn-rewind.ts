@@ -33,6 +33,12 @@ export interface TurnRewindJournal {
   branchId: string;
   cwd: string;
   files: RewindJournalFile[];
+  /** Set after the branch is adopted. Recovery then discards the journal instead of rolling files back. */
+  committed?: boolean;
+  /** Backend thread id. This is the branch id once the rewind is committed. */
+  sessionId?: string;
+  /** Backend turn id the rewind was anchored to. */
+  turnId?: string;
 }
 
 export interface FileValue { text: string | null; mode: number | null }
@@ -303,6 +309,19 @@ export async function rollbackTurnRewindJournal(journal: TurnRewindJournal): Pro
     await cleanupTemporary(journal.cwd, file).catch((error) => failures.push(errorMessage(error)));
   }
   if (failures.length) throw new Error(failures.join('; '));
+}
+
+export async function commitTurnRewindJournal(file: string, ids: { sessionId: string; turnId: string }): Promise<void> {
+  const journal = await readTurnRewindJournal(file);
+  const next: TurnRewindJournal = { ...journal, committed: true, sessionId: ids.sessionId, turnId: ids.turnId };
+  validateJournal(next);
+  const temporary = `${file}.commit.tmp`;
+  const handle = await open(temporary, 'wx', 0o600);
+  try {
+    await handle.writeFile(JSON.stringify(next), 'utf8');
+    await handle.sync();
+  } finally { await handle.close(); }
+  await rename(temporary, file);
 }
 
 export async function readTurnRewindJournal(file: string): Promise<TurnRewindJournal> {

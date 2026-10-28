@@ -72,6 +72,30 @@ test('Codex CLI history reads paginated prompts and checks a turn-boundary fork'
   ]);
 });
 
+test('Codex CLI history lists threads and returns the full turn transcript', async (t) => {
+  const listed = await history(t, {
+    initialize: [{}],
+    'thread/list': [{ data: [{ id: 'thread-1', title: 'Hello', updatedAt: '2026-10-18T00:00:00.000Z' }] }],
+  });
+  const sessions = await listed.listThreads?.();
+  assert.equal(sessions?.[0]?.id, 'thread-1');
+  assert.equal(sessions?.[0]?.title, 'Hello');
+  assert.equal(sessions?.[0]?.titleSource, 'provider');
+  assert.equal(sessions?.[0]?.backend, 'cli');
+  assert.equal(sessions?.[0]?.provider, 'codex');
+  assert.ok(sessions?.[0]?.cwd);
+
+  const transcript = await history(t, base({
+    'thread/turns/list': [{ data: sourceTurns, nextCursor: null }],
+  }));
+  const messages = await transcript.transcript?.('thread-1');
+  assert.deepEqual(messages?.map((message) => ({ role: message.role, text: message.text })), [
+    { role: 'user', text: 'first' },
+    { role: 'assistant', text: 'answer' },
+    { role: 'user', text: 'second' },
+  ]);
+});
+
 test('Codex CLI history refuses incomplete, stale, and unverifiable responses', async (t) => {
   const cases: Array<{ name: string; replies: Replies; operation: 'turns' | 'fork' | 'terminals'; error: RegExp }> = [
     { name: 'initialization', replies: { initialize: [{ $error: 'no initialization' }] }, operation: 'turns', error: /no initialization/ },

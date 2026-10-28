@@ -1,16 +1,12 @@
 import assert from 'node:assert/strict';
 
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-
-import path from 'node:path';
+import { rmSync } from 'node:fs';
 
 import { test } from 'node:test';
 
 import { AgentsSidebar } from '../../src/sidebar.js';
 
 import type { AgentModel, AgentSession } from '../../src/types.js';
-
-import type { SavedConversation } from '../../src/history-store.js';
 
 import type { SessionOptions } from '../../src/providers/session-options.js';
 
@@ -27,30 +23,14 @@ test('an assistant-only CLI conversation stays visible when changing models', as
   resetVscode();
   const paths = prepareHarnessRoot();
   const output = window.createOutputChannel('AI Agents');
-  const conversationId = '18181818-1818-4181-8181-181818181818';
   const sessionId = 'round18-assistant-only-session';
-  const saved: SavedConversation = {
-    version: 1,
-    id: conversationId,
-    sessionId,
-    updatedAt: '2026-10-18T00:00:00.000Z',
-    controls: { mode: 'agent', sandbox: 'workspace-write', approval: 'never', backend: 'cli', network: false, webSearch: '', additionalDirectories: [] },
-    state: {
-      selection: { provider: 'codex', cwd: paths.workspacePath, model: 'restored-model' },
-      busy: false,
-      messages: [{ id: 'round18-assistant-answer', role: 'assistant', text: 'A saved assistant-only response.' }],
-      queue: [], status: 'idle', usage: null, changes: [], todos: [], sessions: [], autoApprove: false,
-      pendingPermission: null, pendingPlan: null, pendingQuestion: null, plan: { phase: 'idle', revisions: [] },
-      turns: [], subagents: [], terminals: [],
-    },
-  };
-  const historyDirectory = path.join(paths.context.storageUri.fsPath, 'history', 'v1');
-  mkdirSync(historyDirectory, { recursive: true });
-  writeFileSync(path.join(historyDirectory, `${conversationId}.json`), JSON.stringify(saved));
   const sessionOptions: SessionOptions[] = [];
   let disposed = 0;
   const restoredSession: AgentSession = {
     sessionId,
+    async loadTranscript(emit) {
+      emit({ id: 'round18-assistant-answer', role: 'assistant', text: 'A saved assistant-only response.', final: true, backendTurnId: 'turn-1', backendId: 'answer' });
+    },
     async run() {},
     async dispose() { disposed += 1; },
   };
@@ -63,6 +43,10 @@ test('an assistant-only CLI conversation stays visible when changing models', as
   sidebar.listAvailableModels = async () => [replacement];
 
   try {
+    sidebar.controller.replaceSessions([{
+      id: sessionId, title: 'Assistant only', updatedAt: '2026-10-18T00:00:00.000Z',
+      provider: 'codex', backend: 'cli', cwd: paths.workspacePath,
+    }]);
     await sidebar.handleMessage({ type: 'restoreSession', id: sessionId });
     const original = sidebar.controller;
     assert.deepEqual(original.snapshot().messages.map(({ role, text }) => ({ role, text })), [

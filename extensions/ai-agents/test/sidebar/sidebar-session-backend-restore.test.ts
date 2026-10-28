@@ -24,7 +24,6 @@ test('saved CLI session resumes without a picker and ignores backend changes', a
     id: 'saved-app-server-session', title: 'Saved app-server conversation', updatedAt: '2026-10-18T00:00:00.000Z',
     provider: 'codex', backend: 'cli', cwd: paths.workspacePath,
   };
-  await paths.context.workspaceState.update('ai-agents.sessionIndex', [summary]);
   const options: Array<{ backend?: string; resumeId?: string }> = [];
   const output = window.createOutputChannel('AI Agents');
   const sidebar = new AgentsSidebar(paths.context as never, output as never, (async (value: { backend?: string; resumeId?: string }): Promise<AgentSession> => {
@@ -33,6 +32,7 @@ test('saved CLI session resumes without a picker and ignores backend changes', a
   }) as never);
   const harness: Harness = { ...paths, sidebar, output };
   try {
+    sidebar.controller.replaceSessions([summary]);
     await sidebar.handleMessage({ type: 'restoreSession', id: summary.id });
     assert.equal(options.length, 1);
     assert.equal(options[0]?.backend, 'cli');
@@ -56,7 +56,6 @@ test('old settings use CLI while a non-CLI saved session remains untouched', asy
     id: 'legacy-sdk-session', title: 'Old conversation', updatedAt: '2026-10-18T00:00:00.000Z',
     provider: 'codex', backend: 'sdk', cwd: paths.workspacePath,
   };
-  await paths.context.workspaceState.update('ai-agents.sessionIndex', [summary]);
   await paths.context.workspaceState.update('ai-agents.controls', {
     codex: { backend: 'sdk', mode: 'agent', sandbox: 'workspace-write', approval: 'never', network: false, webSearch: '', additionalDirectories: [] },
   });
@@ -68,11 +67,12 @@ test('old settings use CLI while a non-CLI saved session remains untouched', asy
   }) as never);
   const harness: Harness = { ...paths, sidebar, output };
   try {
+    sidebar.controller.replaceSessions([summary]);
     await sidebar.handleMessage({ type: 'restoreSession', id: summary.id });
     assert.equal(seen.length, 0);
     assert.equal(window.quickPickOffers.length, 0);
     assert.ok(sidebar.controller.snapshot().messages.some((message) => message.text.includes('確認できない')));
-    assert.deepEqual(paths.context.workspaceState.get<SessionSummary[]>('ai-agents.sessionIndex'), [summary]);
+    assert.equal(sidebar.controller.snapshot().sessions.some((item) => item.id === summary.id && item.backend === 'sdk'), true);
     await sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: paths.workspacePath, prompt: 'new CLI conversation' });
     assert.equal(seen[0]?.backend, 'cli');
   } finally {

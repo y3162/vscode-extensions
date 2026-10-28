@@ -62,11 +62,19 @@ export function renderPlanView(
   if (expanded && plan.showBuildModel) {
     const model = dom.button('pill', plan.buildModelLabel || copy.model, 'chevron-down');
     model.disabled = !plan.canBuild;
+    if (!plan.canBuild) {
+      const reason = plan.phase === 'unknown' ? copy.planUnknown : copy.planNotReady;
+      model.title = reason;
+      model.setAttribute('aria-label', `${plan.buildModelLabel || copy.model}. ${reason}`);
+    }
     model.addEventListener('click', () => onPickModel(model));
     actions.append(model);
   }
   const build = dom.button('build', copy.build);
+  const buildReason = plan.canBuild ? copy.build : plan.phase === 'unknown' ? copy.planUnknown : copy.planNotReady;
   build.disabled = !plan.canBuild;
+  build.title = buildReason;
+  build.setAttribute('aria-label', plan.canBuild ? copy.build : `${copy.build}. ${buildReason}`);
   build.addEventListener('click', () => {
     build.disabled = true;
     post({ type: 'buildPlan', planId: plan.id, revision: plan.revision, modelId: plan.buildModelId, modelParams: plan.buildParams, label: plan.buildModelLabel });

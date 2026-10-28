@@ -61,7 +61,7 @@ test('transcript refuses edits while busy and memoizes an unchanged file preview
     } },
   ];
   transcript.render(messages, shell({ busy: true }), strings('en'));
-  const edit = root.querySelector<HTMLButtonElement>('.edit-user')!;
+  const edit = root.querySelector<HTMLButtonElement>('.bubble')!;
   click(edit);
   assert.equal(root.querySelector('.edit-prompt'), null, 'a busy conversation cannot enter rewind editing');
   const previewLine = root.querySelector('.diff-preview-line');

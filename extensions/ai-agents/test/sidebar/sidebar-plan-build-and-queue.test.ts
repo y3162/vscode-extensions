@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 
 import { test } from 'node:test';
@@ -138,10 +138,8 @@ test('enqueue while a turn is active retains a removable queue item and never se
     assert.deepEqual(queued.extras?.images, [image]);
     await harness.sidebar.flushHistory();
     const historyRoot = path.join(harness.root, 'storage', 'history', 'v1');
-    const savedName = readdirSync(historyRoot).find((name) => name.endsWith('.json'));
-    assert.ok(savedName, 'the active conversation should have a local history snapshot');
-    const persisted = JSON.parse(readFileSync(path.join(historyRoot, savedName), 'utf8')) as { state: { queue: unknown } };
-    assert.deepEqual(persisted.state.queue, [queued], 'queued text and images survive the persisted snapshot');
+    assert.equal(existsSync(historyRoot) && readdirSync(historyRoot).some((name) => name.endsWith('.json')), false);
+    assert.deepEqual(harness.sidebar.controller.snapshot().queue, [queued]);
 
     await harness.sidebar.handleMessage({ type: 'removeQueued', id: queued.id });
     assert.equal(harness.sidebar.controller.snapshot().queue.length, 0);

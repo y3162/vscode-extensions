@@ -50,7 +50,7 @@ test('transcript rejects a busy rewind event and safely skips refresh before lab
   internal.refreshOpenTurn();
 
   transcript.render([{ id: 'user-1', role: 'user', text: 'prompt', canRewind: true }], shell({ busy: true }), strings('en'));
-  const edit = root.querySelector<HTMLButtonElement>('.edit-user')!;
+  const edit = root.querySelector<HTMLButtonElement>('.bubble')!;
   edit.disabled = false; // Dispatch through the listener while retaining the busy shell state.
   click(edit);
   assert.equal(root.querySelector('.edit-prompt'), null, 'a stale or synthetic edit click cannot start rewind while busy');

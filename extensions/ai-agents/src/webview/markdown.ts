@@ -52,8 +52,13 @@ export function parseMarkdown(source: string): Block[] {
       while (index < lines.length) {
         const item = /^(\s*)([-*+]|\d+\.)\s+(.*)$/.exec(lines[index]!);
         if (!item || /^\d+\./.test(item[2]!) !== ordered) break;
-        items.push(item[3]!);
+        const parts = [item[3]!];
         index += 1;
+        while (index < lines.length && lines[index]!.trim() && !special(lines[index]!)) {
+          parts.push(lines[index]!);
+          index += 1;
+        }
+        items.push(parts.join('\n'));
       }
       blocks.push({ type: 'list', ordered, items });
       continue;
@@ -131,7 +136,11 @@ export function renderStreamingText(host: HTMLElement, source: string): void {
 
 function renderBlock(block: Block, dom: Dom, copyLabel: string): HTMLElement {
   switch (block.type) {
-    case 'heading': return dom.el(block.level <= 1 ? 'h2' : block.level === 2 ? 'h3' : 'h4', undefined, block.text);
+    case 'heading': {
+      const heading = dom.el(block.level <= 1 ? 'h2' : block.level === 2 ? 'h3' : 'h4');
+      renderInline(heading, block.text, dom);
+      return heading;
+    }
     case 'hr': return dom.el('hr');
     case 'paragraph': return inlineBlock('p', block.text, dom);
     case 'quote': return inlineBlock('blockquote', block.text, dom);
@@ -144,7 +153,11 @@ function renderBlock(block: Block, dom: Dom, copyLabel: string): HTMLElement {
       const wrap = dom.el('div', 'table-wrap');
       const table = dom.el('table');
       const head = dom.el('tr');
-      for (const cell of block.header) head.append(dom.el('th', undefined, cell));
+      for (const cell of block.header) {
+        const header = dom.el('th');
+        renderInline(header, cell, dom);
+        head.append(header);
+      }
       const thead = dom.el('thead');
       thead.append(head);
       const body = dom.el('tbody');
@@ -169,7 +182,7 @@ function renderBlock(block: Block, dom: Dom, copyLabel: string): HTMLElement {
       const pre = dom.el('pre');
       const code = dom.el('code');
       if (!block.closed || block.code.length > 12000) code.textContent = block.code;
-      else code.append(highlight(block.code, block.lang, dom));
+      else code.append(highlightCode(block.code, block.lang, dom));
       pre.append(code);
       wrap.append(bar, pre);
       return wrap;
@@ -179,15 +192,19 @@ function renderBlock(block: Block, dom: Dom, copyLabel: string): HTMLElement {
 
 function inlineBlock(tag: 'p' | 'li' | 'blockquote' | 'td', text: string, dom: Dom): HTMLElement {
   const element = dom.el(tag);
-  const lines = text.split('\n');
-  lines.forEach((line, index) => {
-    if (index) element.append(dom.el('br'));
-    renderInline(element, line, dom);
-  });
+  renderInline(element, text, dom);
   return element;
 }
 
-const inlinePattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\((?:<[^>\n]+>|[^)\n]+)\)|(?<![\w.+-])[a-z][a-z\d+.-]*:\/\/[^\s<>()]+|(?<![\w.+/\\-])(?:[a-z]:[\\/]|\.{1,2}[\\/]|\/)?(?:[\w.+-]+[\\/])+[\w.+-]+\.\w+(?::\d+(?::\d+)?)?(?:#L\d+(?:C\d+)?)?)/gi;
+function appendText(parent: HTMLElement, text: string, dom: Dom): void {
+  const lines = text.split('\n');
+  lines.forEach((line, index) => {
+    if (index) parent.append(dom.el('br'));
+    if (line) parent.append(line);
+  });
+}
+
+const inlinePattern = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*|\[[^\]]+\]\((?:<[^>]+>|[^)]+?)\)|(?<![\w.+-])[a-z][a-z\d+.-]*:\/\/[^\s<>()]+|(?<![\w.+/\\-])(?:[a-z]:[\\/]|\.{1,2}[\\/]|\/)?(?:[\w.+-]+[\\/])+[\w.+-]+\.\w+(?::\d+(?::\d+)?)?(?:#L\d+(?:C\d+)?)?)/gi;
 
 export function renderInline(parent: HTMLElement, text: string, dom: Dom): void {
   const pattern = new RegExp(inlinePattern.source, inlinePattern.flags);
@@ -195,11 +212,11 @@ export function renderInline(parent: HTMLElement, text: string, dom: Dom): void 
   for (const match of text.matchAll(pattern)) {
     const token = match[0];
     const start = match.index!;
-    if (start > cursor) parent.append(text.slice(cursor, start));
+    if (start > cursor) appendText(parent, text.slice(cursor, start), dom);
     appendToken(parent, token, dom);
     cursor = start + token.length;
   }
-  if (cursor < text.length) parent.append(text.slice(cursor));
+  if (cursor < text.length) appendText(parent, text.slice(cursor), dom);
 }
 
 function appendToken(parent: HTMLElement, token: string, dom: Dom): void {
@@ -208,16 +225,20 @@ function appendToken(parent: HTMLElement, token: string, dom: Dom): void {
     return;
   }
   if (token.startsWith('**') && token.endsWith('**')) {
-    parent.append(dom.el('strong', undefined, token.slice(2, -2)));
+    const strong = dom.el('strong');
+    renderInline(strong, token.slice(2, -2), dom);
+    parent.append(strong);
     return;
   }
   if (token.startsWith('*') && token.endsWith('*')) {
-    parent.append(dom.el('em', undefined, token.slice(1, -1)));
+    const emphasis = dom.el('em');
+    renderInline(emphasis, token.slice(1, -1), dom);
+    parent.append(emphasis);
     return;
   }
   const link = /^\[([^\]]+)\]\((?:<([^>]+)>|([^)\n]+))\)$/.exec(token);
   const label = link?.[1] ?? token;
-  const target = (link?.[2] ?? link?.[3] ?? token).trim();
+  const target = (link?.[2] ?? link?.[3] ?? token).replace(/\n/g, '').trim();
   if (/^https?:\/\//i.test(target)) {
     const anchor = dom.el('a', undefined, label);
     anchor.href = target;
@@ -247,7 +268,7 @@ function appendToken(parent: HTMLElement, token: string, dom: Dom): void {
   parent.append(button);
 }
 
-function highlight(code: string, lang: string, dom: Dom): DocumentFragment {
+export function highlightCode(code: string, lang: string, dom: Dom): DocumentFragment {
   const fragment = dom.document.createDocumentFragment();
   const kind = lang.toLowerCase();
   const keywords = keywordPattern(kind);

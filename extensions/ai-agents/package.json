@@ -187,7 +187,7 @@
         "ai-agents.history.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Save chat history and safe text-file turn checkpoints locally until manually deleted (up to 8 MB per conversation). May contain conversation text and tool output. Never replays prompts to the model."
+          "description": "When enabled, AI Agents stores a local display snapshot of the sidebar transcript and may keep file checkpoints so a Codex rewind can restore workspace files after a crash. Snapshots are never sent to the model. Backend transcripts still come from the CLI or App Server."
         },
         "ai-agents.defaultProvider": {
           "type": "string",

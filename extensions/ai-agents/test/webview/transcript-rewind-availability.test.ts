@@ -39,15 +39,20 @@ test('transcript safely refuses unavailable rewind and refreshes a changed tool 
   const dom = createDom(window.document);
   const root = dom.el('main');
   window.document.body.append(root);
-  const transcript = new Transcript(dom, root, () => {}, () => {}, () => {}, () => {});
+  const sent: { type?: string }[] = [];
+  const rewinds: string[] = [];
+  const transcript = new Transcript(dom, root, (message) => sent.push(message), () => {}, () => {}, (id) => rewinds.push(id));
   const base = (canRewind: boolean, kind: 'read' | 'edit'): ViewMessage[] => [
     { id: 'user', role: 'user', text: 'prompt', canRewind },
     { id: 'tool', role: 'tool', text: 'details', turnId: 'user', tool: { name: 'Inspect', kind, status: 'completed', target: 'src/a.ts' } },
   ];
   transcript.render(base(false, 'read'), shell(), strings('en'));
-  const edit = root.querySelector<HTMLButtonElement>('.edit-user')!;
-  assert.match(edit.title, /cannot be safely rewound/);
-  click(edit);
+  click(root.querySelector('.bubble') as HTMLElement);
+  const resend = root.querySelector<HTMLButtonElement>('[data-action="rewind"]')!;
+  assert.match(resend.title, /cannot be safely rewound/);
+  click(resend);
+  assert.deepEqual(rewinds, []);
+  assert.equal(sent.at(-1)?.type, 'prepareResend');
   assert.equal(root.querySelector('.edit-prompt'), null);
 
   click(root.querySelector('.log-toggle') as HTMLElement);

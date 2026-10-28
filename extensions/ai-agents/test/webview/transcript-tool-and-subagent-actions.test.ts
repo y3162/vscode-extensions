@@ -116,7 +116,7 @@ test('tool rows, subagents, and edits post the matching command or nothing', () 
   const copied = posted(sent, 'copy');
   window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'copyResult', requestId: copied?.requestId, ok: false } }));
   assert.match(document.querySelector('.copy-answer')?.getAttribute('title') ?? '', /失敗/);
-  click([...document.querySelectorAll('.edit-user')].at(-1)!);
+  click([...document.querySelectorAll('.bubble')].at(-1)!);
   const editor = document.querySelector('.edit-prompt') as HTMLTextAreaElement;
   editor.value = 'rewritten';
   editor.dispatchEvent(new window.Event('input', { bubbles: true }));

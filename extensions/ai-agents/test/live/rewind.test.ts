@@ -158,13 +158,9 @@ async function rewindCase(options: {
       assert.ok(!branchTranscript.some((message) => message.role === 'assistant' && message.final && message.text === body), 'removed assistant body leaked into branch transcript');
     }
 
-    await f.history.flush();
-    const savedHistory = new HistoryStore(path.join(f.storage, 'history'));
-    await savedHistory.load();
-    const saved = savedHistory.get(f.conversationId);
-    const persistedSession = saved?.sessionId;
-    assert.ok(persistedSession, 'the branch session ID must be saved with local display history');
-    assert.equal(saved?.state.messages.filter((message) => message.role === 'user').at(-1)?.text, options.editedPrompt);
+    const branchSessionId = f.controller.sessionId();
+    assert.ok(branchSessionId, 'the branch session stays on the open controller');
+    assert.equal(f.controller.snapshot().messages.filter((message) => message.role === 'user').at(-1)?.text, options.editedPrompt);
     console.log('LIVE_REWIND', JSON.stringify({
       scenario: options.label,
       model: 'gpt-6-luna',
@@ -174,7 +170,7 @@ async function rewindCase(options: {
       removedAssistantBodies: removedAssistantBodies.length,
       restoredBeforeReplay: true,
       filesVerified: Object.keys(options.expectedFiles),
-      historySessionIdSaved: persistedSession === f.controller.sessionId(),
+      historySessionIdSaved: false,
     }));
   } finally { await f.close(); }
 }

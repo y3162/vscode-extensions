@@ -14,7 +14,7 @@ import type { SessionOptions } from '../../src/providers/session-options.js';
 
 import { commands, resetVscode, window } from '../support/vscode-stub.js';
 
-import { createView, prepareHarnessRoot, waitFor, type Harness, type HarnessPaths } from '../support/vscode-harness.js';
+import { prepareHarnessRoot, type Harness, type HarnessPaths } from '../support/vscode-harness.js';
 
 function withSession(factory: (options: SessionOptions) => Promise<AgentSession>, prepare?: (paths: HarnessPaths) => void): Harness {
   const paths = prepareHarnessRoot();
@@ -47,7 +47,7 @@ function seedHistory(paths: Pick<HarnessPaths, 'context' | 'workspacePath'>, id:
   return file;
 }
 
-test('clearing only the current conversation removes its snapshot and plan while retaining other local history', async () => {
+test('clearing the current conversation drops its plan and its display snapshot', async () => {
   resetVscode();
   const otherId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   let otherFile = '';
@@ -66,37 +66,32 @@ test('clearing only the current conversation removes its snapshot and plan while
   try {
     await harness.sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: harness.workspacePath, prompt: 'active conversation' });
     await harness.sidebar.flushHistory();
-    const activeFile = readdirSync(directory).map((name) => path.join(directory, name)).find((file) => {
-      if (!file.endsWith('.json')) return false;
-      return JSON.parse(readFileSync(file, 'utf8')).sessionId === 'active-session';
-    });
-    assert.ok(activeFile, 'the active conversation must have a persisted snapshot before clearing');
-    const activeId = path.basename(activeFile, '.json');
+    assert.equal(readdirSync(directory).some((name) => name.endsWith('.json') && name !== path.basename(otherFile)), false);
+    const conversations = path.join(directory, 'conversations');
+    const saved = readdirSync(conversations).filter((name) => name.endsWith('.json'));
+    assert.equal(saved.length, 1);
+    assert.match(readFileSync(path.join(conversations, saved[0]!), 'utf8'), /active conversation/);
     harness.sidebar.controller.rememberSession({
-      id: 'active-session', conversationId: activeId, title: 'active conversation', updatedAt: '2026-10-18T00:00:00.000Z',
-      provider: 'codex', cwd: harness.workspacePath,
+      id: 'active-session', title: 'active conversation', updatedAt: '2026-10-18T00:00:00.000Z',
+      provider: 'codex', backend: 'cli', cwd: harness.workspacePath,
     });
     harness.sidebar.controller.rememberSession({
       id: 'other-session', conversationId: otherId, title: 'other conversation', updatedAt: '2026-10-18T00:00:00.000Z',
-      provider: 'codex', cwd: harness.workspacePath,
+      provider: 'codex', backend: 'cli', cwd: harness.workspacePath,
     });
 
     window.warningQueue.push({ value: '現在の会話' });
     await commands.handlers.get('ai-agents.clearLocalHistory')!();
 
-    assert.equal(readdirSync(directory).includes(path.basename(activeFile)), false);
     assert.equal(readdirSync(directory).includes(path.basename(otherFile)), true);
+    assert.equal(readdirSync(conversations).some((name) => name.endsWith('.json')), false);
     assert.equal(harness.context.workspaceState.get<Record<string, { phase: string }>>('ai-agents.plans')?.['active-session'], undefined);
     assert.deepEqual(harness.context.workspaceState.get<Record<string, { phase: string }>>('ai-agents.plans')?.['other-session'], {
       phase: 'planning', revisions: [{ id: 'other-revision' }],
     });
-    assert.deepEqual(harness.sidebar.controller.snapshot().sessions.map((summary) => summary.conversationId), [otherId]);
-    assert.deepEqual(harness.context.workspaceState.get<Array<{ conversationId?: string }>>('ai-agents.sessionIndex')?.map((summary) => summary.conversationId), [otherId]);
-
-    harness.sidebar.controller.notify('must not recreate the cleared snapshot');
-    await harness.sidebar.flushHistory();
-    assert.equal(readdirSync(directory).includes(path.basename(activeFile)), false);
-    assert.equal(readdirSync(directory).includes(path.basename(otherFile)), true);
+    assert.ok(harness.sidebar.controller.snapshot().sessions.some((summary) => summary.id === 'other-session'));
+    assert.equal(harness.context.workspaceState.get('ai-agents.sessionIndex'), undefined);
+    assert.equal(harness.sidebar.controller.snapshot().messages.some((message) => message.text === 'other conversation'), false);
   } finally {
     await close(harness);
   }

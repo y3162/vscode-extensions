@@ -231,6 +231,7 @@ export function buildShell(source: ShellSource): ViewShell {
     autoApprove: state.autoApprove,
     steer: capabilities.steer,
     interactiveApproval: capabilities.interactiveApproval,
+    images: capabilities.images,
     conversationId: source.conversationId ?? '',
     queue: state.queue.map((item) => ({
       id: item.id,

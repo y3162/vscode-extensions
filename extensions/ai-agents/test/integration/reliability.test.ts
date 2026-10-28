@@ -1,45 +1,33 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
-import path from 'node:path';
-import { tmpdir } from 'node:os';
-import { HistoryStore } from '../../src/history-store.js';
 import { ChatController } from '../../src/chat-controller.js';
-import { defaultControls } from '../../src/capabilities.js';
 import { usageDifference } from '../../src/usage.js';
 import type { AgentUpdate } from '../../src/types.js';
 const selection = { provider: 'codex' as const, cwd: '/verification', model: 'fixture' };
 
-test('display history survives a new controller without resubmitting old prompts or duplicating usage', async () => {
+test('a resumed controller shows only the backend transcript and does not resubmit old prompts', async () => {
   const calls: string[] = [];
+  const transcript = [
+    { id: 'user-1', role: 'user' as const, text: 'one', backendTurnId: 'turn-1' },
+    { id: 'answer-1', role: 'assistant' as const, text: `one 日本語\n${'long'.repeat(10000)}`, backendTurnId: 'turn-1', backendId: 'answer-1', final: true },
+    { id: 'user-2', role: 'user' as const, text: 'two', backendTurnId: 'turn-2' },
+    { id: 'answer-2', role: 'assistant' as const, text: 'two', backendTurnId: 'turn-2', backendId: 'answer-2', final: true },
+  ];
   const factory = async () => ({ sessionId: 'thread', async run(prompt: string, _signal: AbortSignal, emit: (update: AgentUpdate) => void) {
-    calls.push(prompt); const count = calls.length;
-    emit({ id: 'answer', role: 'assistant', text: `${prompt} 日本語\n${'long'.repeat(10000)}` });
-    emit({ id: 'usage', role: 'status', text: '', meta: { type: 'usage', usage: { inputTokens: count * 10, outputTokens: count, totalTokens: count * 11, scope: 'session', source: 'codex-cli' } } });
+    calls.push(prompt);
+    emit({ id: 'answer', role: 'assistant', text: prompt, final: true, backendTurnId: `turn-${calls.length}`, backendId: 'answer' });
+  }, async loadTranscript(emit: (message: typeof transcript[number]) => void) {
+    for (const message of transcript) emit(message);
   }, async dispose() {} });
-  const controller = new ChatController(selection, factory, () => {});
-  for (const prompt of ['one', 'two', 'three']) await controller.send(prompt);
-  assert.equal(controller.snapshot().usage?.totalTokens, 33);
-  assert.deepEqual(controller.snapshot().turns.map((t) => t.usage?.totalTokens), [11, 11, 11]);
-  assert.ok(controller.snapshot().messages.at(-1)!.text.length > 32000);
-  const root = await mkdtemp(path.join(tmpdir(), 'ai-history-test-'));
-  const store = new HistoryStore(root);
-  store.schedule({ version: 1, id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', sessionId: 'thread', updatedAt: new Date().toISOString(), controls: defaultControls('codex', 'cli'), state: controller.snapshot() });
-  await store.flush();
-  const reloaded = new HistoryStore(root); await reloaded.load();
-  const saved = reloaded.get('thread')!; assert.ok(saved);
   const restored = new ChatController(selection, factory, () => {});
-  restored.restoreSnapshot(saved.state, saved.sessionId);
+  restored.prepareResume('thread');
   await restored.openSession();
-  assert.deepEqual(calls, ['one', 'two', 'three']);
-  assert.equal(restored.snapshot().messages.filter((m) => m.role === 'user').length, 3);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(restored.snapshot().messages.map((message) => message.text), transcript.map((message) => message.text));
+  assert.ok(restored.snapshot().messages[1]!.text.length > 32000);
   await restored.send('four');
-  assert.equal(restored.snapshot().usage?.totalTokens, 44);
-  assert.equal(restored.snapshot().turns.at(-1)?.usage?.totalTokens, 11);
-  await writeFile(path.join(root, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb.json'), '{broken');
-  const corrupt = new HistoryStore(root); await corrupt.load();
-  assert.equal(corrupt.errors.length, 1); assert.ok(corrupt.get('thread'));
-  assert.equal(await readFile(path.join(root, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb.json'), 'utf8'), '{broken');
+  assert.deepEqual(calls, ['four']);
+  assert.equal(restored.snapshot().messages.filter((message) => message.role === 'user').at(-1)?.text, 'four');
 });
 
 test('configuration failure stops queued automatic resubmission and Retry preserves one user bubble', async () => {

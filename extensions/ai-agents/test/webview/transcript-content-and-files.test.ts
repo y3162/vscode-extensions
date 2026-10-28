@@ -100,7 +100,9 @@ test('copy uses original Markdown/code/user/tool text and reports host success o
     { id: 'a', role: 'assistant', text: answer, final: true, at: 3 },
   ]);
   assert.ok(window.document.querySelector('.answer > .message-actions > .copy-answer'));
-  assert.ok(window.document.querySelector('.user-row > .message-actions > .copy-user'));
+  assert.equal(window.document.querySelector('.user-row > .message-actions'), null);
+  assert.equal(window.document.querySelector('.copy-user'), null);
+  assert.equal(window.document.querySelector('.bubble')?.textContent, '質問\n二行');
   click(window.document.querySelector('.copy-answer')!);
   let request = posted(sent, 'copy')!; assert.equal(request.text, answer);
   window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'copyResult', requestId: request.requestId, ok: true } }));
@@ -109,8 +111,6 @@ test('copy uses original Markdown/code/user/tool text and reports host success o
   request = posted(sent, 'copy')!; assert.equal(request.text, 'const x = "λ";\nconsole.log(x);');
   window.dispatchEvent(new window.MessageEvent('message', { data: { type: 'copyResult', requestId: request.requestId, ok: false } }));
   assert.match(window.document.querySelector('[data-action="copy-code"]')!.getAttribute('title')!, /failed/);
-  click(window.document.querySelector('.user-row [data-action="copy-source"]')!);
-  assert.equal(posted(sent, 'copy')!.text, '質問\n二行');
   click(window.document.querySelector('[data-action="toggle-tool"]')!);
   click(window.document.querySelector('.tool-row-item [data-action="copy-source"]')!);
   assert.equal(posted(sent, 'copy')!.text, 'stdout\nstderr 😀');
@@ -134,12 +134,11 @@ test('long assistant output appends while streaming and renders Markdown when co
     transcript.render(messages(output), busy, strings('en'));
   }
   const markdown = root.querySelector<HTMLElement>('.answer .md')!;
-  const streamedNode = markdown.firstChild;
   assert.equal(output.length, 80_000);
   assert.equal(markdown.textContent?.length, output.length);
   assert.equal(markdown.textContent?.slice(0, 40), output.slice(0, 40));
-  assert.equal(markdown.classList.contains('is-streaming'), true);
-  assert.equal(streamedNode?.nodeType, window.Node.TEXT_NODE);
+  assert.equal(markdown.classList.contains('is-streaming'), false);
+  assert.equal(markdown.querySelector('p')?.textContent?.slice(0, 40), output.slice(0, 40));
 
   output += '\n\n**Complete**';
   transcript.render(messages(output), shell(), strings('en'));

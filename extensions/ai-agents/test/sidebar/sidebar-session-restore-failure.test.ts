@@ -26,7 +26,6 @@ test('restore backend failure leaves an error state and logs the failure without
     id: 'round10-unavailable-resume', title: 'Synthetic saved session', updatedAt: '2026-10-18T00:00:00.000Z',
     provider: 'codex', backend: 'cli', cwd: paths.workspacePath,
   };
-  await paths.context.workspaceState.update('ai-agents.sessionIndex', [summary]);
   const output = window.createOutputChannel('AI Agents');
   const optionsSeen: SessionOptions[] = [];
   const sidebar = new AgentsSidebar(paths.context as never, output as never, (async (options: SessionOptions): Promise<AgentSession> => {
@@ -38,6 +37,7 @@ test('restore backend failure leaves an error state and logs the failure without
   try {
     sidebar.resolveWebviewView(view as never);
     await sidebar.handleMessage({ type: 'ready' }, view as never);
+    sidebar.controller.replaceSessions([summary]);
     view.receive({ type: 'restoreSession', id: summary.id });
     await waitFor(() => sidebar.controller.snapshot().messages.some((message) => message.role === 'error' && message.text.includes('synthetic backend unavailable')), 'restore failure state');
 

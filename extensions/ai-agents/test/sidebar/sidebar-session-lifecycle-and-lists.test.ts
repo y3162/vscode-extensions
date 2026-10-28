@@ -122,7 +122,7 @@ test('refreshSessions merges backend results and retains existing sessions when 
     session.sessions = [backendSession];
     await harness.sidebar.handleMessage({ type: 'refreshSessions' });
     assert.deepEqual(harness.sidebar.controller.snapshot().sessions.map((item) => item.id).sort(), ['backend-session', 'list-session']);
-    assert.deepEqual(harness.context.workspaceState.get<SessionSummary[]>('ai-agents.sessionIndex')?.map((item) => item.id).sort(), ['backend-session', 'list-session']);
+    assert.equal(harness.context.workspaceState.get('ai-agents.sessionIndex'), undefined);
 
     session.failListSessions = new Error('synthetic listing failure');
     await harness.sidebar.handleMessage({ type: 'refreshSessions' });
@@ -164,12 +164,11 @@ test('the normal controller factory passes execution controls and records backgr
     await settle();
 
     assert.ok(backgroundController.snapshot().sessions.some((item) => item.id === 'identity-thread' && item.backend === 'cli'));
-    assert.ok(harness.sidebar.controller.snapshot().sessions.some((item) => item.id === 'identity-thread'));
-    const persisted = harness.context.workspaceState.get<SessionSummary[]>('ai-agents.sessionIndex') ?? [];
-    const saved = persisted.find((item) => item.id === 'identity-thread');
+    const saved = harness.sidebar.controller.snapshot().sessions.find((item) => item.id === 'identity-thread');
     assert.equal(saved?.backend, 'cli');
     assert.ok(saved?.conversationId);
     assert.ok(saved?.cwd === harness.workspacePath);
+    assert.equal(harness.context.workspaceState.get('ai-agents.sessionIndex'), undefined);
   } finally {
     await close(harness);
   }

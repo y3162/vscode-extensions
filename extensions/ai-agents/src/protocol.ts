@@ -167,6 +167,8 @@ export interface ViewShell {
   autoApprove: boolean;
   steer: boolean;
   interactiveApproval: boolean;
+  /** Omitted in older fixtures. False means the active backend cannot accept images. */
+  images?: boolean;
   conversationId: string;
   queue: { id: string; text: string; images: number }[];
   changes: ViewChange[];

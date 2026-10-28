@@ -80,6 +80,7 @@ test('plans render every phase, and a disabled build does not post', () => {
   }
   emit(shell({ planView: plan('unknown', { showBuildModel: true }) }));
   assert.equal((document.querySelector('.build') as HTMLButtonElement).disabled, true);
+  assert.match((document.querySelector('.build') as HTMLButtonElement).title, /could not be checked/i);
   assert.equal(document.querySelector('.plan-actions .pill'), null);
   click(document.querySelector('.build') as HTMLElement);
   assert.equal(posted(sent, 'buildPlan'), undefined);
@@ -113,7 +114,9 @@ test('plans render every phase, and a disabled build does not post', () => {
   const build = document.querySelector('.build') as HTMLButtonElement;
   const model = document.querySelector('.plan-actions .pill') as HTMLButtonElement;
   assert.equal(build.disabled, true);
+  assert.match(build.title, /not ready to build/i);
   assert.equal(model.disabled, true);
+  assert.match(model.title, /not ready to build/i);
   click(build);
   assert.equal(posted(sent, 'buildPlan'), undefined);
   const beforeSource = document.querySelector('.plan-view');

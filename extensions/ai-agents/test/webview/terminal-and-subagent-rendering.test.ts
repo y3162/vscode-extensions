@@ -165,6 +165,32 @@ test('chat keeps live terminal state and output alongside the panel opener', () 
   assert.match(window.document.querySelectorAll('.terminal-row .error-block')[1]?.textContent ?? '', /completeness is unknown/);
 });
 
+test('shell commands use shell highlighting, extra spacing, and leave command output plain', () => {
+  const { window, emit } = mount();
+  const quoted = "echo 'hi'";
+  const long = `echo ${'a'.repeat(12000)}`;
+  emit(shell(), [
+    { id: 'user', role: 'user', text: 'Run commands', at: 1 },
+    { id: 'quoted', role: 'tool', text: "completed: echo 'hi'\nhi\n", at: 2, turnId: 'user', tool: { name: 'command', kind: 'shell', status: 'completed', target: quoted } },
+    { id: 'long', role: 'tool', text: 'completed: long\ndone\n', at: 3, turnId: 'user', tool: { name: 'command', kind: 'shell', status: 'completed', target: long } },
+  ]);
+  click(window.document.querySelector('.log-toggle')!);
+  const quotedCard = window.document.querySelector('.shell-tool-heading[data-id="quoted"]')?.closest('.shell-tool');
+  assert.equal(quotedCard?.querySelector('.tok-kw')?.textContent, 'echo');
+  assert.equal(quotedCard?.querySelector('.tok-str')?.textContent, "'hi'");
+  click(quotedCard?.querySelector('.shell-tool-heading') as HTMLElement);
+  assert.equal(quotedCard?.querySelector('.shell-command-output .tok-kw'), null);
+  const longCode = window.document.querySelector('.shell-tool-heading[data-id="long"]')?.closest('.shell-tool')?.querySelector('.shell-command-line code');
+  assert.equal(longCode?.textContent, long);
+  assert.equal(longCode?.querySelector('.tok-kw'), null);
+  const css = readFileSync(path.join(__dirname, '../../src/webview/styles.css'), 'utf8');
+  assert.match(css, /\.shell-tool \{ margin-block: var\(--ui-space-2\); \}/);
+  assert.match(css, /\.shell-command-line \{[^}]*padding: \.6em \.75em/);
+  assert.match(css, /\.shell-command-line \{[^}]*line-height: 1\.55/);
+  assert.match(css, /\.shell-command-output \{[^}]*padding: \.7em \.8em/);
+  assert.match(css, /\.shell-command-output \{[^}]*line-height: 1\.55/);
+});
+
 test('finished background terminals remain visible above the composer and in the header', () => {
   const { window, emit } = mount();
   emit(shell({ provider: 'cursor', backend: 'cli', terminals: [{ processId: 'terminal-1', command: 'sleep 120', status: 'cancelled', output: 'READY\nexit_code: unknown' }] }));

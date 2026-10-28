@@ -50,8 +50,8 @@ test('transcript cancels stale edits, refreshes a newly selected turn, and ignor
   transcript.render(messages, shell(), strings('en'));
   const firstTurn = root.querySelector<HTMLElement>('[data-id="user-1"]')!;
   const secondTurn = root.querySelector<HTMLElement>('[data-id="user-2"]')!;
-  click(firstTurn.querySelector('.edit-user') as HTMLElement);
-  click(secondTurn.querySelector('.edit-user') as HTMLElement);
+  click(firstTurn.querySelector('.bubble') as HTMLElement);
+  click(secondTurn.querySelector('.bubble') as HTMLElement);
   assert.equal(firstTurn.querySelector('.edit-prompt'), null);
   assert.ok(secondTurn.querySelector('.edit-prompt'));
 

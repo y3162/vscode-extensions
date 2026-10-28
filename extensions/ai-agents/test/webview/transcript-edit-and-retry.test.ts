@@ -73,9 +73,13 @@ test('message editing opens inline, preserves attachments, and Cancel restores t
   ]);
   click(visible(window.document, '.new-chat'));
   input().value = 'draft';
-  click(window.document.querySelector('.user-row > .message-actions > .edit-user')!);
+  assert.equal(window.document.querySelector('.user-row > .message-actions'), null);
+  click(window.document.querySelector('.user-row .bubble')!);
   const editor = window.document.querySelector<HTMLTextAreaElement>('.edit-prompt');
   assert.equal(editor?.value, original);
+  assert.equal(window.document.querySelector('.edit-model .btn-label')?.textContent, 'gpt High');
+  click(window.document.querySelector('.edit-model')!);
+  assert.equal(posted(sent, 'loadModelCatalog')?.provider, 'codex');
   assert.equal(window.document.activeElement, editor);
   assert.equal(window.document.querySelector('.edit-attachments')?.textContent, 'src/notes.md');
   assert.equal(window.document.querySelector<HTMLTextAreaElement>('.composer-card textarea')?.value, 'draft');
@@ -95,15 +99,42 @@ test('Resend calls onRewind with the edited text and original turn id', () => {
   const transcript = new Transcript(createDom(window.document), root, () => {}, () => {}, () => {}, (turnId, text) => calls.push([turnId, text]));
   const messages: ViewMessage[] = [{ id: 'prompt-7', role: 'user', text: 'First draft', attachments: ['spec.md'], at: 1, canRewind: true }];
   transcript.render(messages, shell(), strings('en'));
-  click(root.querySelector('.edit-user')!);
+  click(root.querySelector('.bubble')!);
   const editor = root.querySelector<HTMLTextAreaElement>('.edit-prompt')!;
   editor.value = 'Revised prompt';
   editor.dispatchEvent(new window.Event('input', { bubbles: true }));
-  transcript.render(messages, shell(), strings('en'));
+  transcript.render(messages, shell({ modelLabel: 'Luna', effortLabel: 'Max' }), strings('en'));
   assert.equal(root.querySelector<HTMLTextAreaElement>('.edit-prompt'), editor);
+  assert.equal(root.querySelector('.edit-model .btn-label')?.textContent, 'Luna Max');
   click(root.querySelector('[data-action="rewind"]')!);
   assert.deepEqual(calls, [['prompt-7', 'Revised prompt']]);
   assert.equal(root.querySelector('.prompt-editor'), null);
+});
+
+test('the prompt editor opens the session model menu and ignores a static or busy model control', () => {
+  const window = new Window();
+  const root = window.document.createElement('main');
+  window.document.body.append(root);
+  const picks: HTMLElement[] = [];
+  const transcript = new Transcript(createDom(window.document), root, () => {}, () => {}, () => {}, () => {}, () => {}, () => {}, (anchor) => picks.push(anchor));
+  const messages: ViewMessage[] = [{ id: 'prompt-7', role: 'user', text: 'First draft', at: 1, canRewind: true }];
+  transcript.render(messages, shell(), strings('en'));
+  click(root.querySelector('.bubble')!);
+  click(root.querySelector('.edit-model')!);
+  assert.equal(picks.length, 1);
+  transcript.render(messages, shell({ busy: true }), strings('en'));
+  const busyModel = root.querySelector<HTMLButtonElement>('.edit-model')!;
+  assert.equal(busyModel.disabled, true);
+  busyModel.disabled = false;
+  click(busyModel);
+  assert.equal(picks.length, 1);
+  transcript.render(messages, shell({ modelSettings: 'unsupported' }), strings('en'));
+  const frozen = root.querySelector<HTMLButtonElement>('.edit-model')!;
+  assert.equal(frozen.classList.contains('is-static'), true);
+  assert.equal(frozen.getAttribute('aria-haspopup'), 'false');
+  click(frozen);
+  assert.equal(picks.length, 1);
+  window.happyDOM.abort();
 });
 
 test('a completed Cursor message can be prepared as a new send without rewind', () => {
@@ -113,13 +144,19 @@ test('a completed Cursor message can be prepared as a new send without rewind', 
     { id: 'old-answer', role: 'assistant', text: 'Done', final: true, at: 2 },
   ]);
   click(visible(window.document, '.new-chat'));
-  const resend = window.document.querySelector<HTMLButtonElement>('.resend-user')!;
+  click(window.document.querySelector('.bubble')!);
+  const editor = window.document.querySelector<HTMLTextAreaElement>('.edit-prompt')!;
+  editor.value = 'Run this again, revised';
+  editor.dispatchEvent(new window.Event('input', { bubbles: true }));
+  const resend = window.document.querySelector<HTMLButtonElement>('[data-action="rewind"]')!;
   assert.equal(resend.disabled, false);
+  assert.match(resend.title, /cannot be safely rewound/);
   click(resend);
-  assert.equal(input().value, 'Run this again');
+  assert.equal(input().value, 'Run this again, revised');
   assert.equal(posted(sent, 'prepareResend')?.id, 'old-user');
   assert.equal(posted(sent, 'rewind'), undefined);
   assert.equal(posted(sent, 'send'), undefined);
+  assert.equal(window.document.querySelector('.edit-prompt'), null);
 });
 
 test('an image-only failed turn restores its original image for explicit Retry', () => {

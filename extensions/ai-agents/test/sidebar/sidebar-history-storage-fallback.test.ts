@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { existsSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 
 import path from 'node:path';
 
@@ -8,11 +8,11 @@ import { test } from 'node:test';
 
 import { AgentsSidebar } from '../../src/sidebar.js';
 
-import type { AgentSession, Selection, SessionSummary } from '../../src/types.js';
+import type { AgentSession } from '../../src/types.js';
 
-import { commands, env, resetVscode, window } from '../support/vscode-stub.js';
+import { resetVscode, window } from '../support/vscode-stub.js';
 
-import { createView, openSidebar, prepareHarnessRoot, waitFor, type Harness } from '../support/vscode-harness.js';
+import { prepareHarnessRoot, type Harness } from '../support/vscode-harness.js';
 
 function session(id: string): AgentSession {
   return {
@@ -38,9 +38,14 @@ test('history uses global storage when the workspace storage URI is unavailable'
   const harness: Harness = { ...paths, sidebar, output };
   try {
     await sidebar.handleMessage({ type: 'send', provider: 'codex', cwd: paths.workspacePath, prompt: 'save through global storage' });
+    await sidebar.flushHistory();
     const history = path.join(paths.context.globalStorageUri.fsPath, 'history', 'v1');
-    await waitFor(() => existsSync(history) && readdirSync(history).some((name) => name.endsWith('.json')), 'global storage history snapshot');
-    assert.equal(readdirSync(path.join(paths.root, 'storage')).some((name) => name === 'history'), false);
+    assert.equal(existsSync(history) && readdirSync(history).some((name) => name.endsWith('.json')), false);
+    const saved = readdirSync(path.join(history, 'conversations')).filter((name) => name.endsWith('.json'));
+    assert.equal(saved.length, 1);
+    assert.match(readFileSync(path.join(history, 'conversations', saved[0]!), 'utf8'), /save through global storage/);
+    const workspaceHistory = path.join(paths.root, 'storage', 'history', 'v1');
+    assert.equal(existsSync(workspaceHistory) && readdirSync(workspaceHistory).some((name) => name.endsWith('.json')), false);
     assert.equal(sidebar.controller.snapshot().messages.some((message) => message.text === 'save through global storage'), true);
   } finally {
     await close(harness);

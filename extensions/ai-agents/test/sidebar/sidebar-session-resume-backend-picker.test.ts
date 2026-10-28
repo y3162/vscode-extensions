@@ -39,7 +39,6 @@ test('restoring an unknown session does not prompt or assume a CLI origin', asyn
     provider: 'codex',
     cwd: paths.workspacePath,
   };
-  await paths.context.workspaceState.update('ai-agents.sessionIndex', [summary]);
   let factoryCalls = 0;
   let optionsSeen: SessionOptions | undefined;
   const output = window.createOutputChannel('AI Agents');
@@ -50,6 +49,7 @@ test('restoring an unknown session does not prompt or assume a CLI origin', asyn
   }) as never);
   const harness = { ...paths, sidebar, output };
   try {
+    sidebar.controller.replaceSessions([summary]);
     await sidebar.handleMessage({ type: 'restoreSession', id: summary.id });
     assert.equal(window.quickPickOffers.length, 0);
     assert.equal(factoryCalls, 0);

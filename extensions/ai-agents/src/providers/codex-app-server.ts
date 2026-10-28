@@ -154,7 +154,7 @@ function todosOf(value: unknown): TodoEntry[] {
   });
 }
 
-function messagesFrom(value: unknown): ChatMessage[] {
+export function messagesFrom(value: unknown): ChatMessage[] {
   const root = record(value);
   const thread = record(root.thread ?? root);
   const turns = Array.isArray(thread.turns) ? thread.turns : Array.isArray(root.turns) ? root.turns : [];

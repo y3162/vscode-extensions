@@ -98,6 +98,31 @@ test('file links preserve absolute paths and send Markdown destinations and loca
   }
 });
 
+test('assistant markdown previews labels for wrapped file links and nested formatting', () => {
+  const window = new Window();
+  const dom = createDom(window.document);
+  const host = dom.el('div');
+  const source = [
+    'This repository is a collection of two VS Code extensions:',
+    '',
+    '- [AI Agents](</Users/sekiyuuta/Developer/y3162/vscode-',
+    'extensions/extensions/ai-agents/README.md>) adds a sidebar.',
+    '- [File Icons](</Users/sekiyuuta/Developer/y3162/vscode-extensions/extensions/file-icons/README.md>) provides icons.',
+    '',
+    'The root uses **[TypeScript](https://example.com/docs)** and `pnpm`.',
+    '',
+    '# [Overview](https://example.com/overview)',
+  ].join('\n');
+  renderMarkdown(host, source, dom);
+  assert.doesNotMatch(host.textContent ?? '', /\]\(/);
+  const files = [...host.querySelectorAll<HTMLButtonElement>('.file-link')];
+  assert.deepEqual(files.map((link) => link.textContent), ['AI Agents', 'File Icons']);
+  assert.equal(files[0]?.dataset.path, '/Users/sekiyuuta/Developer/y3162/vscode-extensions/extensions/ai-agents/README.md');
+  assert.equal(host.querySelector('strong a')?.textContent, 'TypeScript');
+  assert.equal(host.querySelector('h2 a')?.getAttribute('href'), 'https://example.com/overview');
+  assert.equal(host.querySelector('code')?.textContent, 'pnpm');
+});
+
 test('web URLs stay external and unsupported link schemes never become file actions', () => {
   const window = new Window();
   const dom = createDom(window.document);

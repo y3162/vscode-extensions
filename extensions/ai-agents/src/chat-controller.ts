@@ -11,7 +11,7 @@ import { addUsage, lightMeta } from './providers/details.js';
 import { mergeFileChanges } from './change-review.js';
 import { lineChangeCounts } from './diff-stats.js';
 import {
-  buildTurnRewindPlan, discardTurnRewindJournal, prepareTurnRewindJournal, readSafeWorkspaceFile,
+  buildTurnRewindPlan, commitTurnRewindJournal, discardTurnRewindJournal, prepareTurnRewindJournal, readSafeWorkspaceFile,
   restoreTurnRewindFiles, rollbackTurnRewindJournal, workspaceRelativePath, type TurnRewindPlan,
 } from './turn-rewind.js';
 import {
@@ -202,6 +202,7 @@ export class ChatController {
       Object.assign(this.state, trimmed);
       this.session = branchSession;
       this.retainedId = branchId;
+      await commitTurnRewindJournal(journal.path, { sessionId: branchId, turnId: backendTurnId });
       this.unsubscribeBackground?.();
       this.unsubscribeBackground = this.bindSession(branchSession);
       this.replayed = true;

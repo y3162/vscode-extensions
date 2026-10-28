@@ -121,8 +121,8 @@ test('diffs, icons, and streaming answers keep fold state across renders', () =>
     { id: 'answer', role: 'assistant', text: 'y'.repeat(4000), at: 2, turnId: 'user' },
   ]);
   const streaming = document.querySelector('.answer .md') as HTMLElement;
-  assert.equal(streaming.classList.contains('is-streaming'), true);
-  assert.equal(streaming.textContent?.length, 4000);
+  assert.equal(streaming.classList.contains('is-streaming'), false);
+  assert.equal(streaming.querySelector('p')?.textContent?.length, 4000);
   emit(shell({ busy: true, presence: 'running', statusText: 'Running' }), [
     { id: 'user', role: 'user', text: 'write', at: 1 },
     { id: 'answer', role: 'assistant', text: `${'y'.repeat(4000)}Z`, at: 2, turnId: 'user' },

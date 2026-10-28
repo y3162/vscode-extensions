@@ -4,13 +4,12 @@ import { isButton, isElement, type Dom } from './dom.js';
 import { extensionBadge } from '../diff-stats.js';
 import { fileIcon } from './file-icon.js';
 import { usageText } from '../usage.js';
-import { codeSources, renderMarkdown, renderStreamingText } from './markdown.js';
+import { codeSources, highlightCode, renderMarkdown } from './markdown.js';
 import type { ViewMessage, ViewShell } from '../protocol.js';
 import { formatDuration, type Copy, type Locale } from './strings.js';
 import { buildTurns, type FileRow, type Segment, type ToolRow, type TurnModel } from './turns.js';
 import type { FileDiffLine, ToolInfo } from '../types.js';
 
-const STREAMING_MARKDOWN_LIMIT = 4_000;
 const previewFoldLimit = 7;
 const previewHeadLines = 6;
 
@@ -21,7 +20,6 @@ export class Transcript {
   private readonly nodes = new Map<string, HTMLElement>();
   private readonly logSig = new WeakMap<HTMLElement, Segment[]>();
   private readonly answerText = new WeakMap<HTMLElement, string>();
-  private readonly answerStreaming = new WeakMap<HTMLElement, boolean>();
   private readonly userState = new WeakMap<HTMLElement, NonNullable<TurnModel['user']>>();
   private readonly renderedUsers = new WeakSet<HTMLElement>();
   private readonly errorState = new WeakMap<HTMLElement, TurnModel['errors']>();
@@ -47,6 +45,7 @@ export class Transcript {
     private readonly onRewind: (turnId: string, editedText: string) => void,
     private readonly onOpenSubagent: (id: string) => void = () => {},
     private readonly onTogglePlan: (expanded: boolean) => void = () => {},
+    private readonly onPickSessionModel: (anchor: HTMLElement) => void = () => {},
   ) {
     this.planHost = dom.el('div', 'plan-slot');
     this.planHost.hidden = true;
@@ -140,12 +139,9 @@ export class Transcript {
       const copyButton = answer.querySelector('.copy-answer');
       if (copyButton && turn.answer) this.copySources.set(copyButton, turn.answer.text);
       if (turn.answer && isElement(markdown)) {
-        const useStreamingText = !turn.done && turn.answer.text.length >= STREAMING_MARKDOWN_LIMIT;
-        if (this.answerText.get(markdown) !== turn.answer.text || this.answerStreaming.get(markdown) !== useStreamingText) {
+        if (this.answerText.get(markdown) !== turn.answer.text) {
           this.answerText.set(markdown, turn.answer.text);
-          this.answerStreaming.set(markdown, useStreamingText);
-          if (useStreamingText) renderStreamingText(markdown, turn.answer.text);
-          else renderMarkdown(markdown, turn.answer.text, this.dom, copy.copy);
+          renderMarkdown(markdown, turn.answer.text, this.dom, copy.copy);
         }
       }
     }
@@ -176,8 +172,7 @@ export class Transcript {
   private renderUser(host: HTMLElement, turn: TurnModel): void {
     const editing = this.editingTurnId === turn.id;
     if (editing && host.querySelector('.prompt-editor')) {
-      const resend = host.querySelector<HTMLButtonElement>('[data-action="rewind"]');
-      if (resend) resend.disabled = Boolean(this.shell?.busy);
+      this.syncPromptEditor(host, turn);
       return;
     }
     if (!editing) {
@@ -186,10 +181,8 @@ export class Transcript {
       if (turn.user && previous && previous.id === turn.user.id && previous.text === turn.user.text
         && previous.attachments === turn.user.attachments && previous.at === turn.user.at
         && previous.canRewind === turn.user.canRewind && previous.rewindReason === turn.user.rewindReason) {
-        const edit = host.querySelector<HTMLButtonElement>('.edit-user');
-        if (edit) edit.disabled = Boolean(this.shell?.busy) || turn.user.canRewind !== true;
-        const resend = host.querySelector<HTMLButtonElement>('.resend-user');
-        if (resend) resend.disabled = Boolean(this.shell?.busy);
+        const bubble = host.querySelector<HTMLButtonElement>('.bubble');
+        if (bubble) bubble.disabled = Boolean(this.shell?.busy);
         return;
       }
       this.renderedUsers.add(host);
@@ -202,22 +195,13 @@ export class Transcript {
       host.append(this.promptEditor(turn));
       return;
     }
-    const bubble = this.dom.el('div', 'bubble', turn.user.text);
-    const copyButton = this.dom.button('ghost icon-btn copy-user', this.labels?.copy ?? 'Copy', 'copy');
-    copyButton.dataset.action = 'copy-source';
-    this.copySources.set(copyButton, turn.user.text);
-    const actions = this.dom.el('div', 'message-actions');
-    const resend = this.dom.button('ghost icon-btn resend-user', this.labels?.resend ?? 'Resend', 'redo');
-    resend.dataset.action = 'resend-user';
-    resend.dataset.turn = turn.id;
-    resend.disabled = Boolean(this.shell?.busy);
-    const edit = this.dom.button('ghost icon-btn edit-user', this.labels?.editMessage ?? 'Edit message', 'edit');
-    edit.dataset.action = 'edit-user';
-    edit.dataset.turn = turn.id;
-    edit.disabled = Boolean(this.shell?.busy) || turn.user.canRewind !== true;
-    if (turn.user.canRewind !== true) edit.title = this.labels?.rewindUnavailable ?? 'This turn cannot be safely rewound.';
-    actions.append(copyButton, resend, edit);
-    host.append(bubble, actions);
+    const bubble = this.dom.el('button', 'bubble', turn.user.text);
+    bubble.type = 'button';
+    bubble.dataset.action = 'edit-user';
+    bubble.dataset.turn = turn.id;
+    bubble.setAttribute('aria-label', this.labels?.editMessage ?? 'Edit message');
+    bubble.disabled = Boolean(this.shell?.busy);
+    host.append(bubble);
     if (turn.user.attachments?.length) {
       const row = this.dom.el('div', 'chips');
       for (const attachment of turn.user.attachments) row.append(this.dom.el('span', 'chip', attachment));
@@ -242,16 +226,50 @@ export class Transcript {
       editor.append(attachments);
     }
     const actions = this.dom.el('div', 'edit-actions');
+    const model = this.dom.button('pill model-name edit-model', this.labels?.model ?? 'Model', 'chevron-down');
+    model.dataset.action = 'pick-session-model';
+    const trailing = this.dom.el('div', 'edit-submit');
     const cancel = this.dom.button('secondary tiny', this.labels?.cancel ?? 'Cancel');
     cancel.dataset.action = 'cancel-edit';
     cancel.dataset.turn = turn.id;
     const resend = this.dom.button('send tiny', this.labels?.resend ?? 'Resend');
     resend.dataset.action = 'rewind';
     resend.dataset.turn = turn.id;
-    resend.disabled = Boolean(this.shell?.busy);
-    actions.append(cancel, resend);
+    trailing.append(cancel, resend);
+    actions.append(model, trailing);
     editor.append(actions);
+    this.syncPromptEditor(editor, turn);
     return editor;
+  }
+
+  private syncPromptEditor(host: HTMLElement, turn: TurnModel): void {
+    const resend = host.querySelector<HTMLButtonElement>('[data-action="rewind"]');
+    if (resend) {
+      const canRewind = turn.user?.canRewind === true;
+      const label = canRewind ? (this.labels?.resend ?? 'Resend') : (this.labels?.returnToInput ?? 'Return to input');
+      const caption = resend.querySelector('.btn-label');
+      if (caption) caption.textContent = label;
+      resend.disabled = Boolean(this.shell?.busy);
+      resend.title = canRewind
+        ? (this.labels?.branchFromHere ?? label)
+        : (this.labels?.rewindUnavailable ?? 'This turn cannot be safely rewound.');
+      resend.setAttribute('aria-label', canRewind ? label : `${label}. ${resend.title}`);
+    }
+    this.syncEditModel(host.querySelector<HTMLButtonElement>('.edit-model'));
+  }
+
+  private syncEditModel(button: HTMLButtonElement | null): void {
+    if (!button) return;
+    const shell = this.shell;
+    const text = shell ? (shell.effortLabel ? `${shell.modelLabel} ${shell.effortLabel}` : shell.modelLabel) : (this.labels?.model ?? 'Model');
+    const caption = button.querySelector('.btn-label');
+    if (caption) caption.textContent = text;
+    button.title = text;
+    button.setAttribute('aria-label', text);
+    const adjustable = Boolean(shell && shell.modelSettings !== 'unsupported');
+    button.classList.toggle('is-static', !adjustable);
+    button.setAttribute('aria-haspopup', adjustable ? 'menu' : 'false');
+    button.disabled = Boolean(shell?.busy);
   }
 
   private cancelEditing(): void {
@@ -415,6 +433,11 @@ export class Transcript {
     return item;
   }
 
+  private toolStatus(tool: ToolRow, copy: Copy): HTMLElement {
+    const label = tool.status === 'running' ? copy.toolRunning : tool.status === 'error' ? copy.toolFailed : copy.toolDone;
+    return this.dom.el('span', 'tool-state', label);
+  }
+
   private toolRow(tool: ToolRow, copy: Copy): HTMLElement {
     const row = this.dom.el('div', `tool-row-item ${tool.status === 'error' ? 'is-error' : tool.status === 'running' ? 'is-running' : 'is-done'}`);
     if (tool.kind === 'shell' && tool.target) {
@@ -430,11 +453,15 @@ export class Transcript {
       button.append(this.dom.icon('terminal'));
       button.append(this.dom.el('span', 'tool-name', shellCaption(command)));
       button.append(this.dom.icon(tool.status === 'running' ? 'loading~spin' : tool.status === 'error' ? 'error' : 'check'));
+      button.append(this.toolStatus(tool, copy));
       row.append(button);
 
       const commandLine = this.dom.el('div', 'shell-command-line');
       commandLine.append(this.dom.el('span', 'shell-prompt', '$'));
-      commandLine.append(this.dom.el('code', undefined, command));
+      const code = this.dom.el('code');
+      if (command.length > 12000) code.textContent = command;
+      else code.append(highlightCode(command, 'sh', this.dom));
+      commandLine.append(code);
       row.append(commandLine);
 
       const output = shellOutput(tool.detail, command);
@@ -463,6 +490,7 @@ export class Transcript {
       button.append(this.dom.el('span', 'tool-target', `${tool.target}${range}`));
     }
     button.append(this.dom.icon(tool.status === 'running' ? 'loading~spin' : tool.status === 'error' ? 'error' : 'check'));
+    button.append(this.toolStatus(tool, copy));
     row.append(button);
     const open = this.openDetails.has(tool.id);
     if (open) {
@@ -545,17 +573,20 @@ export class Transcript {
       this.post({ type: 'copy', requestId, text });
       return;
     }
+    if (action === 'pick-session-model') {
+      if (!this.shell || this.shell.busy || this.shell.modelSettings === 'unsupported') return;
+      this.onPickSessionModel(button);
+      return;
+    }
     if (action === 'edit-user' && button.dataset.turn) {
       const turn = this.turns.find((item) => item.id === button.dataset.turn);
-      if (this.shell?.busy || turn?.user?.canRewind !== true) return;
-      if (turn?.user) {
-        const previousId = this.editingTurnId;
-        this.editingTurnId = turn.id;
-        this.editingText = turn.user.text;
-        if (previousId && previousId !== turn.id) this.refreshTurn(previousId);
-        this.refreshTurn(turn.id);
-        this.nodes.get(turn.id)?.querySelector<HTMLTextAreaElement>('.edit-prompt')?.focus();
-      }
+      if (this.shell?.busy || !turn?.user) return;
+      const previousId = this.editingTurnId;
+      this.editingTurnId = turn.id;
+      this.editingText = turn.user.text;
+      if (previousId && previousId !== turn.id) this.refreshTurn(previousId);
+      this.refreshTurn(turn.id);
+      this.nodes.get(turn.id)?.querySelector<HTMLTextAreaElement>('.edit-prompt')?.focus();
       return;
     }
     if (action === 'cancel-edit' && button.dataset.turn === this.editingTurnId) {
@@ -565,17 +596,22 @@ export class Transcript {
       return;
     }
     if (action === 'rewind' && button.dataset.turn === this.editingTurnId && !this.shell?.busy) {
-      const id = this.editingTurnId;
+      const id = button.dataset.turn!;
       const textarea = button.closest('.prompt-editor')?.querySelector('textarea');
       const editedText = isElement(textarea) && textarea.tagName === 'TEXTAREA' ? (textarea as HTMLTextAreaElement).value : this.editingText;
-      if (id) this.onRewind(id, editedText);
+      const turn = this.turns.find((item) => item.id === id);
+      if (turn?.user?.canRewind === true) this.onRewind(id, editedText);
+      else {
+        this.onRetry(editedText, id);
+        this.post({ type: 'prepareResend', id });
+      }
       this.cancelEditing();
-      if (id) this.refreshTurn(id);
+      this.refreshTurn(id);
       return;
     }
-    if ((action === 'retry' || action === 'resend-user') && button.dataset.turn) {
+    if (action === 'retry' && button.dataset.turn) {
       const text = this.turns.find((turn) => turn.id === button.dataset.turn)?.user?.text;
-      if (text !== undefined && !this.shell?.busy) { this.onRetry(text, button.dataset.turn); this.post({ type: action === 'retry' ? 'prepareRetry' : 'prepareResend', id: button.dataset.turn }); }
+      if (text !== undefined && !this.shell?.busy) { this.onRetry(text, button.dataset.turn); this.post({ type: 'prepareRetry', id: button.dataset.turn }); }
       return;
     }
     if (action === 'post' && button.dataset.type) { this.post({ type: button.dataset.type }); return; }

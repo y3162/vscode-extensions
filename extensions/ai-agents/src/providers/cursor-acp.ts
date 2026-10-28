@@ -427,7 +427,7 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       readModelState(await rpc.request('session/load', { sessionId: options.resumeId, cwd: options.cwd, mcpServers: [] }, options.signal));
       sessionId = options.resumeId;
       markReplayFinal();
-    } else {
+    } else if (!options.readOnly) {
       const created = record(await rpc.request('session/new', {
         cwd: options.cwd,
         mcpServers: [],
@@ -436,18 +436,20 @@ export async function createCursorAcpSession(options: SessionOptions): Promise<A
       readModelState(created);
       sessionId = typeof created.sessionId === 'string' ? created.sessionId : '';
     }
-    if (!sessionId) throw new Error('Cursor ACP did not return a session id.');
-    if (options.modelParams?.length || (options.model && advertisedModels.length)) await applyRuntimeModel(options);
-    // Loading a session can restore its previous Plan/Ask mode. Reconcile Agent
-    // too, before trusting the local mode used to skip later mode changes.
-    if (options.resumeId || mode !== 'agent') await applyRuntimeMode(mode);
-    options.onIdentity?.({
-      id: sessionId,
-      title: 'Cursor ACP',
-      updatedAt: new Date().toISOString(),
-      provider: 'cursor',
-      cwd: options.cwd,
-    });
+    if (!options.readOnly) {
+      if (!sessionId) throw new Error('Cursor ACP did not return a session id.');
+      if (options.modelParams?.length || (options.model && advertisedModels.length)) await applyRuntimeModel(options);
+      // Loading a session can restore its previous Plan/Ask mode. Reconcile Agent
+      // too, before trusting the local mode used to skip later mode changes.
+      if (options.resumeId || mode !== 'agent') await applyRuntimeMode(mode);
+      options.onIdentity?.({
+        id: sessionId,
+        title: 'Cursor ACP',
+        updatedAt: new Date().toISOString(),
+        provider: 'cursor',
+        cwd: options.cwd,
+      });
+    } else if (options.resumeId && !sessionId) throw new Error('Cursor ACP did not return a session id.');
   } catch (error) {
     await rpc.dispose();
     if (error instanceof Error && error.name === 'AbortError') throw error;

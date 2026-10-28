@@ -1,6 +1,7 @@
-import type { TerminalRecord } from '../types.js';
+import type { ChatMessage, SessionSummary, TerminalRecord } from '../types.js';
 import { extensionVersion } from '../version.js';
 import { codexSpawn } from './codex-binary.js';
+import { messagesFrom } from './codex-app-server.js';
 import type { SessionOptions } from './session-options.js';
 import { StdioJsonRpc } from './stdio-rpc.js';
 
@@ -10,6 +11,8 @@ export interface CodexCliHistory {
   turns(threadId: string): Promise<HistoryTurn[]>;
   forkBeforeTurn(threadId: string, turnId: string, expectedTail?: string[]): Promise<string>;
   terminals(threadId: string): Promise<TerminalRecord[]>;
+  listThreads?(): Promise<SessionSummary[]>;
+  transcript?(threadId: string): Promise<ChatMessage[]>;
 }
 
 function record(value: unknown): Record<string, unknown> {
@@ -18,7 +21,7 @@ function record(value: unknown): Record<string, unknown> {
 
 export function createCodexCliHistory(options: SessionOptions): CodexCliHistory {
   const key = options.apiKey || process.env.CODEX_API_KEY || process.env.OPENAI_API_KEY;
-  async function connected<T>(threadId: string, work: (rpc: StdioJsonRpc) => Promise<T>): Promise<T> {
+  async function opened<T>(work: (rpc: StdioJsonRpc) => Promise<T>): Promise<T> {
     const rpc = new StdioJsonRpc(codexSpawn(options.codexPath, ['app-server', '--listen', 'stdio://'], options.cwd, key));
     try {
       await rpc.request('initialize', {
@@ -26,6 +29,14 @@ export function createCodexCliHistory(options: SessionOptions): CodexCliHistory 
         capabilities: { experimentalApi: true, requestAttestation: false },
       }, AbortSignal.timeout(10000));
       rpc.notify('initialized', {});
+      return await work(rpc);
+    } finally {
+      await rpc.dispose();
+    }
+  }
+
+  async function connected<T>(threadId: string, work: (rpc: StdioJsonRpc) => Promise<T>): Promise<T> {
+    return opened(async (rpc) => {
       const resumed = record(await rpc.request('thread/resume', {
         threadId, cwd: options.cwd, approvalPolicy: 'never', sandbox: options.sandbox || 'workspace-write',
       }, AbortSignal.timeout(10000)));
@@ -33,9 +44,7 @@ export function createCodexCliHistory(options: SessionOptions): CodexCliHistory 
         throw new Error('Codex CLI の会話はターン境界で安全に分岐できません。');
       }
       return await work(rpc);
-    } finally {
-      await rpc.dispose();
-    }
+    });
   }
 
   async function list(rpc: StdioJsonRpc, threadId: string): Promise<HistoryTurn[]> {
@@ -63,6 +72,46 @@ export function createCodexCliHistory(options: SessionOptions): CodexCliHistory 
   }
 
   return {
+    listThreads: () => opened(async (rpc) => {
+      const listed = record(await rpc.request('thread/list', {
+        cwd: options.cwd, limit: 30, sortKey: 'updated_at', sortDirection: 'desc',
+      }, AbortSignal.timeout(10000)));
+      const threads = Array.isArray(listed.data) ? listed.data : Array.isArray(listed.threads) ? listed.threads : [];
+      return threads.flatMap((item): SessionSummary[] => {
+        const thread = record(record(item).thread ?? item);
+        const id = typeof thread.id === 'string' ? thread.id : '';
+        if (!id) return [];
+        const title = typeof thread.title === 'string' && thread.title ? thread.title : typeof thread.preview === 'string' && thread.preview ? thread.preview : id;
+        return [{
+          id, title, titleSource: title === id ? 'local' : 'provider', backend: 'cli',
+          updatedAt: typeof thread.updatedAt === 'string' ? thread.updatedAt : '',
+          provider: 'codex', cwd: options.cwd,
+        }];
+      });
+    }),
+    transcript: (threadId) => opened(async (rpc) => {
+      const resumed = record(await rpc.request('thread/resume', {
+        threadId, cwd: options.cwd, approvalPolicy: 'never', sandbox: options.sandbox || 'workspace-write',
+      }, AbortSignal.timeout(10000)));
+      if (record(resumed.thread).id !== threadId) throw new Error('Codex CLI の会話を再開できません。');
+      if (record(resumed.thread).historyMode === 'paginated') {
+        const turns: unknown[] = [];
+        const cursors = new Set<string>();
+        let cursor: string | undefined;
+        do {
+          const page = record(await rpc.request('thread/turns/list', {
+            threadId, limit: 50, itemsView: 'full', sortDirection: 'asc', ...(cursor ? { cursor } : {}),
+          }, AbortSignal.timeout(10000)));
+          if (!Array.isArray(page.data)) throw new Error('Codex CLI のターン履歴を検証できません。');
+          turns.push(...page.data);
+          cursor = typeof page.nextCursor === 'string' && page.nextCursor ? page.nextCursor : undefined;
+          if (cursor && cursors.has(cursor)) throw new Error('Codex CLI の履歴カーソルが繰り返されました。');
+          if (cursor) cursors.add(cursor);
+        } while (cursor);
+        return messagesFrom({ turns });
+      }
+      return messagesFrom(await rpc.request('thread/read', { threadId, includeTurns: true }, AbortSignal.timeout(10000)));
+    }),
     turns: (threadId) => connected(threadId, (rpc) => list(rpc, threadId)),
     forkBeforeTurn: (threadId, turnId, expectedTail) => connected(threadId, async (rpc) => {
       const source = await list(rpc, threadId);

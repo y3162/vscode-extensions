@@ -26,7 +26,6 @@ test('Cursor history without a known CLI origin does not open a picker or resume
     id: 'cursor-indexed-thread', title: 'Cursor history', updatedAt: '2026-10-18T00:00:00.000Z',
     provider: 'cursor', cwd: paths.workspacePath,
   };
-  await paths.context.workspaceState.update('ai-agents.sessionIndex', [summary]);
   const output = window.createOutputChannel('AI Agents');
   const optionsSeen: SessionOptions[] = [];
   const sidebar = new AgentsSidebar(paths.context as never, output as never, (async (options: SessionOptions): Promise<AgentSession> => {
@@ -36,6 +35,7 @@ test('Cursor history without a known CLI origin does not open a picker or resume
   const harness: Harness = { ...paths, sidebar, output };
   try {
     await sidebar.handleMessage({ type: 'select', provider: 'cursor', cwd: paths.workspacePath });
+    sidebar.controller.replaceSessions([summary]);
     await sidebar.handleMessage({ type: 'restoreSession', id: summary.id });
     assert.equal(window.quickPickOffers.length, 0);
     assert.equal(optionsSeen.length, 0);

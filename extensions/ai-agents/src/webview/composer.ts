@@ -100,7 +100,7 @@ export class Composer {
     this.mode.setAttribute('aria-haspopup', 'menu');
     this.mode.addEventListener('click', () => this.openMode());
     this.model = dom.button('pill model-name', 'Model', 'chevron-down');
-    this.model.addEventListener('click', () => this.openModel());
+    this.model.addEventListener('click', () => this.openSessionModel());
     left.append(this.mode, this.model);
     const right = dom.el('div', 'row-right');
     this.attach = dom.button('icon-btn attach', 'Attach', 'attach');
@@ -272,8 +272,10 @@ export class Composer {
     this.seenIdentity = identity;
     if (identityChanged && hadIdentity) this.changed();
     if ((shell.busy || !adjustable) && this.modelMenu.isOpen) this.modelMenu.close(false);
-    this.attach.title = copy.attach;
-    this.attach.setAttribute('aria-label', copy.attach);
+    const imagesAllowed = shell.images !== false;
+    this.attach.title = imagesAllowed ? copy.attach : copy.imagesUnsupported;
+    this.attach.setAttribute('aria-label', imagesAllowed ? copy.attach : copy.imagesUnsupported);
+    if (imagesAllowed && this.imageError.textContent === copy.imagesUnsupported) this.clearImageError();
     if (shell.busy && this.mode.getAttribute('aria-expanded') === 'true') this.menu.close(false);
     this.mode.disabled = shell.busy;
     this.send.disabled = !shell.cwd;
@@ -574,6 +576,11 @@ export class Composer {
   }
 
   private addImages(files: FileList | File[] | null): void {
+    if (this.shell?.images === false) {
+      this.imageError.hidden = false;
+      this.imageError.textContent = this.copy?.imagesUnsupported ?? '';
+      return;
+    }
     this.retryId = undefined;
     const generation = this.imageReadGeneration;
     const identity = this.seenIdentity;
@@ -626,8 +633,13 @@ export class Composer {
     const copy = this.copy;
     if (!copy) return;
     this.modelMenu.close(false);
+    const imagesAllowed = this.shell?.images !== false;
     this.menu.open(anchor, [
-      { id: 'image', label: copy.image, onSelect: () => this.fileInput.click() },
+      {
+        id: 'image', label: copy.image,
+        ...(imagesAllowed ? {} : { description: copy.imagesUnsupported, disabled: true }),
+        onSelect: () => { if (this.shell?.images !== false) this.fileInput.click(); },
+      },
       { id: 'file', label: copy.file, onSelect: () => this.post({ type: 'attach', kind: 'file' }) },
       { id: 'selection', label: copy.selection, onSelect: () => this.post({ type: 'attach', kind: 'selection' }) },
       { id: 'problems', label: copy.problems, onSelect: () => this.post({ type: 'attach', kind: 'problems' }) },
@@ -647,13 +659,13 @@ export class Composer {
     })));
   }
 
-  private openModel(): void {
+  openSessionModel(anchor: HTMLElement = this.model): void {
     const shell = this.shell;
     if (!shell || shell.busy || shell.modelSettings === 'unsupported') return;
     this.menu.close(false);
     this.buildMenu = false;
     this.requestCatalog(false);
-    this.modelMenu.open(this.model, this.modelPage());
+    this.modelMenu.open(anchor, this.modelPage());
   }
 
   private requestCatalog(refresh: boolean): void {

@@ -1,4 +1,5 @@
-import type { AgentModel, AgentSession, AgentUpdate, FileChange, TodoEntry } from '../types.js';
+import type { AgentModel, AgentSession, AgentUpdate, ChatMessage, FileChange, SessionSummary, TodoEntry } from '../types.js';
+import { createCursorAcpSession } from './cursor-acp.js';
 import { redactSecrets } from '../types.js';
 import { classifyTool } from '../tool-kind.js';
 import { agentLaunch } from './codex-binary.js';
@@ -75,6 +76,34 @@ export async function listCursorCliModels(options: {
   return models;
 }
 
+async function cursorHistoryProbe(options: SessionOptions, resumeId?: string): Promise<AgentSession> {
+  return createCursorAcpSession({
+    ...options,
+    resumeId,
+    readOnly: true,
+    interactions: undefined,
+    onIdentity: undefined,
+    signal: options.signal ?? AbortSignal.timeout(20000),
+  });
+}
+
+export async function listCursorCliSessions(options: SessionOptions): Promise<SessionSummary[]> {
+  const probe = await cursorHistoryProbe({ ...options, resumeId: undefined });
+  try {
+    const sessions = await probe.listSessions?.() ?? [];
+    return sessions.map((session) => ({ ...session, backend: session.backend ?? 'cli' }));
+  } finally { await probe.dispose(); }
+}
+
+export async function loadCursorCliTranscript(options: SessionOptions, sessionId: string): Promise<ChatMessage[]> {
+  const probe = await cursorHistoryProbe(options, sessionId);
+  try {
+    const messages: ChatMessage[] = [];
+    await probe.loadTranscript?.((message) => messages.push(message));
+    return messages;
+  } finally { await probe.dispose(); }
+}
+
 export async function createCursorCliSession(options: SessionOptions, spawn: CliSpawn = spawnCli): Promise<AgentSession> {
   let sessionId = options.resumeId;
   let model = options.model;
@@ -89,6 +118,11 @@ export async function createCursorCliSession(options: SessionOptions, spawn: Cli
   };
   return {
     get sessionId() { return sessionId; },
+    async listSessions() { return listCursorCliSessions({ ...options, resumeId: undefined, signal: AbortSignal.timeout(20000) }); },
+    async loadTranscript(emit) {
+      if (!sessionId) return;
+      for (const message of await loadCursorCliTranscript({ ...options, signal: options.signal ?? AbortSignal.timeout(20000) }, sessionId)) emit(message);
+    },
     setModel(selection) {
       model = selection.model;
       modelParams = selection.modelParams;

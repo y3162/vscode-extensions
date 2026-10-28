@@ -86,7 +86,7 @@ test('transcript restores pending placement, handles stale rewinds, copy outcome
   assert.match(css, /\.shell-command-line \{[^}]*var\(--vscode-terminal-background/);
 
   transcript.render(messages, shell({ busy: false, timings: undefined }), strings('en'));
-  const edit = article.querySelector<HTMLButtonElement>('.edit-user')!;
+  const edit = article.querySelector<HTMLButtonElement>('.bubble')!;
   assert.equal(edit.disabled, false, 'the same prompt becomes editable again after the session stops');
   click(edit);
   const textarea = article.querySelector<HTMLTextAreaElement>('.edit-prompt')!;
@@ -96,7 +96,7 @@ test('transcript restores pending placement, handles stale rewinds, copy outcome
   click(article.querySelector('[data-action="rewind"]') as HTMLElement);
   assert.deepEqual(rewinds, [{ id: 'user-1', text: 'edited before detach' }], 'rewind uses cached text if its editor was detached');
 
-  const copySource = article.querySelector<HTMLButtonElement>('.copy-user')!;
+  const copySource = article.querySelector<HTMLButtonElement>('.shell-tool [data-action="copy-source"]')!;
   click(copySource);
   const copyRequest = posted(sent, 'copy')?.requestId as string;
   transcript.copied(copyRequest, false);

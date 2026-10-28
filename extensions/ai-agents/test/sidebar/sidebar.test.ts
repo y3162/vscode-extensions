@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import type { StateMessage } from '../../src/protocol.js';
-import type { AgentsSidebar } from '../../src/sidebar.js';
+import { AgentsSidebar } from '../../src/sidebar.js';
 import { ColorThemeKind, commands, ConfigurationTarget, env, extensions, resetVscode, Uri, window, workspace } from '../support/vscode-stub.js';
-import { createView, openSidebar, settle, waitFor, type Harness, type TestView } from '../support/vscode-harness.js';
+import { createView, openSidebar, prepareHarnessRoot, settle, waitFor, type Harness, type TestView } from '../support/vscode-harness.js';
 
 async function close(harness: Harness, historyMode?: { dir: string; mode: number }): Promise<void> {
   if (historyMode) chmodSync(historyMode.dir, historyMode.mode);
@@ -97,16 +97,17 @@ test('rewind journals restore an interrupted file, leave a matching session unto
     writeFileSync(outsidePath, 'outside-after');
     const outsideMode = statSync(outsidePath).mode & 0o777;
     writeFileSync(path.join(history, 'cccccccc-cccc-cccc-cccc-cccccccccccc.json'), '{');
-    const journal = (name: string, conversation: string, branchId: string, file: string, before: string, expected: string, backup: string, root = cwd, fileMode = mode) => {
+    const journal = (name: string, conversation: string, branchId: string, file: string, before: string, expected: string, backup: string, root = cwd, fileMode = mode, committed = false) => {
       writeFileSync(path.join(journals, name), JSON.stringify({
         version: 1, conversationId: conversation, branchId, cwd: root,
+        ...(committed ? { committed: true, sessionId: branchId, turnId: 'turn-1' } : {}),
         files: [{
           path: file, beforeText: before, beforeMode: fileMode, expectedText: expected, expectedMode: fileMode,
           backupText: backup, backupMode: fileMode, tempPath: `.ai-agents-rewind-${randomUUID()}.tmp`,
         }],
       }));
     };
-    journal('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1.json', conversationId, 'branch-keep', 'keep.txt', 'other', 'other', 'other');
+    journal('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1.json', conversationId, 'branch-keep', 'keep.txt', 'other', 'other', 'other', cwd, mode, true);
     journal('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbb1.json', recoverId, 'other', 'restore.txt', 'before', 'after', 'after');
     journal('dddddddd-dddd-dddd-dddd-dddddddddddd.json', 'dddddddd-dddd-dddd-dddd-dddddddddddd', 'other', 'tamper.txt', 'before', 'after', 'after');
     journal('eeeeeeee-eeee-eeee-eeee-eeeeeeeeeee1.json', mismatchId, 'other', 'outside.txt', 'outside-before', 'outside-after', 'outside-before', realpathSync(root), outsideMode);
@@ -130,7 +131,7 @@ test('rewind journals restore an interrupted file, leave a matching session unto
     assert.equal(existsSync(path.join(harness.context.storageUri.fsPath, 'history', 'v1', 'cccccccc-cccc-cccc-cccc-cccccccccccc.json')), true);
     assert.equal(readdirSync(harness.workspacePath).some((name) => name.includes('ai-agents-rewind')), false);
     const notes = harness.sidebar.controller.snapshot().messages.map((message) => message.text).join('\n');
-    assert.match(notes, /履歴を読み込めませんでした/);
+    assert.doesNotMatch(notes, /履歴を読み込めませんでした/);
     assert.match(notes, /巻き戻し中断から自動復旧できませんでした/);
     assert.match(notes, /dddddddd-dddd-dddd-dddd-dddddddddddd\.json/);
     assert.match(notes, /eeeeeeee-eeee-eeee-eeee-eeeeeeeeeee1\.json/);
@@ -140,42 +141,44 @@ test('rewind journals restore an interrupted file, leave a matching session unto
   }
 });
 
-test('history save failure is reported and does not replace the previous snapshot', async () => {
+test('display snapshots are stored locally and are not submitted as model history', async () => {
   resetVscode();
-  const harness = openSidebar();
+  const prompts: string[] = [];
+  const paths = prepareHarnessRoot();
+  const output = window.createOutputChannel('AI Agents');
+  const sidebar = new AgentsSidebar(paths.context as never, output as never, (async () => ({
+    sessionId: 'display-session',
+    async run(prompt: string) { prompts.push(prompt); },
+    async dispose() {},
+  })) as never);
+  const harness: Harness = { ...paths, sidebar, output };
   const dir = path.join(harness.context.storageUri.fsPath, 'history', 'v1');
   const view = createView();
   try {
     await ready(harness.sidebar, view);
     harness.sidebar.controller.notify('first snapshot');
     await harness.sidebar.flushHistory();
-    const saved = readdirSync(dir).find((name) => name.endsWith('.json'));
-    assert.ok(saved);
-    const file = path.join(dir, saved);
-    assert.match(readFileSync(file, 'utf8'), /first snapshot/);
-    chmodSync(dir, 0o555);
-    harness.sidebar.controller.notify('second snapshot');
-    await assert.rejects(() => harness.sidebar.flushHistory());
-    assert.ok(harness.output.lines.some((line) => line.startsWith('History save failed:')));
-    assert.ok(view.messages.some((message) => message.type === 'error' && String(message.text).includes('表示履歴を保存できませんでした')));
-    chmodSync(dir, 0o755);
-    assert.match(readFileSync(file, 'utf8'), /first snapshot/);
-    assert.doesNotMatch(readFileSync(file, 'utf8'), /second snapshot/);
+    assert.equal(existsSync(dir) && readdirSync(dir).some((name) => name.endsWith('.json')), false);
+    const saved = readdirSync(path.join(dir, 'conversations')).filter((name) => name.endsWith('.json'));
+    assert.equal(saved.length, 1);
+    assert.match(readFileSync(path.join(dir, 'conversations', saved[0]!), 'utf8'), /first snapshot/);
+    assert.deepEqual(prompts, []);
+    assert.equal(view.messages.some((message) => message.type === 'error' && String(message.text).includes('表示履歴を保存できませんでした')), false);
   } finally {
-    await close(harness, { dir, mode: 0o755 });
+    await close(harness);
   }
 });
 
-test('clearing local history honors cancel and deletes every saved snapshot when confirmed', async () => {
+test('clearing local history honors cancel and deletes leftover conversation files when confirmed', async () => {
   resetVscode();
   const harness = openSidebar(({ context }) => {
     void context.workspaceState.update('ai-agents.plans', { abc: { phase: 'idle', revisions: [] } });
+    const dir = path.join(context.storageUri.fsPath, 'history', 'v1');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.json'), '{"leftover":true}');
   });
   const dir = path.join(harness.context.storageUri.fsPath, 'history', 'v1');
   try {
-    harness.sidebar.controller.notify('keep me');
-    await harness.sidebar.flushHistory();
-    assert.ok(readdirSync(dir).some((name) => name.endsWith('.json')));
     await commands.handlers.get('ai-agents.clearLocalHistory')!();
     assert.ok(readdirSync(dir).some((name) => name.endsWith('.json')));
     assert.deepEqual(harness.context.workspaceState.get('ai-agents.plans'), { abc: { phase: 'idle', revisions: [] } });
@@ -183,7 +186,8 @@ test('clearing local history honors cancel and deletes every saved snapshot when
     await commands.handlers.get('ai-agents.clearLocalHistory')!();
     assert.equal(readdirSync(dir).some((name) => name.endsWith('.json')), false);
     assert.deepEqual(harness.context.workspaceState.get('ai-agents.plans'), {});
-    assert.match(window.warningMessages.at(-1) ?? '', /ローカル表示履歴/);
+    assert.match(window.warningMessages.at(-1) ?? '', /表示履歴ファイル/);
+    assert.equal(harness.sidebar.controller.snapshot().messages.some((message) => message.text.includes('leftover')), false);
   } finally {
     await close(harness);
   }
@@ -358,7 +362,7 @@ test('webview messages drive the sidebar without starting an agent session', asy
     await sidebar.showDiagnostics();
     assert.match(String(view.messages.filter((message) => message.type === 'inspector').at(-1)?.text), /FAIL/);
     await sidebar.handleMessage({ type: 'refreshSessions' });
-    assert.ok(Array.isArray(context.workspaceState.get('ai-agents.sessionIndex')));
+    assert.ok(Array.isArray(sidebar.controller.snapshot().sessions));
 
     window.warningQueue.push({ value: undefined });
     await sidebar.handleMessage({ type: 'toggleAutoApprove' });
@@ -397,30 +401,7 @@ test('webview messages drive the sidebar without starting an agent session', asy
 
 test('restored messages get icon decorations and file review does not touch unrelated files', async () => {
   resetVscode();
-  const id = 'abababab-abab-abab-abab-abababababab';
-  const harness = openSidebar(({ context, workspacePath }) => {
-    const history = path.join(context.storageUri.fsPath, 'history', 'v1');
-    mkdirSync(history, { recursive: true });
-    writeFileSync(path.join(history, `${id}.json`), JSON.stringify({
-      version: 1, id, updatedAt: '2026-01-01T00:00:00.000Z',
-      controls: { mode: 'agent', sandbox: 'workspace-write', approval: 'never', backend: 'cli', network: false, webSearch: '', additionalDirectories: [] },
-      state: {
-        selection: { provider: 'codex', cwd: workspacePath, model: '' }, busy: false,
-        messages: [
-          { id: 'user-1', role: 'user', text: 'hello history' },
-          { id: 'user-2', role: 'user', text: 'with file', attachments: ['note.txt'] },
-          { id: 'assistant-1', role: 'assistant', text: 'edited app.ts', meta: { type: 'files', files: [{ path: 'src/app.ts', kind: 'update' }] } },
-        ],
-        queue: [], status: 'idle', usage: null,
-        changes: [
-          { path: 'edit.txt', kind: 'update', previousText: 'old', diff: 'diff --git a/edit.txt\n-old\n+new' },
-          { path: 'turn.diff', kind: 'update', diff: 'diff --git a/a\n+hello' },
-        ],
-        todos: [], sessions: [], autoApprove: false, pendingPermission: null, pendingPlan: null, pendingQuestion: null,
-        plan: { phase: 'idle', revisions: [] }, turns: [], subagents: [], terminals: [],
-      },
-    }));
-  });
+  const harness = openSidebar();
   const themeDir = path.join(harness.root, 'theme');
   mkdirSync(themeDir, { recursive: true });
   const theme = {
@@ -441,7 +422,18 @@ test('restored messages get icon decorations and file review does not touch unre
   const view = createView();
   try {
     await ready(harness.sidebar, view);
-    await harness.sidebar.handleMessage({ type: 'restoreSession', id });
+    harness.sidebar.controller.restoreSnapshot({
+      ...harness.sidebar.controller.snapshot(),
+      messages: [
+        { id: 'user-1', role: 'user', text: 'hello history' },
+        { id: 'user-2', role: 'user', text: 'with file', attachments: ['note.txt'] },
+        { id: 'assistant-1', role: 'assistant', text: 'edited app.ts', meta: { type: 'files', files: [{ path: 'src/app.ts', kind: 'update' }] } },
+      ],
+      changes: [
+        { path: 'edit.txt', kind: 'update', previousText: 'old', diff: 'diff --git a/edit.txt\n-old\n+new' },
+        { path: 'turn.diff', kind: 'update', diff: 'diff --git a/a\n+hello' },
+      ],
+    });
     await waitFor(() => states(view).some((state) => state.messages.upserts.some((message) => message.meta?.files?.[0]?.icon?.type === 'badge')), 'badge icon');
     assert.equal(states(view).at(-1)?.messages.upserts.find((message) => message.id === 'assistant-1')?.meta?.files?.[0]?.icon?.badge, 'TS');
     workspace.configuration.workbench = { iconTheme: 'fixture' };
@@ -525,26 +517,13 @@ test('model menu selection uses a local codex stub and asks before replacing a c
   }
 
   resetVscode();
-  const id = 'edededed-eded-eded-eded-edededededed';
-  const again = openSidebar(({ context, workspacePath }) => {
-    const history = path.join(context.storageUri.fsPath, 'history', 'v1');
-    mkdirSync(history, { recursive: true });
-    writeFileSync(path.join(history, `${id}.json`), JSON.stringify({
-      version: 1, id, updatedAt: '2026-01-01T00:00:00.000Z',
-      controls: { mode: 'agent', sandbox: 'workspace-write', approval: 'never', backend: 'cli', network: false, webSearch: '', additionalDirectories: [] },
-      state: {
-        selection: { provider: 'codex', cwd: workspacePath, model: '' }, busy: false,
-        messages: [{ id: 'user-1', role: 'user', text: 'keep this chat' }],
-        queue: [], status: 'idle', usage: null, changes: [], todos: [], sessions: [], autoApprove: false,
-        pendingPermission: null, pendingPlan: null, pendingQuestion: null, plan: { phase: 'idle', revisions: [] },
-        turns: [], subagents: [], terminals: [],
-      },
-    }));
-  });
+  const again = openSidebar();
   workspace.configuration['ai-agents']!['codex.executablePath'] = fake;
   try {
-    await again.sidebar.flushHistory();
-    await again.sidebar.handleMessage({ type: 'restoreSession', id });
+    again.sidebar.controller.restoreSnapshot({
+      ...again.sidebar.controller.snapshot(),
+      messages: [{ id: 'user-1', role: 'user', text: 'keep this chat' }],
+    });
     assert.ok(again.sidebar.controller.snapshot().messages.some((message) => message.role === 'user'));
     await again.sidebar.handleMessage({ type: 'setModel', modelId: 'gpt-test' });
     assert.ok(again.sidebar.controller.snapshot().messages.some((message) => message.text === 'keep this chat'));

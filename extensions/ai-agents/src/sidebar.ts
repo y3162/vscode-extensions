@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { readdir, realpath } from 'node:fs/promises';
+import { readdir, realpath, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { capabilitiesFor, defaultControls, modelApplyMode, normalizeControls, type AgentControls } from './capabilities.js';
 import { inferIntent } from './plan-state.js';
 import { revertChange } from './change-review.js';
-import { HistoryStore } from './history-store.js';
+import { createCodexCliHistory } from './providers/codex-cli-history.js';
+import { listCursorCliSessions } from './providers/cursor-cli.js';
 import { usageText } from './usage.js';
 import { BackgroundTerminalViews } from './background-terminal.js';
 import { ChatController } from './chat-controller.js';
@@ -21,9 +22,10 @@ import { catalogIsCurrent, ModelSettingsDraft, sameModelParams, toCatalogModel }
 import { createSession, writeBaselineFile } from './providers/index.js';
 import { listModels } from './providers/models.js';
 import type { HostToWebview, ProbeResult, ViewMessage } from './protocol.js';
-import { mergeRegistrySessions, upsertSession } from './session-index.js';
+import { mergeRegistrySessions } from './session-index.js';
 import { extensionBadge } from './diff-stats.js';
 import { resolveThemeIcon, type IconThemeDocument } from './icon-theme.js';
+import { HistoryStore, type SavedConversation } from './history-store.js';
 import { SessionRegistry } from './session-registry.js';
 import { errorMessage, type AgentModel, type Backend, type ChatState, type ImageAttachment, type PlanState, type Provider, type Selection, type SessionSummary } from './types.js';
 import { buildShell, diffMessages, toViewMessage } from './view-state.js';
@@ -34,15 +36,16 @@ interface ModelItem extends vscode.QuickPickItem { model: AgentModel }
 
 export class AgentsSidebar implements vscode.WebviewViewProvider {
   private readonly terminalViews = new BackgroundTerminalViews();
-  private readonly history: HistoryStore;
   private readonly historyReady: Promise<void>;
+  private readonly displayHistory: HistoryStore;
+  private displayLoaded = false;
   private readonly rewindJournalDirectory: string;
+  private readonly rewindErrors: string[] = [];
   private readonly conversationIds = new WeakMap<ChatController, string>();
   private readonly controllerControls = new WeakMap<ChatController, AgentControls>();
   private retryDraft?: { controller: ChatController; id: string; text: string };
   private historyPaused = false;
   private readonly loggedErrors = new Set<string>();
-  private readonly suppressedHistories = new Set<string>();
   private readonly views = new Set<vscode.WebviewView>();
   private readonly readyViews = new Set<vscode.WebviewView>();
   private readonly controls: Record<Provider, AgentControls>;
@@ -75,8 +78,13 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   ) {
     const historyRoot = path.join((context.storageUri ?? context.globalStorageUri).fsPath, 'history', 'v1');
     this.rewindJournalDirectory = path.join(historyRoot, 'rewind-journals');
-    this.history = new HistoryStore(historyRoot, (error) => { this.output.appendLine(`History save failed: ${errorMessage(error)}`); this.post({ type: 'error', text: '表示履歴を保存できませんでした。Logsを確認してください。' }); });
-    this.historyReady = this.history.load().then(() => this.recoverTurnRewinds()).catch((error) => { this.history.errors.push(errorMessage(error)); });
+    this.displayHistory = new HistoryStore(path.join(this.historyRoot(), 'conversations'), (error) => {
+      this.output.appendLine(errorMessage(error));
+    });
+    this.historyReady = Promise.all([
+      this.recoverTurnRewinds().catch((error) => { this.rewindErrors.push(errorMessage(error)); }),
+      this.displayHistory.load().catch((error) => { this.output.appendLine(errorMessage(error)); }),
+    ]).then(() => { this.displayLoaded = true; });
     const config = vscode.workspace.getConfiguration('ai-agents');
     const provider = config.get<Provider>('defaultProvider', 'codex');
     const storedControls = context.workspaceState.get<Partial<Record<Provider, AgentControls>>>('ai-agents.controls', {});
@@ -98,23 +106,27 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     this.registry = new SessionRegistry(initial, this.controls[provider].mode);
     initial.setModePreference(this.controls[provider].mode);
     this.controller.setAutoApprove(config.get<boolean>('autoApprove', false) === true);
-    this.controller.replaceSessions(context.workspaceState.get<SessionSummary[]>('ai-agents.sessionIndex', []));
     void this.historyReady.then(() => {
-      this.controller.replaceSessions(mergeRegistrySessions(this.controller.snapshot().sessions, this.history.summaries()));
-      for (const error of this.history.errors) this.controller.notify(error);
+      this.publishDisplaySessions();
+      for (const error of this.rewindErrors) this.controller.notify(error);
     }).catch((e) => this.showError(e));
     context.subscriptions.push(vscode.commands.registerCommand('ai-agents.clearLocalHistory', async () => {
-      const choice = await vscode.window.showWarningMessage('この拡張機能のローカル表示履歴を削除します。バックエンドの会話は削除しません。', { modal: true }, '現在の会話', 'すべて');
+      const choice = await vscode.window.showWarningMessage('残っているローカルの表示履歴ファイルと巻き戻しジャーナルを削除します。バックエンドの会話は削除しません。', { modal: true }, '現在の会話', 'すべて');
       if (!choice) return;
-      for (const summary of this.history.summaries()) if (choice === 'すべて' || summary.conversationId === this.conversationIds.get(this.controller)) this.suppressedHistories.add(summary.conversationId!);
       this.historyPaused = true;
-      try { await this.history.clear(choice === '現在の会話' ? this.conversationIds.get(this.controller) : undefined); }
-      finally { this.historyPaused = false; }
+      try {
+        if (choice === 'すべて') {
+          await this.deleteLeftoverConversations();
+          await this.displayHistory.clear();
+        } else {
+          const id = this.conversationIds.get(this.controller);
+          if (id) await this.displayHistory.clear(id);
+        }
+      } finally { this.historyPaused = false; }
       if (choice === 'すべて') for (const key of Object.keys(this.savedPlans)) delete this.savedPlans[key];
       else { const key = this.controller.sessionId(); if (key) delete this.savedPlans[key]; }
       await this.context.workspaceState.update('ai-agents.plans', this.savedPlans);
-      this.controller.replaceSessions(this.controller.snapshot().sessions.filter((item) => !item.conversationId || this.history.get(item.conversationId)));
-      await this.context.workspaceState.update('ai-agents.sessionIndex', this.controller.snapshot().sessions);
+      if (choice === 'すべて') this.controller.replaceSessions(mergeRegistrySessions([], this.registry.liveSummaries()));
     }));
     watchTerminals(context.subscriptions);
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => {
@@ -159,7 +171,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     }, {
       journalDirectory: this.rewindJournalDirectory,
       conversationId: () => this.conversationIds.get(controller),
-      enabled: () => !this.historyPaused && !this.suppressedHistories.has(this.conversationIds.get(controller)!)
+      enabled: () => !this.historyPaused
         && vscode.workspace.getConfiguration('ai-agents').get<boolean>('history.enabled', true),
       flush: () => this.flushHistory(),
     });
@@ -176,17 +188,17 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       const file = path.join(this.rewindJournalDirectory, name);
       try {
         const journal = await readTurnRewindJournal(file);
-        const saved = this.history.get(journal.conversationId);
-        if (!saved || saved.id !== journal.conversationId) throw new Error('保存された会話とジャーナルを対応付けられません。');
-        if (saved?.sessionId === journal.branchId) {
+        if (journal.committed === true) {
           await discardTurnRewindJournal(file);
-        } else {
-          if (await realpath(saved.state.selection.cwd) !== journal.cwd) throw new Error('ジャーナルのWorkspaceが保存された会話と一致しません。');
-          await rollbackTurnRewindJournal(journal);
-          await discardTurnRewindJournal(file);
+          continue;
         }
+        const cwd = await realpath(journal.cwd);
+        const folders = await Promise.all(this.folders().map(async (folder) => realpath(folder.path).catch(() => folder.path)));
+        if (cwd !== journal.cwd || !folders.includes(cwd)) throw new Error('ジャーナルのWorkspaceが保存された会話と一致しません。');
+        await rollbackTurnRewindJournal(journal);
+        await discardTurnRewindJournal(file);
       } catch (error) {
-        this.history.errors.push(`巻き戻し中断から自動復旧できませんでした。ファイルは保持しました: ${name} (${errorMessage(error)})`);
+        this.rewindErrors.push(`巻き戻し中断から自動復旧できませんでした。ファイルは保持しました: ${name} (${errorMessage(error)})`);
       }
     }
   }
@@ -197,18 +209,115 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       this.controllerControls.set(controller, { ...this.controls[state.selection.provider] });
       return;
     }
-    const id = this.conversationIds.get(controller)!;
     for (const message of state.messages) if (message.role === 'error' && !this.loggedErrors.has(message.id)) {
       this.loggedErrors.add(message.id);
       this.output.appendLine(errorMessage(`[${state.selection.provider}/${this.controllerControls.get(controller)?.backend}] ${message.failure?.kind ?? 'Error'} ${message.failure?.operation ?? ''}\n${message.text}`));
     }
-    if (this.historyPaused || this.suppressedHistories.has(id) || !vscode.workspace.getConfiguration('ai-agents').get<boolean>('history.enabled', true)) return;
-    const safe = structuredClone(state);
-    safe.pendingPermission = null; safe.pendingPlan = null; safe.pendingQuestion = null; safe.autoApprove = false;
-    this.history.schedule({ version: 1, id, sessionId: controller.sessionId() ?? this.history.get(id)?.sessionId, updatedAt: new Date().toISOString(), controls: this.controllerControls.get(controller)!, state: safe });
+    this.persistPlan(controller, state);
+    if (this.displayLoaded) this.persistDisplay(controller, state);
+    else void this.historyReady.then(() => this.persistDisplay(controller, state)).catch((error: unknown) => this.output.appendLine(errorMessage(error)));
   }
 
-  async flushHistory(): Promise<void> { await this.historyReady; await this.history.flush(); }
+  private persistDisplay(controller: ChatController, state: ChatState): void {
+    if (this.historyPaused || !vscode.workspace.getConfiguration('ai-agents').get<boolean>('history.enabled', true)) return;
+    const id = this.conversationIds.get(controller);
+    const controls = this.controllerControls.get(controller);
+    if (!id || !controls || !state.messages.length) return;
+    let snapshot: ChatState;
+    try { snapshot = structuredClone(state); }
+    catch (error) { this.output.appendLine(errorMessage(error)); return; }
+    snapshot.busy = false;
+    snapshot.pendingPermission = null;
+    snapshot.pendingPlan = null;
+    snapshot.pendingQuestion = null;
+    const sessionId = controller.sessionId();
+    this.displayHistory.schedule({
+      version: 1,
+      id,
+      ...(sessionId ? { sessionId } : {}),
+      updatedAt: new Date().toISOString(),
+      controls,
+      state: snapshot,
+    });
+  }
+
+  private persistPlan(controller: ChatController, state: ChatState): void {
+    if (this.historyPaused) return;
+    const sessionId = controller.sessionId();
+    if (!sessionId) return;
+    const phase = state.plan.phase;
+    const settled = (phase === 'ready' || phase === 'implemented') && Boolean(state.plan.current);
+    const interrupted = phase === 'planning' || phase === 'revising' || phase === 'building' || (phase === 'unknown' && Boolean(state.plan.current));
+    if (!settled && !interrupted) return;
+    const next = structuredClone(state.plan);
+    if (JSON.stringify(this.savedPlans[sessionId]) === JSON.stringify(next)) return;
+    this.savedPlans[sessionId] = next;
+    void this.context.workspaceState.update('ai-agents.plans', this.savedPlans);
+  }
+
+  private publishDisplaySessions(): void {
+    const selection = this.controller.snapshot().selection;
+    const stored = this.displayHistory.summaries().filter((item) => item.provider === selection.provider && (!selection.cwd || item.cwd === selection.cwd));
+    if (!stored.length) return;
+    this.controller.replaceSessions(mergeRegistrySessions(this.controller.snapshot().sessions, stored));
+  }
+
+  private applyRestoredDisplay(target: ChatController, record: SavedConversation | undefined, sessionId: string): void {
+    const after = target.snapshot();
+    const visible = after.messages.some((message) => message.role === 'user' || message.role === 'assistant');
+    const failed = after.status === 'error' || after.messages.some((message) => message.role === 'error');
+    if (record?.sessionId && !visible && !failed) target.restoreSnapshot(record.state, record.sessionId);
+    const saved = this.savedPlans[sessionId];
+    const plan = target.snapshot().plan;
+    if (saved?.current && !plan.current && !plan.draft) target.restorePlan(saved);
+  }
+
+  async flushHistory(): Promise<void> {
+    await this.historyReady;
+    await this.displayHistory.flush();
+  }
+
+  private historyRoot(): string {
+    return path.join((this.context.storageUri ?? this.context.globalStorageUri).fsPath, 'history', 'v1');
+  }
+
+  private async deleteLeftoverConversations(): Promise<void> {
+    let names: string[];
+    try { names = await readdir(this.historyRoot()); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+    for (const name of names) {
+      if (!/^[a-f0-9-]+\.json$/.test(name)) continue;
+      await unlink(path.join(this.historyRoot(), name)).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
+    }
+    let journals: string[] = [];
+    try { journals = await readdir(this.rewindJournalDirectory); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+    for (const name of journals) {
+      if (!name.endsWith('.json')) continue;
+      await unlink(path.join(this.rewindJournalDirectory, name)).catch((error: NodeJS.ErrnoException) => { if (error.code !== 'ENOENT') throw error; });
+    }
+  }
+
+  private async probeSessions(selection: Selection): Promise<SessionSummary[]> {
+    const config = vscode.workspace.getConfiguration('ai-agents');
+    if (selection.provider === 'cursor') {
+      return listCursorCliSessions({
+        provider: 'cursor', cwd: selection.cwd, model: selection.model, ...(selection.modelParams ? { modelParams: selection.modelParams } : {}),
+        storagePath: path.join(this.context.globalStorageUri.fsPath, 'cursor-agents'),
+        agentPath: config.get<string>('cursor.agentPath') || 'agent',
+        apiKey: await this.context.secrets.get('ai-agents.cursor.apiKey'),
+        backend: 'cli',
+      });
+    }
+    const history = createCodexCliHistory({
+      provider: 'codex', cwd: selection.cwd, model: selection.model, ...(selection.modelParams ? { modelParams: selection.modelParams } : {}),
+      storagePath: this.context.globalStorageUri.fsPath,
+      codexPath: config.get<string>('codex.executablePath'),
+      apiKey: await this.context.secrets.get('ai-agents.codex.apiKey'),
+      backend: 'cli', sandbox: this.controls.codex.sandbox,
+    });
+    return history.listThreads?.() ?? [];
+  }
 
   private requireWorkspace(cwd: string): void {
     if (!vscode.workspace.isTrusted) throw new Error('このフォルダを信頼してから実行してください。');
@@ -759,7 +868,6 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     summary = { ...summary, backend: this.controllerControls.get(owner)?.backend, conversationId: this.conversationIds.get(owner) };
     owner.rememberSession(summary);
     if (owner !== this.controller) this.controller.rememberSession(summary);
-    void this.context.workspaceState.update('ai-agents.sessionIndex', mergeRegistrySessions(owner.snapshot().sessions, this.registry.liveSummaries()));
   }
 
   private contextLabel(kind: 'file' | 'selection' | 'problems' | 'git' | 'terminal'): string {
@@ -1194,10 +1302,9 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   private async restoreSession(id: unknown): Promise<void> {
     if (typeof id !== 'string') return;
     await this.historyReady;
-    const savedConversation = this.history.get(id);
     if (id === this.controller.sessionId()) return;
     const provider = this.controller.snapshot().selection.provider;
-    const summary = mergeRegistrySessions(mergeRegistrySessions(this.controller.snapshot().sessions, this.history.summaries()), this.registry.liveSummaries())
+    const summary = mergeRegistrySessions(this.controller.snapshot().sessions, this.registry.liveSummaries())
       .find((session) => (session.id === id || session.conversationId === id) && session.provider === provider);
     if (!summary) return;
     const existing = this.registry.entries().find((entry) => entry.controller.sessionId() === summary.id && entry.controller.snapshot().selection.provider === provider && (!summary.conversationId || this.conversationIds.get(entry.controller) === summary.conversationId));
@@ -1209,27 +1316,29 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       this.postState();
       return;
     }
-    const backend = savedConversation?.controls.backend ?? summary.backend;
-    if (backend !== 'cli') {
+    if (summary.backend !== 'cli') {
       this.controller.notify('CLI で作成されたことを確認できない履歴は再開できません。元の履歴は保持されています。');
       return;
     }
-    const selection = savedConversation?.state.selection ?? { ...this.controller.snapshot().selection, cwd: summary.cwd ?? this.controller.snapshot().selection.cwd };
+    const selection = { ...this.controller.snapshot().selection, cwd: summary.cwd ?? this.controller.snapshot().selection.cwd };
     this.requireWorkspace(selection.cwd);
-    await this.flushHistory();
-    this.controls[provider] = savedConversation ? normalizeControls(provider, { ...savedConversation.controls, backend: 'cli' }) : this.controls[provider];
     const target = this.makeController(selection);
     const key = randomUUID();
     this.registry.add({ key, controller: target, mode: this.controls[provider].mode });
-    if (savedConversation) {
-      this.conversationIds.set(target, savedConversation.id);
-      target.restoreSnapshot(savedConversation.state, savedConversation.sessionId);
-    } else target.prepareResume(summary.id);
     this.registry.focus(key);
     target.setModePreference(this.registry.mode());
-    if (savedConversation?.sessionId || !savedConversation) await target.openSession();
-    const saved = this.savedPlans[summary.id];
-    if (saved?.current) target.restorePlan(saved);
+    const record = this.displayHistory.get(summary.id) ?? (summary.conversationId ? this.displayHistory.get(summary.conversationId) : undefined);
+    if (record && !record.sessionId) {
+      target.restoreSnapshot(record.state);
+      target.notify(this.locale === 'ja'
+        ? 'この履歴は表示専用です。バックエンドの会話は再開していません。'
+        : 'This history is display-only. The backend conversation was not resumed.');
+      this.postState();
+      return;
+    }
+    target.prepareResume(summary.id);
+    await target.openSession();
+    this.applyRestoredDisplay(target, record, summary.id);
     this.postState();
   }
 
@@ -1263,16 +1372,21 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
   }
 
   private async refreshSessions(): Promise<void> {
-    let sessions = mergeRegistrySessions(this.controller.snapshot().sessions, this.history.summaries());
     const selection = this.controller.snapshot().selection;
+    const previous = this.controller.snapshot().sessions;
+    let listed: SessionSummary[] | undefined;
     try {
-      const live = await this.controller.currentSession()?.listSessions?.();
-      for (const session of live ?? []) sessions = upsertSession(sessions, session);
+      const current = this.controller.currentSession();
+      listed = current?.listSessions
+        ? await current.listSessions()
+        : selection.cwd ? await this.probeSessions(selection) : [];
     } catch (error) {
       this.output.appendLine(errorMessage(error));
     }
-    this.controller.replaceSessions(sessions);
-    await this.context.workspaceState.update('ai-agents.sessionIndex', this.controller.snapshot().sessions);
+    const sessions = (listed ?? previous).map((session) => ({ ...session, backend: session.backend ?? 'cli' as const }));
+    const stored = this.displayHistory.summaries().filter((item) => item.provider === selection.provider && (!selection.cwd || item.cwd === selection.cwd));
+    const merged = mergeRegistrySessions(sessions, this.registry.liveSummaries());
+    this.controller.replaceSessions(stored.length ? mergeRegistrySessions(merged, stored) : merged);
   }
 
   async showDiagnostics(): Promise<void> {
