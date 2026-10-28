@@ -1,4 +1,4 @@
-import type { Dom } from './dom.js';
+import { isElement, type Dom } from './dom.js';
 import type { ViewChoice, ViewShell } from '../protocol.js';
 import type { Copy } from './strings.js';
 import type { Post } from './cards.js';
@@ -10,6 +10,8 @@ export class SettingsPanel {
   private readonly inspectorTitle: HTMLElement;
   private readonly inspectorBody: HTMLElement;
   private applying = false;
+  private signature = '';
+  private returnFocus: HTMLElement | null = null;
   private shell: ViewShell | null = null;
 
   constructor(private readonly dom: Dom, parent: HTMLElement, private readonly post: Post, private readonly onClose: () => void) {
@@ -26,8 +28,19 @@ export class SettingsPanel {
   }
 
   get hidden(): boolean { return this.element.hidden; }
-  open(): void { this.element.hidden = false; }
-  close(): void { this.element.hidden = true; }
+  open(): void {
+    if (this.element.hidden) {
+      const active = this.dom.document.activeElement;
+      this.returnFocus = isElement(active) ? active : null;
+    }
+    this.element.hidden = false;
+    this.body.querySelector<HTMLButtonElement>('button')?.focus();
+  }
+  close(): void {
+    this.element.hidden = true;
+    this.returnFocus?.focus();
+    this.returnFocus = null;
+  }
 
   showInspector(title: string, text: string): void {
     this.inspector.hidden = false;
@@ -38,6 +51,9 @@ export class SettingsPanel {
 
   render(shell: ViewShell, copy: Copy): void {
     this.shell = shell;
+    const signature = JSON.stringify([shell.locale, shell.busy, shell.backendChoices, shell.backend, shell.sandboxChoices, shell.sandbox, shell.showApproval, shell.approvalChoices, shell.approval, shell.showWebSearch, shell.webSearchChoices, shell.webSearch, shell.showNetwork, shell.network, shell.additionalDirectories, shell.autoApprove]);
+    if (signature === this.signature) return;
+    this.signature = signature;
     this.applying = true;
     this.body.replaceChildren();
     const bar = this.dom.el('div', 'panel-bar');
@@ -46,9 +62,10 @@ export class SettingsPanel {
     close.addEventListener('click', () => this.onClose());
     bar.append(close);
     this.body.append(bar);
+    this.body.append(this.dom.el('h3', 'section-label', copy.executionSettings));
     this.body.append(this.select(copy.backend, 'backend', shell.backendChoices, shell.backend));
     this.body.append(this.select(copy.access, 'sandbox', shell.sandboxChoices, shell.sandbox));
-    if (shell.showApproval) this.body.append(this.select(copy.access, 'approval', shell.approvalChoices, shell.approval));
+    if (shell.showApproval) this.body.append(this.select(copy.approvalPolicy, 'approval', shell.approvalChoices, shell.approval));
     if (shell.showWebSearch) this.body.append(this.select(copy.webSearch, 'webSearch', shell.webSearchChoices, shell.webSearch));
     if (shell.showNetwork) this.body.append(this.check(copy.network, shell.network));
     if (shell.additionalDirectories.length) {
@@ -70,11 +87,12 @@ export class SettingsPanel {
     this.body.append(auto);
     this.body.append(this.dom.el('p', 'menu-note', copy.sandboxNote));
     const tools = this.dom.el('div', 'tool-row');
+    tools.setAttribute('aria-label', copy.accountTools);
     for (const [label, type] of [
       [copy.signIn, 'login'], [copy.apiKey, 'apiKey'], [copy.diagnose, 'diagnose'],
       [copy.usage, 'usage'], [copy.rules, 'instructions'], [copy.logs, 'logs'], [copy.vscodeSettings, 'settings'],
     ] as const) {
-      const button = this.dom.button('secondary', label);
+      const button = this.dom.button('ghost', label);
       button.addEventListener('click', () => this.post({ type }));
       tools.append(button);
     }

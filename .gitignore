@@ -18,6 +18,7 @@ npm-debug.log*
 
 # 検証用アーティファクト（ローカル保存のみ。リポジトリには含めない）
 **/docs/screenshots/
+**/docs/ui-redesign-images/
 **/docs/evidence/
 extensions/ai-agents/test/fixtures/real/
 extensions/ai-agents/.local/

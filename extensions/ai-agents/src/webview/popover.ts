@@ -114,11 +114,12 @@ export class Menu {
     const view = this.dom.document.defaultView;
     const width = view?.innerWidth ?? 800;
     const height = view?.innerHeight ?? 600;
-    this.element.style.left = `${Math.max(8, Math.min(rect.left, width - 220))}px`;
+    this.element.style.left = '0px';
     this.element.style.right = 'auto';
     this.element.style.bottom = 'auto';
     this.element.style.top = `${rect.bottom + 6}px`;
     const box = this.element.getBoundingClientRect();
+    this.element.style.left = `${Math.max(8, Math.min(rect.left, width - (box.width || 220) - 8))}px`;
     if (box.bottom > height - 8) {
       this.element.style.top = 'auto';
       this.element.style.bottom = `${height - rect.top + 6}px`;

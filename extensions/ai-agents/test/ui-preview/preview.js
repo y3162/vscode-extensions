@@ -2,15 +2,16 @@ const params = new URLSearchParams(location.search);
 const scene = params.get('scene') || 'chat';
 const locale = params.get('lang') === 'en' ? 'en' : 'ja';
 document.documentElement.lang = locale === 'ja' ? 'ja' : 'en';
-if (params.get('theme') === 'light') document.body.classList.add('light');
+if (params.get('theme') === 'light') document.body.classList.add('light', 'vscode-light');
 if (params.get('theme') === 'hc') document.body.classList.add('hc', 'vscode-high-contrast');
 
 function shell(extra) {
   const ja = locale === 'ja';
   return {
+    conversationId: 'preview', planView: null, timings: [], subagents: [], terminals: [], subagentWaiting: null,
     provider: 'codex', providerLabel: 'Codex · SDK', cwd: '/workspace', busy: false, presence: 'idle',
-    statusText: ja ? '準備完了' : 'Ready', sessionTitle: ja ? 'PRの修正' : 'Fix the PR',
-    modelLabel: 'Grok 4.7', effortLabel: 'Extra High', modelSettings: 'new-session', accessLabel: 'Workspace write', risky: false, banner: null,
+    statusText: ja ? '準備完了' : 'Ready', sessionTitle: ja ? '認証フローと長いセッションタイトルの表示を確認する' : 'Review authentication flow and long session title',
+    modelLabel: 'GPT-6.1 Sol Long Context', effortLabel: 'Extra High', modelSettings: 'new-session', accessLabel: 'Workspace write', risky: false, banner: null,
     backendLabel: 'SDK', folderName: 'vscode-extensions',
     folders: [{ name: 'vscode-extensions', path: '/workspace' }],
     modes: [{ id: 'agent', label: 'Agent' }, { id: 'plan', label: 'Plan' }, { id: 'ask', label: 'Ask' }], mode: 'agent', showMode: true,
@@ -30,6 +31,7 @@ function shell(extra) {
     providers: [{ id: 'codex', label: 'Codex', detail: 'SDK' }, { id: 'cursor', label: 'Cursor', detail: 'SDK' }],
     sessionId: 'pr',
     ...extra,
+    ...(params.get('stress') === '1' ? { modelLabel: 'GPT-6.1 Sol Long Context Research Preview Extended', sessionTitle: ja ? '日本語の長いセッションタイトルと認証処理の実装を確認するための会話' : 'An exceptionally long authentication implementation and review session title' } : {}),
   };
 }
 
@@ -41,7 +43,7 @@ function homeSessions() {
   return titles.map((title, index) => ({
     id: ['overview', 'pr', 'tests', 'opencv'][index],
     title,
-    updatedAt: new Date(Date.now() - index * 86400_000).toISOString(),
+    updatedAt: new Date(Date.parse('2026-10-28T06:00:00Z') - index * 86400_000).toISOString(),
     provider: 'codex',
     cwd: '/workspace',
   }));
@@ -52,7 +54,7 @@ const answer = locale === 'ja'
   : 'Updated the README heading and the setup steps.\n\n## Changes\n\n- Collapsed the install steps into one sentence\n- Matched the model-selection description to the current UI\n\n```ts\nexport const version = "0.5.0";\n```\n\nSee `README.md` for the rest.';
 
 function messages(running) {
-  const now = Date.now();
+  const now = Date.parse('2026-10-28T06:00:00Z');
   return [
     { id: 'u', role: 'user', text: locale === 'ja' ? 'READMEの誤字を直して' : 'Fix the typos in the README', at: now - 65_000, attachments: ['README.md'] },
     { id: 't1', role: 'tool', text: 'completed: Read README.md', at: now - 60_000, tool: { kind: 'read', name: 'Read', status: 'completed', target: 'README.md' } },
@@ -62,6 +64,7 @@ function messages(running) {
 }
 
 const scenes = {
+  'empty-home': () => state(shell({ sessions: [], changes: [], additions: 0, deletions: 0, sessionId: undefined }), []),
   home: () => state(shell({ changes: [], additions: 0, deletions: 0 }), []),
   empty: () => state(shell({ sessions: [], sessionTitle: locale === 'ja' ? '新しいチャット' : 'New chat', changes: [], additions: 0, deletions: 0, sessionId: undefined }), []),
   fresh: () => state(shell({ sessionTitle: locale === 'ja' ? '新しいチャット' : 'New chat', changes: [], additions: 0, deletions: 0, sessionId: undefined }), []),
@@ -80,11 +83,37 @@ const scenes = {
   settings: () => state(shell({ showApproval: true, approvalChoices: [{ id: 'never', label: 'Never' }, { id: 'on-request', label: 'On request' }], approval: 'on-request', providerLabel: 'Codex · App Server', backend: 'app-server', backendLabel: 'App Server' }), messages(false)),
 };
 
+const ja = locale === 'ja';
+const planView = { id: 'plan', revision: 2, phase: 'ready', name: ja ? '認証テストの修正' : 'Fix authentication tests', overview: ja ? '失敗を再現し、修正後に関連テストを確認します。' : 'Reproduce the failure, fix it, and verify related tests.', markdown: '## Authentication\n\n1. Reproduce the failure\n2. Fix the tests\n3. Verify results', todos: [{ content: ja ? '失敗を再現する' : 'Reproduce the failure', status: 'completed' }, { content: ja ? '認証テストを修正する' : 'Fix authentication tests', status: 'pending' }], files: ['src/auth.test.ts'], source: 'native', buildModelId: 'gpt-sol', buildModelLabel: 'GPT-6.1 Sol Long Context · Extra High', buildParams: [], showBuildModel: true, canBuild: true, history: [] };
+const planningMessages = [{ id: 'u-plan', role: 'user', text: ja ? '認証テストを修正する計画を作って' : 'Plan the authentication test fix', at: 1793167200000 }, { id: 'a-plan', role: 'assistant', text: ja ? '修正の計画をまとめました。内容を確認してから Build を開始できます。' : 'The plan is ready. Review it before starting the build.', at: 1793167260000, final: true }];
+const child = { id: 'child', name: ja ? '認証フローのレビュー' : 'Authentication review', task: ja ? '認証コードとテストの整合性を確認する' : 'Check authentication code and test consistency', status: 'running', background: true, startedAt: 1793167200000, progress: ja ? '関連テストを確認中' : 'Reviewing related tests', model: 'GPT-6.1 Sol' };
+const usage = { inputTokens: 18000, outputTokens: 2600, totalTokens: 20600, cachedInputTokens: 12000, contextTokens: 20600, contextWindow: 128000 };
+Object.assign(scenes, {
+  plan: () => state(shell({ mode: 'plan', planView }), planningMessages),
+  'plan-expanded': () => state(shell({ mode: 'plan', planView }), planningMessages),
+  build: () => state(shell({ mode: 'agent', busy: true, presence: 'running', statusText: ja ? 'Build 実行中' : 'Building', planView: { ...planView, phase: 'building', canBuild: false } }), messages(true)),
+  error: () => state(shell({ presence: 'error', statusText: ja ? '実行に失敗しました' : 'Run failed' }), [...messages(true), { id: 'e', role: 'error', text: ja ? 'テストの実行に失敗しました。作業フォルダーと依存関係を確認してください。' : 'Tests could not run. Check the workspace and dependencies.', at: 1793167260000 }]),
+  subagent: () => state(shell({ busy: true, presence: 'running', subagents: [child, { ...child, id: 'done', name: 'Review tests', status: 'completed', durationMs: 8000 }], subagentWaiting: { startedAt: 1793167200000, count: 2 } }), messages(true)),
+  'subagent-detail': () => state(shell({ busy: true, presence: 'running', subagents: [child] }), messages(true)),
+  terminal: () => state(shell({ busy: true, presence: 'running', terminals: [{ processId: 'p1', command: 'npm run watch -- --project extensions/ai-agents/tsconfig.webview.json', status: 'running', output: 'Watching for changes…\nBuild completed successfully.' }] }), messages(true)),
+  model: () => state(shell({ changes: [] }), messages(false)),
+  'model-list': () => state(shell({ changes: [] }), messages(false)),
+  mode: () => state(shell({ changes: [] }), messages(false)),
+  question: () => state(shell({ busy: true, presence: 'waiting', statusText: ja ? '回答待ち' : 'Waiting for answers', question: { token: 'q-token', request: { id: 'q1', title: ja ? '実装方針を確認' : 'Confirm implementation', questions: [{ id: 'q', prompt: ja ? 'どのテストを優先しますか？' : 'Which tests should run first?', options: [{ id: 'unit', label: ja ? '単体テスト' : 'Unit tests' }, { id: 'integration', label: ja ? '統合テスト' : 'Integration tests' }], allowMultiple: false }, { id: 'note', prompt: ja ? '補足事項' : 'Additional context', options: [] }] } } }), messages(true)),
+  usage: () => state(shell({ usage, timings: [{ id: 'u', startedAt: 1793167200000, endedAt: 1793167260000, waitMs: 0, status: 'completed', intent: 'agent', usage }] }), messages(false)),
+  queue: () => state(shell({ busy: true, presence: 'running', steer: true, queue: [{ id: 'queued', text: ja ? '続いて関連するドキュメントも確認してください' : 'Next, review the related documentation', images: 0 }] }), messages(true)),
+  changes: () => state(shell({ changes: Array.from({ length: 8 }, (_, i) => ({ path: `/workspace/src/long/path/authentication-${i}.test.ts`, name: `authentication-${i}.test.ts`, kind: 'update', additions: 12, deletions: 3, canDiff: true, canRevert: i !== 0, synthetic: false })), additions: 96, deletions: 24 }), messages(false)),
+});
+
 function state(current, items) {
   return { type: 'state', revision: 1, full: true, shell: current, messages: { removed: [], upserts: items, order: items.map((item) => item.id) } };
 }
 
-const chatScenes = new Set(['chat', 'fresh', 'running', 'approval', 'banner', 'composer', 'settings']);
+const chatScenes = new Set(Object.keys(scenes).filter((key) => !['home', 'history', 'empty-home'].includes(key)));
+window.previewPosts = [];
+window.previewState = null;
+window.previewSetState = (next) => { window.previewState = next; window.dispatchEvent(new MessageEvent('message', { data: next })); };
+window.previewReady = false;
 const frameWidth = Number(params.get('width') || 0);
 const frameHeight = Number(params.get('height') || 0);
 const frame = document.getElementById('app');
@@ -96,27 +125,38 @@ if (frame && frameWidth) {
 
 window.acquireVsCodeApi = () => ({
   postMessage(message) {
+    window.previewPosts.push(message);
     if (message.type === 'loadModelCatalog') {
       window.dispatchEvent(new MessageEvent('message', {
         data: {
           type: 'modelCatalog', requestId: message.requestId, provider: 'codex', cwd: '/workspace', status: 'ready',
-          selectedModelId: 'grok-4.7', selectedParams: [{ id: 'modelReasoningEffort', value: 'xhigh' }],
+          selectedModelId: 'gpt-sol', selectedParams: [{ id: 'modelReasoningEffort', value: 'xhigh' }],
           models: [
-            { id: 'grok-4.7', label: 'Grok 4.7', parameters: [
+            { id: 'gpt-sol', label: params.get('stress') === '1' ? 'GPT-6.1 Sol Long Context Research Preview Extended' : 'GPT-6.1 Sol Long Context', parameters: [
               { id: 'fast', label: 'Fast', role: 'fast', presentation: 'toggle', values: [{ value: 'false', label: 'Off' }, { value: 'true', label: 'On' }] },
               { id: 'context', label: 'Context', role: 'context', presentation: 'menu', values: [{ value: '256k', label: '256K' }, { value: '500k', label: '500K' }] },
               { id: 'modelReasoningEffort', label: 'Effort', role: 'effort', presentation: 'menu', defaultValue: 'high', values: [
                 { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }, { value: 'xhigh', label: 'Extra High' },
               ] },
             ] },
-            { id: 'gpt', label: 'GPT-6.1 Sol', parameters: [] },
+            { id: 'composer', label: 'Composer 2.5', parameters: [] },
           ],
         },
       }));
       return;
     }
     if (message.type !== 'ready') return;
-    window.dispatchEvent(new MessageEvent('message', { data: scenes[scene]?.() || scenes.home() }));
+    window.previewSetState(scenes[scene]?.() || scenes.home());
+    requestAnimationFrame(() => {
+      if (scene === 'model' || scene === 'model-list') document.querySelector('.model-name')?.click();
+      if (scene === 'model-list') document.querySelector('.model-menu [data-id="model"]')?.click();
+      if (scene === 'mode') document.querySelector('.mode')?.click();
+      if (scene === 'usage') document.querySelector('.usage-panel').open = true;
+      if (scene === 'changes') document.querySelector('.change-toggle')?.click();
+      if (scene === 'plan-expanded') document.querySelector('.plan-view-toggle')?.click();
+      if (scene === 'subagent-detail') document.querySelector('.subagent-panel-open')?.click();
+      window.previewReady = true;
+    });
     if (scene === 'settings') {
       window.dispatchEvent(new MessageEvent('message', { data: { type: 'navigate', panel: 'settings' } }));
     }

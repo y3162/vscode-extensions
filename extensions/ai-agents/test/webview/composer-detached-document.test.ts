@@ -51,7 +51,7 @@ test('composer remains usable without a document window or animation timer', () 
   input.selectionStart = input.value.length;
   const event = new sourceWindow.Event('input', { bubbles: true });
   input.dispatchEvent(event);
-  assert.equal(input.style.height, '320px');
+  assert.equal(input.style.height, '240px');
   assert.equal(host.querySelector('.suggest')?.hasAttribute('hidden'), true);
   assert.equal(posted(sent, 'suggest'), undefined);
   sourceWindow.happyDOM.abort();

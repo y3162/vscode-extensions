@@ -99,7 +99,7 @@ test('the composer attaches, suggests, inserts, and refuses empty or cross-talk 
   globalThis.FileReader = window.FileReader;
   file.files = list.files;
   file.dispatchEvent(new window.Event('change', { bubbles: true }));
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  await window.happyDOM.waitUntilComplete();
   assert.equal(document.querySelectorAll('.thumb').length, 4);
   assert.match(document.querySelector('.thumb')?.getAttribute('src') ?? '', /^data:image\/png/);
   const paste = new window.ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: new window.DataTransfer() });

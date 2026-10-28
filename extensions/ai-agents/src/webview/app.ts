@@ -60,7 +60,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   const usageDetail = dom.el('pre');
   usagePanel.append(usageSummary, usageDetail);
   const subagentSlot = dom.el('div', 'subagent-slot');
-  dock.append(usagePanel);
+
   const alert = dom.el('p', 'host-error');
   alert.hidden = true;
   alert.setAttribute('role', 'alert');
@@ -99,9 +99,10 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
       onSelect: () => post({ type: 'openTerminal', processId: terminal.processId }),
     })));
   });
-  const history = new HistoryPanel(dom, stage, (id) => openSession(id));
+  const history = new HistoryPanel(dom, stage, (id) => openSession(id), () => { post({ type: 'newChat' }); show('chat'); });
   const settings = new SettingsPanel(dom, stage, post, () => { settings.close(); paint(); });
   const composer = new Composer(dom, dock, post, menu, (panel) => show(panel), subagentSlot);
+  dock.append(usagePanel);
   const subagentPanel = new SubagentPanel(dom, subagentSlot, (id) => { selectedSubagentId = id; paint(); }, (expanded) => {
     subagentsExpanded = expanded;
     save();

@@ -70,3 +70,33 @@ body.hc {
   --vscode-button-foreground: #ffffff;
   --vscode-editorWidget-background: #000000;
 }
+:root {
+  --vscode-input-placeholderForeground: #9d9d9d;
+  --vscode-widget-border: #454545;
+  --vscode-gitDecoration-addedResourceForeground: #89d185;
+  --vscode-gitDecoration-deletedResourceForeground: #f48771;
+  --vscode-testing-iconPassed: #89d185;
+}
+body.light {
+  --vscode-input-placeholderForeground: #616161;
+  --vscode-widget-border: #cecece;
+  --vscode-gitDecoration-addedResourceForeground: #28703c;
+  --vscode-gitDecoration-deletedResourceForeground: #b01c1c;
+  --vscode-testing-iconPassed: #28703c;
+  --vscode-errorForeground: #b01c1c;
+  --vscode-textLink-foreground: #006ab1;
+  --vscode-list-activeSelectionBackground: #0060c0;
+  --vscode-list-inactiveSelectionBackground: #e4e6f1;
+}
+body.hc {
+  --vscode-input-placeholderForeground: #ffffff;
+  --vscode-input-foreground: #ffffff;
+  --vscode-input-border: #ffffff;
+  --vscode-editor-background: #000000;
+  --vscode-widget-border: #ffffff;
+}
+body.light {
+  --vscode-symbolIcon-keywordForeground: #0000aa;
+  --vscode-debugTokenExpression-string: #a31515;
+  --vscode-debugTokenExpression-number: #126b4b;
+}

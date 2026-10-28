@@ -20,7 +20,8 @@
     "test:live": "npm run test:live --workspace ai-agents",
     "test:tools": "npm run test:tools --workspace ai-agents",
     "test:runtime": "npm run test:runtime --workspace ai-agents",
-    "package": "npm run package --workspace ai-agents"
+    "package": "npm run package --workspace ai-agents",
+    "test:ui": "npm run test:ui --workspace ai-agents"
   },
   "devDependencies": {
     "@happy-dom/global-registrator": "^21.0.1",

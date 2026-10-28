@@ -186,7 +186,7 @@ test('thought logs nest under Worked for and summarize brief or timed thoughts',
   }
 });
 
-test('file changes appear inline in the work log and keep the changed file visible after completion', () => {
+test('completed work keeps file changes available in an expandable log', () => {
   const { window, sent, emit } = mount();
   emit(shell(), [
     { id: 'user', role: 'user', text: 'Update README', at: 1 },
@@ -195,6 +195,8 @@ test('file changes appear inline in the work log and keep the changed file visib
   ]);
 
   const log = window.document.querySelector<HTMLElement>('.turn .log')!;
+  assert.equal(log.hidden, true);
+  click(window.document.querySelector('.log-toggle')!);
   assert.equal(log.hidden, false);
   const badge = log.querySelector<HTMLElement>('.file-header .file-badge');
   assert.equal(badge?.textContent, 'MD');

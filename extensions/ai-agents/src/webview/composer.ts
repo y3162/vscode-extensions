@@ -39,6 +39,9 @@ export class Composer {
   private readonly stop: HTMLButtonElement;
   private readonly env: HTMLButtonElement;
   private readonly modelMenu: ModelMenu;
+  private readonly access: HTMLButtonElement;
+  private changesExpanded = false;
+  private changesSignature = '';
   private shell: ViewShell | null = null;
   private copy: Copy | null = null;
   private catalog: ModelCatalogMessage | null = null;
@@ -118,7 +121,13 @@ export class Composer {
     file.multiple = true;
     file.hidden = true;
     file.addEventListener('change', () => { this.addImages(file.files); file.value = ''; });
-    parent.append(this.banner, this.changes, ...(subagentSlot ? [subagentSlot] : []), form, this.env, file);
+    const activity = dom.el('div', 'dock-activity');
+    activity.append(this.changes, ...(subagentSlot ? [subagentSlot] : []));
+    const footer = dom.el('div', 'composer-footer');
+    this.access = dom.button('pill access-label', 'Access');
+    this.access.addEventListener('click', () => this.onNavigate('settings'));
+    footer.append(this.env, this.access);
+    parent.append(this.banner, activity, form, footer, file);
     this.modelMenu = new ModelMenu(dom, menu.element.parentElement ?? parent);
     this.fileInput = file;
     form.addEventListener('submit', (event) => event.preventDefault());
@@ -279,7 +288,11 @@ export class Composer {
     this.env.querySelector('.btn-label')!.textContent = envText;
     this.env.title = envText;
     this.env.setAttribute('aria-label', envText);
-    this.env.hidden = shell.folders.length <= 1;
+    this.env.hidden = false;
+    this.access.querySelector('.btn-label')!.textContent = shell.accessLabel;
+    this.access.title = `${copy.access}: ${shell.accessLabel}`;
+    this.access.setAttribute('aria-label', `${copy.access}: ${shell.accessLabel}`);
+    this.access.classList.toggle('risky', shell.risky);
     this.renderBanner(shell, copy);
     this.renderChanges(shell, copy);
     this.renderQueue(shell, copy);
@@ -307,6 +320,9 @@ export class Composer {
   }
 
   private renderChanges(shell: ViewShell, copy: Copy): void {
+    const signature = JSON.stringify([shell.conversationId, shell.sessionId, shell.provider, shell.cwd, shell.locale, shell.changes, shell.terminals, shell.terminalError, shell.additions, shell.deletions]);
+    if (signature === this.changesSignature) return;
+    this.changesSignature = signature;
     const count = shell.changes.length;
     const terminals = shell.terminals ?? [];
     this.changes.hidden = !count && !terminals.length && !shell.terminalError;
@@ -315,12 +331,22 @@ export class Composer {
     if (count) {
       const head = this.dom.el('div', 'change-head');
       const stats = `${shell.additions || shell.deletions ? ` +${shell.additions} −${shell.deletions}` : ''}`;
-      head.append(this.dom.el('span', undefined, `${count} ${copy.files}${stats}`));
+      const toggle = this.dom.button('ghost change-toggle', `${count} ${copy.files}${stats}`, this.changesExpanded ? 'chevron-down' : 'chevron-right');
+      toggle.setAttribute('aria-expanded', String(this.changesExpanded));
+      const items = this.dom.el('div', 'change-items');
+      items.hidden = !this.changesExpanded;
+      toggle.addEventListener('click', () => {
+        this.changesExpanded = !this.changesExpanded;
+        items.hidden = !this.changesExpanded;
+        toggle.setAttribute('aria-expanded', String(this.changesExpanded));
+        toggle.querySelector('.codicon')!.className = `codicon codicon-chevron-${this.changesExpanded ? 'down' : 'right'}`;
+      });
+      head.append(toggle);
       const review = this.dom.button('ghost', copy.review);
       review.addEventListener('click', () => this.post({ type: 'reviewChanges' }));
       head.append(review);
-      this.changes.append(head);
-      for (const change of shell.changes) this.changes.append(this.changeRow(change, copy));
+      this.changes.append(head, items);
+      for (const change of shell.changes) items.append(this.changeRow(change, copy));
     }
     if (terminals.length) {
       const list = this.dom.el('div', 'terminals');
@@ -344,6 +370,8 @@ export class Composer {
         open.addEventListener('click', () => this.post({ type: 'openTerminal', processId: terminal.processId }));
         row.append(open);
         const stop = this.dom.button('ghost tiny terminal-stop', copy.terminate);
+        stop.setAttribute('aria-label', `${copy.terminate}: ${terminal.command || terminal.processId}`);
+        stop.title = `${copy.terminate}: ${terminal.command || terminal.processId}`;
         stop.disabled = Boolean(terminal.status && /complete|cancel|fail|abort|exit/.test(terminal.status));
         stop.addEventListener('click', () => this.post({ type: 'terminateTerminal', processId: terminal.processId }));
         row.append(stop);
@@ -361,6 +389,8 @@ export class Composer {
     row.append(fileIcon(this.dom, change));
     const open = this.dom.el('button', 'file-link', change.name);
     open.type = 'button';
+    open.title = change.path;
+    open.setAttribute('aria-label', `${change.canDiff ? copy.diff : copy.open}: ${change.path}`);
     open.addEventListener('click', () => this.post({ type: change.canDiff ? 'openDiff' : 'openFile', path: change.path }));
     const counts = this.dom.el('span', 'stats');
     if (change.additions !== undefined) counts.append(this.dom.el('span', 'add', `+${change.additions}`));
@@ -368,6 +398,8 @@ export class Composer {
     row.append(open, counts);
     if (change.canRevert) {
       const revert = this.dom.button('ghost tiny', copy.revert);
+      revert.setAttribute('aria-label', `${copy.revert}: ${change.path}`);
+      revert.title = `${copy.revert}: ${change.path}`;
       revert.addEventListener('click', () => this.post({ type: 'revertFile', path: change.path }));
       row.append(revert);
     }
@@ -531,7 +563,7 @@ export class Composer {
 
   private resize(): void {
     const view = this.dom.document.defaultView;
-    const max = Math.max(80, (view?.innerHeight ?? 800) * 0.4);
+    const max = Math.max(80, (view?.innerHeight ?? 800) * 0.3);
     this.input.style.height = 'auto';
     this.input.style.height = `${Math.min(this.input.scrollHeight, max)}px`;
     this.updateSendState();

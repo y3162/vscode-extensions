@@ -67,7 +67,8 @@ export class Transcript {
   render(messages: readonly ViewMessage[], shell: ViewShell, copy: Copy, planExpanded = false): void {
     this.shell = shell;
     this.labels = copy;
-    if (!this.planHost.parentElement) this.root.append(this.planHost, this.pending);
+    if (!this.planHost.parentElement) this.root.append(this.planHost);
+    if (this.pending.parentElement !== this.root) this.root.append(this.pending);
     const pending = Boolean(shell.permission || shell.plan || shell.question);
     this.turns = buildTurns(messages, shell.busy, pending, shell.timings ?? []);
     const ids = new Set(this.turns.map((turn) => turn.id));
@@ -81,6 +82,7 @@ export class Transcript {
     renderPending(this.pending, shell, this.dom, copy, this.post);
     if (shell.plan) renderPlanBody(this.pending, (parent, text) => renderMarkdown(parent, text, this.dom, copy.copy), shell.plan.request.overview, shell.plan.request.plan);
     renderPlanView(this.planHost, shell, this.dom, copy, this.post, this.onPickModel, planExpanded, this.onTogglePlan);
+    this.root.insertBefore(this.planHost, this.pending);
     const wait = shell.subagentWaiting;
     this.subagentWait.hidden = !wait;
     if (wait) this.subagentWait.textContent = wait.count !== undefined && wait.count > 1 ? copy.waitingSubagents : copy.waitingSubagent;
@@ -99,7 +101,7 @@ export class Transcript {
     if (!article) {
       article = this.dom.el('article', 'turn');
       article.dataset.id = turn.id;
-      article.append(this.dom.el('div', 'turn-usage'), this.dom.el('div', 'user-row'), this.logButton(copy), this.dom.el('div', 'log'), this.answerShell(copy), this.dom.el('div', 'errors'));
+      article.append(this.dom.el('div', 'user-row'), this.logButton(copy), this.dom.el('div', 'log'), this.answerShell(copy), this.dom.el('div', 'errors'), this.dom.el('div', 'turn-usage'));
       this.nodes.set(turn.id, article);
       this.root.insertBefore(article, this.pending);
     }
@@ -115,8 +117,9 @@ export class Transcript {
     const hasLog = turn.log.length > 0;
     if (isButton(toggle)) {
       toggle.hidden = !hasLog;
+      toggle.classList.toggle('is-active', !turn.done);
       toggle.dataset.turn = turn.id;
-      const summary = workSummary(turn, locale, copy);
+      const summary = !turn.done && this.shell?.presence === 'waiting' ? this.shell.statusText : workSummary(turn, locale, copy);
       toggle.querySelector('.btn-label')!.textContent = summary;
       toggle.setAttribute('aria-label', summary);
       const open = this.logOpen(turn);
@@ -124,7 +127,7 @@ export class Transcript {
       if (isElement(log)) {
         log.hidden = !open || !hasLog;
         const previous = this.logSig.get(log);
-        if (open && !sameSegments(previous, turn.log)) {
+        if (!sameSegments(previous, turn.log)) {
           this.logSig.set(log, turn.log);
           this.fillLog(log, turn.log, copy, !turn.done);
         }
@@ -481,9 +484,7 @@ export class Transcript {
   private logOpen(turn: TurnModel): boolean {
     if (this.openLogs.has(turn.id)) return true;
     if (this.closedLogs.has(turn.id)) return false;
-    const hasFiles = turn.log.some((segment) => segment.type === 'files');
-    const hasShell = turn.log.some((segment) => segment.type === 'tools' && segment.tools.some((tool) => tool.kind === 'shell'));
-    return !turn.done || hasFiles || hasShell;
+    return !turn.done;
   }
 
   private onClick(event: Event): void {
@@ -495,7 +496,7 @@ export class Transcript {
     if (action === 'toggle-log' && button.dataset.turn) {
       const id = button.dataset.turn;
       const turn = this.turns.find((item) => item.id === id);
-      const closing = this.openLogs.has(id) || (!this.closedLogs.has(id) && turn && !turn.done);
+      const closing = turn ? this.logOpen(turn) : this.openLogs.has(id);
       if (closing) {
         this.openLogs.delete(id);
         this.closedLogs.add(id);
@@ -678,7 +679,7 @@ function fileLanguage(name: string): string {
 function workSummary(turn: TurnModel, locale: Locale, copy: Copy): string {
   if (turn.status === 'unknown') return copy.turnUnknown;
   const running = turn.log.flatMap((segment) => segment.type === 'tools' ? segment.tools : []).find((tool) => tool.status === 'running');
-  if (!turn.done) return running ? `${running.name}…` : copy.working;
+  if (!turn.done) return running ? `${copy.working} · ${running.target || running.name}` : copy.working;
   const elapsed = turn.startedAt !== undefined && turn.endedAt !== undefined
     ? Math.max(0, turn.endedAt - turn.startedAt - (turn.waitMs ?? 0)) : 0;
   return elapsed > 0 ? `${copy.worked} ${formatDuration(elapsed)}` : copy.worked;

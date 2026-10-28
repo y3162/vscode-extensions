@@ -275,7 +275,8 @@
     "test:tools": "AI_AGENTS_LIVE_TOOLS=1 tsx --test test/live/tools.test.ts",
     "test:runtime": "AI_AGENTS_LIVE_RUNTIME=1 tsx --test test/live/runtime.test.ts",
     "test:runtime:terminal": "AI_AGENTS_LIVE_TERMINAL_TEST=1 tsx --test --test-name-pattern=Background\\ Terminal test/live/runtime.test.ts",
-    "package": "npm run build && node scripts/package.mjs"
+    "package": "npm run build && node scripts/package.mjs",
+    "test:ui": "npm run build && node scripts/capture-ui.mjs"
   },
   "dependencies": {
     "@cursor/sdk": "1.0.37",

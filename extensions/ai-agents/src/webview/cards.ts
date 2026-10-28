@@ -22,12 +22,12 @@ export function renderPending(host: HTMLElement, shell: ViewShell, dom: Dom, cop
   if (shell.permission) {
     const { request, token } = shell.permission;
     card.append(dom.el('h3', undefined, request.title));
-    card.append(dom.el('p', 'card-kind', request.kind));
+    card.append(dom.el('p', 'card-kind', `${copy.approvalRequired} · ${request.kind}`));
     const detail = dom.el('pre', undefined, request.detail);
     card.append(detail);
     const actions = dom.el('div', 'card-actions');
     for (const [label, decision] of [[copy.allow, 'allow-once'], [copy.allowSession, 'allow-session'], [copy.deny, 'deny']] as const) {
-      const button = dom.button('secondary', label);
+      const button = dom.button(decision === 'allow-once' ? 'primary' : 'secondary', label);
       button.addEventListener('click', () => post({ type: 'resolvePermission', id: request.id, decision, token }));
       actions.append(button);
     }
@@ -38,13 +38,14 @@ export function renderPending(host: HTMLElement, shell: ViewShell, dom: Dom, cop
     const body = dom.el('div', 'md');
     card.append(body);
     const actions = dom.el('div', 'card-actions');
-    const approve = dom.button('', copy.approve);
+    const approve = dom.button('primary', copy.approve);
     const reject = dom.button('secondary', copy.reject);
     approve.addEventListener('click', () => post({ type: 'resolvePlan', id: request.id, decision: 'accepted', token }));
     reject.addEventListener('click', () => post({ type: 'resolvePlan', id: request.id, decision: 'rejected', token }));
     actions.append(approve, reject);
     card.append(actions);
     host.append(card);
+    card.focus();
     return;
   } else if (shell.question) {
     const { request, token } = shell.question;
@@ -56,6 +57,7 @@ export function renderPending(host: HTMLElement, shell: ViewShell, dom: Dom, cop
         const input = dom.el('input');
         input.type = 'text';
         input.name = question.id;
+        input.setAttribute('aria-label', question.prompt);
         field.append(input);
       }
       for (const option of question.options) {
@@ -69,7 +71,7 @@ export function renderPending(host: HTMLElement, shell: ViewShell, dom: Dom, cop
       }
       card.append(field);
     }
-    const submit = dom.button('', copy.submit);
+    const submit = dom.button('primary', copy.submit);
     submit.addEventListener('click', () => post({ type: 'resolveQuestion', id: request.id, token, answers: answersFrom(card) }));
     card.append(submit);
   }

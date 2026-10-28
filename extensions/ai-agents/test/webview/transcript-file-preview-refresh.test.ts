@@ -60,6 +60,6 @@ test('transcript replaces a same-size changed file preview and labels a running 
     { id: 'user-2', role: 'user', text: 'run' },
     { id: 'running-tool', role: 'tool', text: 'running', turnId: 'user-2', tool: { name: 'Search', kind: 'search', status: 'running' } },
   ], shell({ busy: true }), strings('en'));
-  assert.equal(root.querySelector('.log-toggle .btn-label')?.textContent, 'Search…');
+  assert.equal(root.querySelector('.log-toggle .btn-label')?.textContent, 'Working… · Search');
   window.happyDOM.abort();
 });

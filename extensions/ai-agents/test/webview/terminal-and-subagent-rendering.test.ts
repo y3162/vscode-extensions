@@ -106,6 +106,8 @@ test('shell executions use a command card with expandable output', () => {
   ]);
 
   const log = window.document.querySelector<HTMLElement>('.turn .log')!;
+  assert.equal(log.hidden, true);
+  click(window.document.querySelector('.log-toggle')!);
   assert.equal(log.hidden, false);
   assert.match(log.querySelector('.progress-note')?.textContent ?? '', /Executing sleep 1s\./);
   let card = log.querySelector<HTMLElement>('.shell-tool')!;
