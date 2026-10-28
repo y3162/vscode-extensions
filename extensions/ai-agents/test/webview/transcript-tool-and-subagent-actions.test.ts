@@ -106,9 +106,9 @@ test('tool rows, subagents, and edits post the matching command or nothing', () 
   click([...document.querySelectorAll('[data-action="toggle-tool"]')].find((node) => node.textContent?.includes('Search'))!);
   click(document.querySelector('[data-action="more"]')!);
   assert.match(document.querySelector('.tool-row-item pre')?.textContent ?? '', /line 40/);
-  assert.match(document.body.textContent ?? '', /Run npm/);
-  assert.match(document.body.textContent ?? '', /Run echo/);
-  assert.match(document.body.textContent ?? '', /Run command/);
+  assert.match(document.body.textContent ?? '', /実行 npm/);
+  assert.match(document.body.textContent ?? '', /実行 echo/);
+  assert.match(document.body.textContent ?? '', /コマンドを実行/);
   assert.match(document.querySelector('.subagents')?.textContent ?? '', /バックグラウンド/);
   assert.match(document.querySelector('.subagents')?.textContent ?? '', /gpt/);
   assert.match(document.querySelector('.thinking summary')?.textContent ?? '', /思考/);

@@ -32,13 +32,14 @@ export function renderPlanView(
   if (host.dataset.signature === signature && host.childElementCount) return;
   host.dataset.signature = signature;
   host.replaceChildren();
-  const card = dom.el('section', `plan-view phase-${plan.phase}`);
+  const blocked = !plan.canBuild && (Boolean(plan.error) || plan.phase === 'unknown');
+  const card = dom.el('section', `plan-view phase-${plan.phase}${blocked ? ' is-blocked' : ''}${plan.canBuild ? ' is-ready' : ''}`);
+  if (plan.error) card.append(dom.el('p', 'plan-error', plan.error));
   const head = dom.el('div', 'plan-head');
   head.append(dom.el('h2', undefined, plan.name || copy.plan));
   head.append(dom.el('span', 'plan-phase', phaseLabel(plan, copy)));
   card.append(head);
   if (plan.restored) card.append(dom.el('p', 'note', copy.planRestored));
-  if (plan.error) card.append(dom.el('p', 'plan-error', plan.error));
   if (expanded) {
     card.append(dom.el('p', 'plan-source', `${copy.planSource}: ${sourceLabel(plan.source)}`));
     const body = dom.el('div', 'md plan-body');
@@ -55,10 +56,11 @@ export function renderPlanView(
     if (summary) card.append(dom.el('p', 'plan-summary', summary));
   }
   const actions = dom.el('div', 'plan-actions');
-  const view = dom.button('ghost plan-view-toggle', expanded ? copy.backToChat : copy.viewPlan, expanded ? 'arrow-left' : 'book');
+  const view = dom.button('secondary plan-view-toggle', expanded ? copy.backToChat : copy.viewPlan, expanded ? 'arrow-left' : 'book');
   view.setAttribute('aria-expanded', String(expanded));
   view.addEventListener('click', () => onToggle(!expanded));
   actions.append(view);
+  const buildGroup = dom.el('div', 'plan-build');
   if (expanded && plan.showBuildModel) {
     const model = dom.button('pill', plan.buildModelLabel || copy.model, 'chevron-down');
     model.disabled = !plan.canBuild;
@@ -68,9 +70,9 @@ export function renderPlanView(
       model.setAttribute('aria-label', `${plan.buildModelLabel || copy.model}. ${reason}`);
     }
     model.addEventListener('click', () => onPickModel(model));
-    actions.append(model);
+    buildGroup.append(model);
   }
-  const build = dom.button('build', copy.build);
+  const build = dom.button(plan.canBuild ? 'build' : 'build is-blocked', copy.build);
   const buildReason = plan.canBuild ? copy.build : plan.phase === 'unknown' ? copy.planUnknown : copy.planNotReady;
   build.disabled = !plan.canBuild;
   build.title = buildReason;
@@ -79,7 +81,8 @@ export function renderPlanView(
     build.disabled = true;
     post({ type: 'buildPlan', planId: plan.id, revision: plan.revision, modelId: plan.buildModelId, modelParams: plan.buildParams, label: plan.buildModelLabel });
   });
-  actions.append(build);
+  buildGroup.append(build);
+  actions.append(buildGroup);
   card.append(actions);
   if (expanded && plan.history.length) {
     const past = dom.el('details', 'plan-history');

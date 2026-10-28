@@ -1252,21 +1252,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       const target = /^file:\/\//i.test(filePath) ? vscode.Uri.parse(filePath).fsPath : filePath;
       const resolved = this.resolveInside(target);
       if (!resolved) throw new Error('ワークスペース外のファイルは変更できません。');
-      const editor = await vscode.window.showTextDocument(vscode.Uri.file(resolved), { preview: true });
-      const lineNumber = typeof line === 'number' ? line : Number(line);
-      const columnNumber = typeof column === 'number' ? column : Number(column);
-      if (Number.isSafeInteger(lineNumber) && lineNumber > 0) {
-        const firstLine = Math.min(lineNumber, editor.document.lineCount);
-        const startLine = firstLine - 1;
-        const endNumber = typeof endLine === 'number' ? endLine : Number(endLine);
-        const lastLine = Number.isSafeInteger(endNumber) && endNumber >= lineNumber ? Math.min(endNumber, editor.document.lineCount) : firstLine;
-        const start = new vscode.Position(startLine, Number.isSafeInteger(columnNumber) && columnNumber > 0 ? columnNumber - 1 : 0);
-        const end = Number.isSafeInteger(columnNumber) && columnNumber > 0
-          ? start
-          : new vscode.Position(lastLine - 1, editor.document.lineAt(lastLine - 1).text.length);
-        editor.selection = new vscode.Selection(start, end);
-        editor.revealRange(new vscode.Range(start, end));
-      }
+      await this.openInEditor(resolved, line, column, endLine);
       return;
     }
     if (!change || synthetic) {
@@ -1281,11 +1267,39 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     const target = this.resolveInside(change.path);
     if (!target) return;
     if (change.previousText === undefined) {
-      await vscode.window.showTextDocument(vscode.Uri.file(target));
+      await this.openInEditor(target);
       return;
     }
     const baseline = await writeBaselineFile(path.join(this.context.globalStorageUri.fsPath, 'review'), { ...change, path: target, previousText: change.previousText ?? '' });
     await vscode.commands.executeCommand('vscode.diff', vscode.Uri.file(baseline), vscode.Uri.file(target), `${path.basename(target)}: before ↔ current`);
+  }
+
+  private async openInEditor(file: string, line?: unknown, column?: unknown, endLine?: unknown): Promise<void> {
+    const uri = vscode.Uri.file(file);
+    if (binaryFile(file)) {
+      await vscode.commands.executeCommand('vscode.open', uri);
+      return;
+    }
+    try {
+      const editor = await vscode.window.showTextDocument(uri, { preview: true });
+      const lineNumber = typeof line === 'number' ? line : Number(line);
+      const columnNumber = typeof column === 'number' ? column : Number(column);
+      if (Number.isSafeInteger(lineNumber) && lineNumber > 0) {
+        const firstLine = Math.min(lineNumber, editor.document.lineCount);
+        const startLine = firstLine - 1;
+        const endNumber = typeof endLine === 'number' ? endLine : Number(endLine);
+        const lastLine = Number.isSafeInteger(endNumber) && endNumber >= lineNumber ? Math.min(endNumber, editor.document.lineCount) : firstLine;
+        const start = new vscode.Position(startLine, Number.isSafeInteger(columnNumber) && columnNumber > 0 ? columnNumber - 1 : 0);
+        const end = Number.isSafeInteger(columnNumber) && columnNumber > 0
+          ? start
+          : new vscode.Position(lastLine - 1, editor.document.lineAt(lastLine - 1).text.length);
+        editor.selection = new vscode.Selection(start, end);
+        editor.revealRange(new vscode.Range(start, end));
+      }
+    } catch (error) {
+      if (!binaryTextError(error)) throw error;
+      await vscode.commands.executeCommand('vscode.open', uri);
+    }
   }
 
   private resolveInside(filePath: string): string | undefined {
@@ -1506,4 +1520,14 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
 function terminalCommand(command: string, args: string[]): string {
   const quote = (part: string) => /^[\w./:@+-]+$/.test(part) ? part : `'${part.replaceAll("'", `'\\''`)}'`;
   return [command, ...args].map(quote).join(' ');
+}
+
+const binaryExtension = /\.(png|jpe?g|gif|webp|ico|bmp|pdf|woff2?|ttf|otf|eot|zip|gz|tgz|mp3|mp4|mov|webm|wav|icns)$/i;
+
+function binaryFile(file: string): boolean {
+  return binaryExtension.test(file);
+}
+
+function binaryTextError(error: unknown): boolean {
+  return /binary and cannot be opened as text/i.test(errorMessage(error));
 }

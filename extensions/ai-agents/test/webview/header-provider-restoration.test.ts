@@ -16,7 +16,7 @@ test('header uses provider fallback when a restored shell has no provider labels
   const window = new Window();
   const dom = createDom(window.document);
   const root = dom.el('div');
-  const header = new Header(dom, root, strings('en'), () => {}, () => {}, () => {}, () => {}, () => {});
+  const header = new Header(dom, root, strings('en'), () => {}, () => {}, () => {}, () => {});
   const shell = {
     provider: 'cursor', providers: [], busy: false, terminals: [], sessionTitle: 'Restored', statusText: 'Ready',
   } as unknown as ViewShell;

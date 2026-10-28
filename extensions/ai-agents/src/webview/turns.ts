@@ -27,6 +27,7 @@ export interface FileRow {
 export type Segment =
   | { type: 'thinking'; id: string; text: string; startedAt?: number; durationMs?: number }
   | { type: 'tools'; id: string; tools: ToolRow[] }
+  | { type: 'explore'; id: string; tools: ToolRow[] }
   | { type: 'files'; id: string; files: FileRow[] }
   | { type: 'todo'; id: string; items: { content: string; status: string }[] }
   | { type: 'note'; id: string; text: string }
@@ -151,8 +152,9 @@ export function buildTurns(messages: readonly ViewMessage[], busy: boolean, pend
     const timing = timings.find((item) => item.id === id);
     closeThinking(segments, timing?.endedAt ?? (!busy && !pending ? endedAt : undefined));
     const answer = takeAnswer(segments);
+    const log = presentActivity(segments);
     turns.push({
-      id, ...(user ? { user } : {}), log: segments,
+      id, ...(user ? { user } : {}), log,
       ...(answer ? { answer } : {}),
       errors,
       ...(timing?.startedAt !== undefined || startedAt !== undefined ? { startedAt: timing?.startedAt ?? startedAt } : {}),
@@ -202,6 +204,59 @@ export function buildTurns(messages: readonly ViewMessage[], busy: boolean, pend
   }
   finish();
   return turns.map((turn, index) => ({ ...turn, done: index < turns.length - 1 || (!busy && !pending) }));
+}
+
+function pathKey(path: string): string {
+  return path.replaceAll('\\', '/').replace(/^\.\//, '');
+}
+
+function isExploration(tool: ToolRow): boolean {
+  return tool.kind === 'read' || tool.kind === 'search';
+}
+
+function presentActivity(segments: Segment[]): Segment[] {
+  const edited = new Set<string>();
+  for (const segment of segments) {
+    if (segment.type !== 'files') continue;
+    for (const file of segment.files) edited.add(pathKey(file.path));
+  }
+  const pruned = segments.flatMap((segment): Segment[] => {
+    if (segment.type !== 'tools') return [segment];
+    const tools = segment.tools.filter((tool) => !(tool.kind === 'edit' && tool.target && edited.has(pathKey(tool.target))));
+    return tools.length ? [{ ...segment, tools }] : [];
+  });
+  const grouped: Segment[] = [];
+  let batch: ToolRow[] = [];
+  let batchId = '';
+  const flush = () => {
+    if (!batch.length) return;
+    grouped.push({ type: 'explore', id: batchId, tools: batch });
+    batch = [];
+  };
+  for (const segment of pruned) {
+    if (segment.type !== 'tools') { flush(); grouped.push(segment); continue; }
+    let pending: ToolRow[] = [];
+    let pendingId = segment.id;
+    const flushPending = () => {
+      if (!pending.length) return;
+      if (!batch.length) batchId = pendingId;
+      batch.push(...pending);
+      pending = [];
+    };
+    for (const tool of segment.tools) {
+      if (!isExploration(tool)) {
+        flushPending();
+        flush();
+        grouped.push({ type: 'tools', id: tool.id, tools: [tool] });
+        continue;
+      }
+      if (!pending.length) pendingId = tool.id;
+      pending.push(tool);
+    }
+    flushPending();
+  }
+  flush();
+  return grouped;
 }
 
 function closeThinking(segments: Segment[], endAt?: number): void {

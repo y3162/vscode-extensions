@@ -61,7 +61,7 @@ function shell(extra: Partial<ViewShell> = {}): ViewShell {
 
 test('actions before the first shell do not post agent commands', () => {
   const { window, sent, document } = boot();
-  for (const selector of ['.provider', '.mode', '.attach', '.env', '.open-terminals', '.send']) click(document.querySelector(selector)!);
+  for (const selector of ['.provider', '.mode', '.attach', '.env', '.send']) click(document.querySelector(selector)!);
   assert.equal(posted(sent, 'select'), undefined);
   assert.equal(posted(sent, 'configure'), undefined);
   assert.equal(posted(sent, 'attach'), undefined);

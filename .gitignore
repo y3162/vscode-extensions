@@ -17,9 +17,8 @@ coverage/
 npm-debug.log*
 
 # 検証用アーティファクト（ローカル保存のみ。リポジトリには含めない）
-**/docs/screenshots/
-**/docs/ui-redesign-images/
-**/docs/evidence/
+**/docs/*/
+!**/docs/ui-redesign-preview/
 extensions/ai-agents/test/fixtures/real/
 extensions/ai-agents/.local/
 

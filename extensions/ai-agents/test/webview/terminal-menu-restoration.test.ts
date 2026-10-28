@@ -61,9 +61,8 @@ test('app terminal menu labels a restored process with its id when its command i
   const { window, sent, document, emit, app } = bootApp();
   emit(shell({ terminals: [{ processId: 'pid-7' }] }));
   click(document.querySelector('.new-chat') as HTMLElement);
-  click(document.querySelector('.open-terminals') as HTMLElement);
-  const item = document.querySelector<HTMLButtonElement>('.menu-item[data-id="pid-7"]');
-  assert.equal(item?.querySelector('.menu-label')?.textContent, 'pid-7');
+  const item = document.querySelector<HTMLButtonElement>('.terminal-open');
+  assert.match(item?.textContent ?? '', /pid-7/);
   click(item!);
   assert.equal(posted(sent, 'openTerminal')?.processId, 'pid-7');
   app.destroy();

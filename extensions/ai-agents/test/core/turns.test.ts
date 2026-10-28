@@ -18,8 +18,9 @@ test('a finished turn keeps the answer outside the collapsed work log', () => {
   assert.equal(turns.length, 1);
   assert.equal(turns[0]?.done, true);
   assert.equal(turns[0]?.answer?.text, 'Done');
-  assert.equal(turns[0]?.log[0]?.type, 'tools');
-  assert.equal(turns[0]?.log[0]?.type === 'tools' ? turns[0].log[0].tools.length : 0, 2);
+  assert.equal(turns[0]?.log[0]?.type, 'explore');
+  assert.equal(turns[0]?.log[0]?.type === 'explore' ? turns[0].log[0].tools.length : 0, 2);
+  assert.equal(turns[0]?.log.some((segment) => segment.type === 'text'), false);
   const running = buildTurns([{ id: 'user', role: 'user', text: 'Go', at: 1 }, read], true, false);
   assert.equal(running[0]?.done, false);
   assert.equal(running[0]?.answer, undefined);

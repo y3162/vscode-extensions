@@ -101,7 +101,11 @@ export class Composer {
     this.mode.addEventListener('click', () => this.openMode());
     this.model = dom.button('pill model-name', 'Model', 'chevron-down');
     this.model.addEventListener('click', () => this.openSessionModel());
-    left.append(this.mode, this.model);
+    this.env = dom.button('env', 'Local', 'vm');
+    this.env.addEventListener('click', () => this.openEnvironment());
+    this.access = dom.button('pill access-label', 'Access');
+    this.access.addEventListener('click', () => this.onNavigate('settings'));
+    left.append(this.mode, this.model, this.env, this.access);
     const right = dom.el('div', 'row-right');
     this.attach = dom.button('icon-btn attach', 'Attach', 'attach');
     this.attach.addEventListener('click', () => this.openAttach(this.attach));
@@ -113,8 +117,6 @@ export class Composer {
     right.append(this.attach, this.stop, this.send);
     row.append(left, right);
     form.append(this.chipRow, this.imageError, this.queueRow, this.suggest, label, this.input, row);
-    this.env = dom.button('env', 'Local', 'vm');
-    this.env.addEventListener('click', () => this.openEnvironment());
     const file = dom.el('input');
     file.type = 'file';
     file.accept = 'image/png,image/jpeg,image/gif,image/webp';
@@ -123,11 +125,7 @@ export class Composer {
     file.addEventListener('change', () => { this.addImages(file.files); file.value = ''; });
     const activity = dom.el('div', 'dock-activity');
     activity.append(this.changes, ...(subagentSlot ? [subagentSlot] : []));
-    const footer = dom.el('div', 'composer-footer');
-    this.access = dom.button('pill access-label', 'Access');
-    this.access.addEventListener('click', () => this.onNavigate('settings'));
-    footer.append(this.env, this.access);
-    parent.append(this.banner, activity, form, footer, file);
+    parent.append(this.banner, activity, form, file);
     this.modelMenu = new ModelMenu(dom, menu.element.parentElement ?? parent);
     this.fileInput = file;
     form.addEventListener('submit', (event) => event.preventDefault());
@@ -332,8 +330,9 @@ export class Composer {
     if (shell.terminalError) this.changes.append(this.dom.el('p', 'error-block', `${copy.backgroundTerminals}: ${shell.terminalError}`));
     if (count) {
       const head = this.dom.el('div', 'change-head');
-      const stats = `${shell.additions || shell.deletions ? ` +${shell.additions} −${shell.deletions}` : ''}`;
-      const toggle = this.dom.button('ghost change-toggle', `${count} ${copy.files}${stats}`, this.changesExpanded ? 'chevron-down' : 'chevron-right');
+      const noun = count === 1 ? copy.file : copy.files;
+      const stats = shell.additions || shell.deletions ? ` +${shell.additions} −${shell.deletions}` : '';
+      const toggle = this.dom.button('ghost change-toggle', `${count} ${noun}${stats}`, this.changesExpanded ? 'chevron-down' : 'chevron-right');
       toggle.setAttribute('aria-expanded', String(this.changesExpanded));
       const items = this.dom.el('div', 'change-items');
       items.hidden = !this.changesExpanded;

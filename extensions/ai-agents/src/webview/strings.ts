@@ -30,6 +30,10 @@ const copy = {
     answer: '回答',
     submit: '送信',
     worked: '作業時間',
+    edited: '編集',
+    ran: '実行',
+    ranCommand: 'コマンドを実行',
+    readFile: '参照',
     working: '作業中…',
     toolRunning: '実行中',
     toolDone: '完了',
@@ -168,6 +172,10 @@ const copy = {
     answer: 'Answer',
     submit: 'Submit',
     worked: 'Worked for',
+    edited: 'Edited',
+    ran: 'Ran',
+    ranCommand: 'Ran command',
+    readFile: 'Read',
     working: 'Working…',
     toolRunning: 'Running',
     toolDone: 'Done',
@@ -299,6 +307,21 @@ export function countLabel(locale: Locale, kind: ToolInfo['kind'], count: number
     other: [`${count}件のツール`, count === 1 ? '1 tool' : `${count} tools`],
   };
   return labels[kind][locale === 'ja' ? 0 : 1];
+}
+
+export function exploredSummary(locale: Locale, reads: number, searches: number): string {
+  if (locale === 'ja') {
+    const parts = [
+      reads ? `${reads}ファイル` : '',
+      searches ? `${searches}件の検索` : '',
+    ].filter(Boolean);
+    return parts.length ? `${parts.join('、')}を調べました` : '調査';
+  }
+  const parts = [
+    reads ? (reads === 1 ? '1 file' : `${reads} files`) : '',
+    searches ? (searches === 1 ? '1 search' : `${searches} searches`) : '',
+  ].filter(Boolean);
+  return parts.length ? `Explored ${parts.join(', ')}` : 'Explored';
 }
 
 export function formatDuration(ms: number): string {

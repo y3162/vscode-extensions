@@ -301,7 +301,8 @@ test('turns merge files, thoughts, tools, and answers', () => {
   const tools = turn?.log.find((segment) => segment.type === 'tools');
   assert.equal(tools?.type === 'tools' ? tools.tools[0]?.kind : '', 'git');
   assert.equal(tools?.type === 'tools' ? tools.tools[0]?.status : '', 'error');
-  assert.equal(tools?.type === 'tools' ? tools.tools[1]?.exitCode : undefined, 0);
+  const explore = turn?.log.find((segment) => segment.type === 'explore');
+  assert.equal(explore?.type === 'explore' ? explore.tools[0]?.exitCode : undefined, 0);
   const files = turn?.log.find((segment) => segment.type === 'files');
   if (files?.type === 'files') {
     assert.equal(files.files[0]?.name, 'app.ts');

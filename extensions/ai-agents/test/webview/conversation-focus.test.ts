@@ -128,3 +128,19 @@ test('Home exposes state and time and offers a new chat without losing provider 
   assert.equal(document.querySelector<HTMLElement>('.dock')!.hidden, false);
   window.happyDOM.abort();
 });
+
+test('a finished turn keeps the user request at the end of its row and leaves tool failures outside the collapsed log', () => {
+  const { window, document, emit } = boot({ page: 'chat' });
+  emit(shell({ presence: 'running', statusText: 'Working' }), [
+    { id: 'user', role: 'user', text: 'Hi', at: 1 },
+    { id: 'tool', role: 'tool', text: 'nope', at: 2, tool: { name: 'search', kind: 'search', status: 'error' } },
+    { id: 'answer', role: 'assistant', text: 'Stopped.', at: 3, final: true },
+  ]);
+  const row = document.querySelector('.user-row')!;
+  assert.equal(row.nextElementSibling?.classList.contains('assistant'), true);
+  assert.equal(document.querySelector('.log')?.hasAttribute('hidden') || (document.querySelector('.log') as HTMLElement).hidden, true);
+  assert.match(document.querySelector('.tool-failures')?.textContent ?? '', /search: nope/);
+  assert.equal(document.querySelector('.open-terminals'), null);
+  assert.equal(document.querySelector('.chat-title .presence.running')?.hasAttribute('hidden'), false);
+  window.happyDOM.abort();
+});

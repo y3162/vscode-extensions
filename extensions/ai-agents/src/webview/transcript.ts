@@ -6,7 +6,7 @@ import { fileIcon } from './file-icon.js';
 import { usageText } from '../usage.js';
 import { codeSources, highlightCode, renderMarkdown } from './markdown.js';
 import type { ViewMessage, ViewShell } from '../protocol.js';
-import { formatDuration, type Copy, type Locale } from './strings.js';
+import { exploredSummary, formatDuration, type Copy, type Locale } from './strings.js';
 import { buildTurns, type FileRow, type Segment, type ToolRow, type TurnModel } from './turns.js';
 import type { FileDiffLine, ToolInfo } from '../types.js';
 
@@ -100,7 +100,9 @@ export class Transcript {
     if (!article) {
       article = this.dom.el('article', 'turn');
       article.dataset.id = turn.id;
-      article.append(this.dom.el('div', 'user-row'), this.logButton(copy), this.dom.el('div', 'log'), this.answerShell(copy), this.dom.el('div', 'errors'), this.dom.el('div', 'turn-usage'));
+      const assistant = this.dom.el('div', 'assistant');
+      assistant.append(this.logButton(copy), this.dom.el('div', 'log'), this.dom.el('div', 'tool-failures'), this.answerShell(copy), this.dom.el('div', 'errors'), this.dom.el('div', 'turn-usage'));
+      article.append(this.dom.el('div', 'user-row'), assistant);
       this.nodes.set(turn.id, article);
       this.root.insertBefore(article, this.pending);
     }
@@ -131,6 +133,8 @@ export class Transcript {
           this.fillLog(log, turn.log, copy, !turn.done);
         }
       }
+      const failures = article.querySelector('.tool-failures');
+      if (isElement(failures)) this.renderFailures(failures, turn, Boolean(open && hasLog));
     }
     const answer = article.querySelector('.answer');
     if (isElement(answer)) {
@@ -195,18 +199,21 @@ export class Transcript {
       host.append(this.promptEditor(turn));
       return;
     }
-    const bubble = this.dom.el('button', 'bubble', turn.user.text);
+    const bubble = this.dom.el('button', 'bubble user-card');
     bubble.type = 'button';
     bubble.dataset.action = 'edit-user';
     bubble.dataset.turn = turn.id;
     bubble.setAttribute('aria-label', this.labels?.editMessage ?? 'Edit message');
     bubble.disabled = Boolean(this.shell?.busy);
-    host.append(bubble);
+    bubble.append(this.dom.el('span', 'user-body', turn.user.text));
     if (turn.user.attachments?.length) {
       const row = this.dom.el('div', 'chips');
       for (const attachment of turn.user.attachments) row.append(this.dom.el('span', 'chip', attachment));
       bubble.append(row);
     }
+    bubble.append(this.dom.icon('arrow-right'));
+    bubble.lastElementChild?.classList.add('user-affordance');
+    host.append(bubble);
   }
 
   private promptEditor(turn: TurnModel): HTMLElement {
@@ -285,6 +292,28 @@ export class Transcript {
     if (turn && article && shell && labels) this.syncTurn(turn, shell.locale, labels);
   }
 
+  private renderFailures(host: HTMLElement, turn: TurnModel, logOpen: boolean): void {
+    const lines: string[] = [];
+    if (!logOpen) {
+      for (const segment of turn.log) {
+        for (const tool of segmentTools(segment)) {
+          if (tool.status !== 'error') continue;
+          const reason = tool.detail.split('\n').map((line) => line.trim()).find(Boolean) || tool.name;
+          lines.push(`${tool.name}: ${reason}`);
+        }
+      }
+    }
+    const signature = lines.join('\n');
+    if (host.dataset.signature === signature) {
+      host.hidden = lines.length === 0;
+      return;
+    }
+    host.dataset.signature = signature;
+    host.replaceChildren();
+    host.hidden = lines.length === 0;
+    for (const line of lines) host.append(this.dom.el('p', 'tool-reason', line));
+  }
+
   private renderErrors(host: HTMLElement, turn: TurnModel, copy: Copy): void {
     host.replaceChildren();
     for (const error of turn.errors) {
@@ -330,6 +359,27 @@ export class Transcript {
           else this.openThoughts.delete(segment.id);
         });
         details.append(summary, this.dom.el('pre', undefined, segment.text));
+        return details;
+      }
+      case 'explore': {
+        const details = this.dom.el('details', 'explore');
+        details.dataset.id = segment.id;
+        const closedKey = `explore-closed:${segment.id}`;
+        const openedKey = `explore-open:${segment.id}`;
+        details.open = this.openDetails.has(openedKey) || (running && !this.openDetails.has(closedKey));
+        const summary = this.dom.el('summary', 'log-toggle explore-toggle');
+        summary.setAttribute('aria-expanded', String(details.open));
+        const reads = segment.tools.filter((tool) => tool.kind === 'read').length;
+        const searches = segment.tools.filter((tool) => tool.kind === 'search').length;
+        summary.append(this.dom.icon('chevron-right'), this.dom.el('span', 'btn-label', exploredSummary(this.shell?.locale ?? 'en', reads, searches)));
+        details.addEventListener('toggle', () => {
+          summary.setAttribute('aria-expanded', String(details.open));
+          if (details.open) { this.openDetails.add(openedKey); this.openDetails.delete(closedKey); }
+          else { this.openDetails.add(closedKey); this.openDetails.delete(openedKey); }
+        });
+        const rows = this.dom.el('div', 'explore-rows');
+        for (const tool of segment.tools) rows.append(this.toolRow(tool, copy));
+        details.append(summary, rows);
         return details;
       }
       case 'subagent': {
@@ -391,7 +441,7 @@ export class Transcript {
     const stats = this.dom.el('span', 'stats');
     if (file.additions !== undefined) stats.append(this.dom.el('span', 'stats-add', `+${file.additions}`));
     if (file.deletions !== undefined) stats.append(this.dom.el('span', 'stats-remove', `−${file.deletions}`));
-    header.append(this.fileMark(file), open, stats);
+    header.append(this.fileMark(file), this.dom.el('span', 'activity-verb', copy.edited), open, stats);
     row.append(header);
     const source = file.preview ?? [];
     if (source.length) {
@@ -450,12 +500,14 @@ export class Transcript {
       button.dataset.id = tool.id;
       button.setAttribute('aria-expanded', String(open));
       button.append(this.dom.icon(open ? 'chevron-down' : 'chevron-right'));
-      button.append(this.dom.icon('terminal'));
-      button.append(this.dom.el('span', 'tool-name', shellCaption(command)));
-      button.append(this.dom.icon(tool.status === 'running' ? 'loading~spin' : tool.status === 'error' ? 'error' : 'check'));
+      button.append(this.dom.el('span', 'tool-name', shellCaption(command, copy)));
+      if (tool.status !== 'completed') button.append(this.dom.icon(tool.status === 'running' ? 'loading~spin' : 'error'));
       button.append(this.toolStatus(tool, copy));
       row.append(button);
-
+      if (!open) {
+        if (tool.status === 'error') row.append(this.dom.el('p', 'tool-reason', this.toolReason(tool)));
+        return row;
+      }
       const commandLine = this.dom.el('div', 'shell-command-line');
       commandLine.append(this.dom.el('span', 'shell-prompt', '$'));
       const code = this.dom.el('code');
@@ -463,9 +515,8 @@ export class Transcript {
       else code.append(highlightCode(command, 'sh', this.dom));
       commandLine.append(code);
       row.append(commandLine);
-
       const output = shellOutput(tool.detail, command);
-      if (open && output) {
+      if (output) {
         const pre = this.dom.el('pre', 'shell-command-output', output);
         row.append(pre);
         const copyButton = this.dom.button('ghost tiny', copy.copy, 'copy');
@@ -483,13 +534,15 @@ export class Transcript {
       if (tool.endLine !== undefined) button.dataset.endLine = String(tool.endLine);
       button.title = `Open ${tool.target}${tool.line ? `:${tool.line}${tool.endLine && tool.endLine !== tool.line ? `-${tool.endLine}` : ''}` : ''}`;
     } else button.dataset.id = tool.id;
+    const label = activityLabel(tool, copy);
     button.append(this.dom.icon(toolIcon(tool.kind)));
-    button.append(this.dom.el('span', 'tool-name', tool.name));
-    if (tool.target && !tool.name.toLowerCase().includes(tool.target.toLowerCase())) {
+    button.append(this.dom.el('span', 'tool-name', label));
+    const base = tool.target ? basename(tool.target) : '';
+    if (tool.target && base && !label.toLowerCase().includes(base.toLowerCase()) && !label.toLowerCase().includes(tool.target.toLowerCase())) {
       const range = tool.line ? ` L${tool.line}${tool.endLine && tool.endLine !== tool.line ? `-${tool.endLine}` : ''}` : '';
       button.append(this.dom.el('span', 'tool-target', `${tool.target}${range}`));
     }
-    button.append(this.dom.icon(tool.status === 'running' ? 'loading~spin' : tool.status === 'error' ? 'error' : 'check'));
+    if (tool.status !== 'completed') button.append(this.dom.icon(tool.status === 'running' ? 'loading~spin' : 'error'));
     button.append(this.toolStatus(tool, copy));
     row.append(button);
     const open = this.openDetails.has(tool.id);
@@ -505,8 +558,12 @@ export class Transcript {
         more.dataset.id = tool.id;
         row.append(more);
       }
-    }
+    } else if (tool.status === 'error') row.append(this.dom.el('p', 'tool-reason', this.toolReason(tool)));
     return row;
+  }
+
+  private toolReason(tool: ToolRow): string {
+    return tool.detail.split('\n').map((line) => line.trim()).find(Boolean) || tool.name;
   }
 
   private logOpen(turn: TurnModel): boolean {
@@ -659,12 +716,15 @@ function sameSegments(previous: Segment[] | undefined, next: Segment[]): boolean
       case 'note': return right.type === 'note' && left.text === right.text;
       case 'text': return right.type === 'text' && left.text === right.text && left.final === right.final;
       case 'tools':
-        return right.type === 'tools' && left.tools.length === right.tools.length && left.tools.every((tool, toolIndex) => {
+      case 'explore': {
+        if (right.type !== left.type || (right.type !== 'tools' && right.type !== 'explore')) return false;
+        return left.tools.length === right.tools.length && left.tools.every((tool, toolIndex) => {
           const candidate = right.tools[toolIndex];
           return Boolean(candidate && tool.id === candidate.id && tool.name === candidate.name && tool.kind === candidate.kind
             && tool.status === candidate.status && tool.target === candidate.target && tool.detail === candidate.detail
             && tool.line === candidate.line && tool.endLine === candidate.endLine && tool.exitCode === candidate.exitCode);
         });
+      }
       case 'files':
         return right.type === 'files' && left.files.length === right.files.length && left.files.every((file, fileIndex) => {
           const candidate = right.files[fileIndex];
@@ -714,16 +774,36 @@ function fileLanguage(name: string): string {
 
 function workSummary(turn: TurnModel, locale: Locale, copy: Copy): string {
   if (turn.status === 'unknown') return copy.turnUnknown;
-  const running = turn.log.flatMap((segment) => segment.type === 'tools' ? segment.tools : []).find((tool) => tool.status === 'running');
+  const running = turn.log.flatMap(segmentTools).find((tool) => tool.status === 'running');
   if (!turn.done) return running ? `${copy.working} · ${running.target || running.name}` : copy.working;
   const elapsed = turn.startedAt !== undefined && turn.endedAt !== undefined
     ? Math.max(0, turn.endedAt - turn.startedAt - (turn.waitMs ?? 0)) : 0;
   return elapsed > 0 ? `${copy.worked} ${formatDuration(elapsed)}` : copy.worked;
 }
 
-function shellCaption(command: string): string {
+function shellCaption(command: string, copy: Copy): string {
   const executable = command.trim().match(/^(?:[A-Za-z_][\w]*=(?:'[^']*'|"[^"]*"|\S+)\s+)*(?:sudo\s+)?(?:[^\s;&|]+\/)?([^\s;&|]+)/)?.[1];
-  return executable ? `Run ${executable}` : 'Run command';
+  return executable ? `${copy.ran} ${executable}` : copy.ranCommand;
+}
+
+function activityLabel(tool: ToolRow, copy: Copy): string {
+  if ((tool.kind === 'shell' || tool.kind === 'git') && tool.target) return shellCaption(tool.target, copy);
+  if (tool.kind === 'read' && tool.target) {
+    const range = tool.line ? ` L${tool.line}${tool.endLine && tool.endLine !== tool.line ? `-${tool.endLine}` : ''}` : '';
+    return `${copy.readFile} ${basename(tool.target)}${range}`;
+  }
+  if (tool.kind === 'search') return `${copy.ran} ${tool.name}`;
+  if (tool.kind === 'edit' && tool.target) return `${copy.edited} ${basename(tool.target)}`;
+  return tool.name;
+}
+
+function basename(file: string): string {
+  const parts = file.split(/[\\/]/);
+  return parts.at(-1) || file;
+}
+
+function segmentTools(segment: Segment): ToolRow[] {
+  return segment.type === 'tools' || segment.type === 'explore' ? segment.tools : [];
 }
 
 function shellOutput(detail: string, command: string): string {

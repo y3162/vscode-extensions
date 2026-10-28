@@ -103,6 +103,16 @@ Object.assign(scenes, {
   usage: () => state(shell({ usage, timings: [{ id: 'u', startedAt: 1793167200000, endedAt: 1793167260000, waitMs: 0, status: 'completed', intent: 'agent', usage }] }), messages(false)),
   queue: () => state(shell({ busy: true, presence: 'running', steer: true, queue: [{ id: 'queued', text: ja ? '続いて関連するドキュメントも確認してください' : 'Next, review the related documentation', images: 0 }] }), messages(true)),
   changes: () => state(shell({ changes: Array.from({ length: 8 }, (_, i) => ({ path: `/workspace/src/long/path/authentication-${i}.test.ts`, name: `authentication-${i}.test.ts`, kind: 'update', additions: 12, deletions: 3, canDiff: true, canRevert: i !== 0, synthetic: false })), additions: 96, deletions: 24 }), messages(false)),
+  activity: () => state(shell(), [
+    { id: 'u', role: 'user', text: ja ? 'READMEを整えて' : 'Refine the README', attachments: ['README.md', 'extensions/ai-agents/package.json'], at: 1793167200000 },
+    { id: 'think', role: 'status', text: ja ? 'READMEと関連する構成を確認します。' : 'I will check the README and the related layout.', at: 1793167210000, meta: { type: 'thinking' } },
+    { id: 'read1', role: 'tool', text: 'read', at: 1793167220000, tool: { kind: 'read', name: 'Read', status: 'completed', target: 'README.md', line: 1, endLine: 40 } },
+    { id: 'read2', role: 'tool', text: 'read', at: 1793167230000, tool: { kind: 'read', name: 'Read', status: 'completed', target: 'extensions/ai-agents/README.md', line: 1, endLine: 20 } },
+    { id: 'search', role: 'tool', text: 'found', at: 1793167240000, tool: { kind: 'search', name: 'Search', status: 'completed', target: 'test:runtime' } },
+    { id: 'shell', role: 'tool', text: 'completed: npm test\npassed\n', at: 1793167250000, tool: { kind: 'shell', name: 'command', status: 'completed', target: 'npm test' } },
+    { id: 'files', role: 'tool', text: 'changed', at: 1793167255000, meta: { type: 'files', files: [{ path: 'README.md', kind: 'update', additions: 6, deletions: 2 }] } },
+    { id: 'a', role: 'assistant', text: answer, at: 1793167260000, final: true },
+  ]),
 });
 
 function state(current, items) {
@@ -155,6 +165,10 @@ window.acquireVsCodeApi = () => ({
       if (scene === 'changes') document.querySelector('.change-toggle')?.click();
       if (scene === 'plan-expanded') document.querySelector('.plan-view-toggle')?.click();
       if (scene === 'subagent-detail') document.querySelector('.subagent-panel-open')?.click();
+      if (scene === 'activity') {
+        document.querySelector('.log-toggle')?.click();
+        document.querySelector('.explore-toggle')?.click();
+      }
       window.previewReady = true;
     });
     if (scene === 'settings') {

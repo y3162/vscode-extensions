@@ -213,8 +213,8 @@ test('completed work keeps file changes available in an expandable log', () => {
   assert.equal(log.querySelector('.diff-preview-line.add .diff-preview-text')?.textContent, 'new line');
   const css = readFileSync(path.join(__dirname, '../../src/webview/styles.css'), 'utf8');
   assert.match(css, /\.file-row, \.shell-tool \{ display: block; width: 100%;/);
-  assert.match(css, /\.file-group \{ display: flex; flex-direction: column; gap: \.45em; \}/);
-  assert.match(css, /\.file-row \{[^}]*border: 1px solid var\(--vscode-widget-border, color-mix\(in srgb, var\(--vscode-foreground\)/);
+  assert.match(css, /\.file-group \{ display: flex; flex-direction: column; gap: \.15em; \}/);
+  assert.match(css, /\.file-row \{[^}]*border: 0/);
   assert.match(css, /\.file-header \.file-badge \{[^}]*color-mix\(in srgb, var\(--vscode-foreground\)/);
   assert.match(css, /\.diff-preview-line\.add \{ background: var\(--vscode-diffEditor-insertedLineBackground/);
   assert.match(css, /\.diff-preview-line\.remove \{ background: var\(--vscode-diffEditor-removedLineBackground/);

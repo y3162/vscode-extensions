@@ -93,7 +93,8 @@ test('terminals render without file changes and unknown subagents are not labele
   assert.ok(window.document.querySelector('.composer-row'));
   assert.ok(window.document.querySelector('.plan-actions'));
   const css = readFileSync(path.join(__dirname, '../../src/webview/styles.css'), 'utf8');
-  assert.match(css, /\.plan-actions, \.terminal-row, \.change-head \{ flex-wrap: wrap; \}/);
+  assert.match(css, /\.terminal-row, \.change-head \{ flex-wrap: wrap; \}/);
+  assert.match(css, /\.plan-actions \{ justify-content: space-between; flex-wrap: nowrap; align-items: center; \}/);
 });
 
 test('shell executions use a command card with expandable output', () => {
@@ -111,11 +112,13 @@ test('shell executions use a command card with expandable output', () => {
   assert.equal(log.hidden, false);
   assert.match(log.querySelector('.progress-note')?.textContent ?? '', /Executing sleep 1s\./);
   let card = log.querySelector<HTMLElement>('.shell-tool')!;
-  assert.match(card.querySelector('.shell-tool-heading')?.textContent ?? '', /Run sleep/);
-  assert.equal(card.querySelector('.shell-command-line .shell-prompt')?.textContent, '$');
-  assert.equal(card.querySelector('.shell-command-line code')?.textContent, 'sleep 1s');
+  assert.match(card.querySelector('.shell-tool-heading')?.textContent ?? '', /Ran sleep/);
+  assert.equal(card.querySelector('.shell-command-line'), null);
   assert.equal(card.querySelector('.shell-command-output'), null);
   click(card.querySelector('.shell-tool-heading')!);
+  card = log.querySelector<HTMLElement>('.shell-tool')!;
+  assert.equal(card.querySelector('.shell-command-line .shell-prompt')?.textContent, '$');
+  assert.equal(card.querySelector('.shell-command-line code')?.textContent, 'sleep 1s');
   card = log.querySelector<HTMLElement>('.shell-tool')!;
   assert.equal(card.querySelector('.shell-tool-heading')?.getAttribute('aria-expanded'), 'true');
   assert.equal(card.querySelector('.shell-command-output')?.textContent, 'slept for one second\n');
@@ -131,12 +134,11 @@ test('a background terminal list error remains visible without files or terminal
   assert.match(bar?.textContent ?? '', /connection lost/);
 });
 
-test('background terminals open from the chat header and preserve their conversation identity', () => {
+test('background terminals open from the composer list and preserve their conversation identity', () => {
   const { window, sent, emit } = mount();
   emit(shell({ terminals: [{ processId: 'p1', command: 'sleep 120' }] }));
   click(visible(window.document, '.new-chat'));
-  click(visible(window.document, '.open-terminals'));
-  const item = visible(window.document, '.menu-item[data-id="p1"]');
+  const item = visible(window.document, '.terminal-open');
   assert.match(item.textContent ?? '', /sleep 120/);
   click(item);
   assert.deepEqual(posted(sent, 'openTerminal'), {
@@ -176,10 +178,13 @@ test('shell commands use shell highlighting, extra spacing, and leave command ou
   ]);
   click(window.document.querySelector('.log-toggle')!);
   const quotedCard = window.document.querySelector('.shell-tool-heading[data-id="quoted"]')?.closest('.shell-tool');
-  assert.equal(quotedCard?.querySelector('.tok-kw')?.textContent, 'echo');
-  assert.equal(quotedCard?.querySelector('.tok-str')?.textContent, "'hi'");
+  assert.equal(quotedCard?.querySelector('.shell-command-line'), null);
   click(quotedCard?.querySelector('.shell-tool-heading') as HTMLElement);
-  assert.equal(quotedCard?.querySelector('.shell-command-output .tok-kw'), null);
+  const opened = window.document.querySelector('.shell-tool-heading[data-id="quoted"]')?.closest('.shell-tool');
+  assert.equal(opened?.querySelector('.tok-kw')?.textContent, 'echo');
+  assert.equal(opened?.querySelector('.tok-str')?.textContent, "'hi'");
+  assert.equal(opened?.querySelector('.shell-command-output .tok-kw'), null);
+  click(window.document.querySelector('.shell-tool-heading[data-id="long"]') as HTMLElement);
   const longCode = window.document.querySelector('.shell-tool-heading[data-id="long"]')?.closest('.shell-tool')?.querySelector('.shell-command-line code');
   assert.equal(longCode?.textContent, long);
   assert.equal(longCode?.querySelector('.tok-kw'), null);
@@ -191,14 +196,14 @@ test('shell commands use shell highlighting, extra spacing, and leave command ou
   assert.match(css, /\.shell-command-output \{[^}]*line-height: 1\.55/);
 });
 
-test('finished background terminals remain visible above the composer and in the header', () => {
+test('finished background terminals remain visible above the composer', () => {
   const { window, emit } = mount();
   emit(shell({ provider: 'cursor', backend: 'cli', terminals: [{ processId: 'terminal-1', command: 'sleep 120', status: 'cancelled', output: 'READY\nexit_code: unknown' }] }));
   click(visible(window.document, '.new-chat'));
   assert.match(visible(window.document, '.terminal-open').textContent ?? '', /sleep 120.*cancelled/);
   assert.match(window.document.querySelector('.terminal-output')?.textContent ?? '', /READY/);
   assert.equal(window.document.querySelector<HTMLButtonElement>('.terminal-stop')?.disabled, true);
-  assert.ok(visible(window.document, '.open-terminals'));
+  assert.equal(window.document.querySelector('.open-terminals'), null);
   const list = window.document.querySelector('.terminals')!;
   const form = window.document.querySelector('.composer-card')!;
   assert.ok(list.compareDocumentPosition(form) & window.Node.DOCUMENT_POSITION_FOLLOWING);

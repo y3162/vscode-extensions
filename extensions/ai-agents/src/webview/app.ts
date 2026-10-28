@@ -92,13 +92,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
         onSelect: () => post({ type: 'select', provider: item.id }),
       })),
     ]);
-  }, () => { post({ type: 'newChat' }); show('chat'); }, () => show('settings'), () => show('history'), (anchor) => {
-    if (!shell) return;
-    menu.open(anchor, shell.terminals.map((terminal) => ({
-      id: terminal.processId, label: terminal.command || terminal.processId,
-      onSelect: () => post({ type: 'openTerminal', processId: terminal.processId }),
-    })));
-  });
+  }, () => { post({ type: 'newChat' }); show('chat'); }, () => show('settings'), () => show('history'));
   const history = new HistoryPanel(dom, stage, (id) => openSession(id), () => { post({ type: 'newChat' }); show('chat'); });
   const settings = new SettingsPanel(dom, stage, post, () => { settings.close(); paint(); });
   const composer = new Composer(dom, dock, post, menu, (panel) => show(panel), subagentSlot);

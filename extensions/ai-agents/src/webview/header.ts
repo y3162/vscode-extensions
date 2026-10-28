@@ -13,8 +13,8 @@ export class Header {
   private readonly title: HTMLElement;
   private readonly chatFresh: HTMLButtonElement;
   private readonly chatSettings: HTMLButtonElement;
+  private readonly presence: HTMLElement;
   private readonly live: HTMLElement;
-  private readonly terminals: HTMLButtonElement;
   private liveText = '';
 
   constructor(
@@ -25,7 +25,6 @@ export class Header {
     private readonly onNewChat: () => void,
     private readonly onSettings: () => void,
     private readonly onBack: () => void,
-    private readonly onTerminals: (anchor: HTMLElement) => void,
   ) {
     this.homeBar = dom.el('div', 'top-bar home-bar');
     this.provider = dom.button('provider', copy.provider, 'chevron-down');
@@ -41,16 +40,18 @@ export class Header {
     this.chatBar = dom.el('div', 'top-bar chat-bar');
     this.back = dom.button('back', copy.back, 'arrow-left');
     this.back.addEventListener('click', () => this.onBack());
+    this.presence = dom.el('span', 'presence');
+    this.presence.hidden = true;
     this.title = dom.el('h1', 'title-pill');
+    const title = dom.el('div', 'chat-title');
+    title.append(this.presence, this.title);
     this.chatSettings = dom.button('icon-btn header-btn open-settings', copy.settings, 'settings-gear');
     this.chatSettings.addEventListener('click', () => this.onSettings());
     const chatActions = dom.el('div', 'home-actions');
     this.chatFresh = dom.button('icon-btn header-btn new-chat', copy.newChat, 'add');
     this.chatFresh.addEventListener('click', () => this.onNewChat());
-    this.terminals = dom.button('icon-btn header-btn open-terminals', copy.backgroundTerminals, 'terminal');
-    this.terminals.addEventListener('click', () => this.onTerminals(this.terminals));
-    chatActions.append(this.terminals, this.chatFresh, this.chatSettings);
-    this.chatBar.append(this.back, this.title, chatActions);
+    chatActions.append(this.chatFresh, this.chatSettings);
+    this.chatBar.append(this.back, title, chatActions);
 
     this.live = dom.el('span', 'live');
     this.live.setAttribute('aria-live', 'polite');
@@ -67,8 +68,10 @@ export class Header {
     this.caption(this.chatFresh, copy.newChat);
     this.caption(this.homeSettings, copy.settings);
     this.caption(this.chatSettings, copy.settings);
-    this.terminals.hidden = !shell.terminals.length;
-    this.caption(this.terminals, `${shell.terminals.length} ${copy.backgroundTerminals}`);
+    const active = shell.presence === 'running' || shell.presence === 'waiting' || shell.presence === 'error';
+    this.presence.hidden = !active;
+    this.presence.className = active ? `presence ${shell.presence}` : 'presence';
+    this.presence.title = shell.statusText;
     this.caption(this.back, copy.back);
     this.title.textContent = shell.sessionTitle;
     this.title.title = shell.sessionTitle;
