@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { mkdtempSync, mkdirSync, chmodSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { test } from 'node:test';
 import { agentLaunch, codexLaunch, codexSpawn } from '../../../src/providers/codex-binary.js';
 
@@ -40,4 +43,27 @@ test('agent launch distinguishes a PATH command from an explicit path', () => {
   assert.equal(agentLaunch('agent', []).kind, 'path');
   assert.equal(agentLaunch('/opt/agent', []).kind, 'override');
   assert.equal(agentLaunch('C:\\Tools\\agent.exe', []).kind, 'override');
+});
+
+test('agent launch finds the standard Cursor installation when PATH does not contain it', { skip: process.platform === 'win32' }, () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'agent-path-'));
+  const oldHome = process.env.HOME;
+  const oldPath = process.env.PATH;
+  try {
+    const bin = path.join(root, '.local', 'bin');
+    mkdirSync(bin, { recursive: true });
+    const agent = path.join(bin, 'agent');
+    writeFileSync(agent, '#!/bin/sh\n');
+    chmodSync(agent, 0o755);
+    process.env.HOME = root;
+    process.env.PATH = '/nonexistent';
+    assert.equal(agentLaunch('agent', []).command, agent);
+    process.env.PATH = bin;
+    assert.equal(agentLaunch('agent', []).command, 'agent');
+    assert.equal(agentLaunch('/custom/agent', []).command, '/custom/agent');
+  } finally {
+    if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome;
+    if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
+    rmSync(root, { recursive: true, force: true });
+  }
 });

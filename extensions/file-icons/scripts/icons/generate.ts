@@ -27,6 +27,9 @@ try {
           callback(attr, color) {
             if ((attr === 'stroke' || attr === 'fill') && color !== 'none') {
               const newColorName = palettes[origin].find(v => v[1] === color.toLowerCase())?.[0]
+              // Fixed brand colors are shared by every flavor.
+              if (!newColorName)
+                return color
               const newColor = palettes[dest].find(v => v[0] === newColorName)?.[1]
               if (!newColor)
                 throw new Error(`Color '${color}' found in '${i}' is not in ${origin} palette.`)

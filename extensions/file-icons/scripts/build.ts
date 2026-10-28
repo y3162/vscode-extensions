@@ -7,15 +7,15 @@ import { cp, readdir, rm, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
 import { env, exit } from 'node:process'
 import { setOutput } from '@actions/core'
-import { flavorEntries } from '@catppuccin/palette'
 import { createVSIX } from '@vscode/vsce'
 import { consola } from 'consola'
 import packageJson from 'package.json' assert { type: 'json' }
 import { build } from 'tsup'
+import { themeFlavors } from '~/constants/themes'
 import { compileTheme } from '~/utils/themes'
 
 const DIST = 'dist'
-const flavors = flavorEntries.map(([f]) => f)
+const themes = Object.entries(themeFlavors)
 
 try {
   consola.info('Deleting previous build...')
@@ -35,8 +35,8 @@ try {
   consola.info('Copying icon SVGs to dist...')
 
   // copy icons to dist
-  await Promise.all(flavors.map(async (f) => {
-    await cp(join('icons', f), join(DIST, f, 'icons'), { recursive: true })
+  await Promise.all(themes.map(async ([name, flavor]) => {
+    await cp(join('icons', flavor), join(DIST, name, 'icons'), { recursive: true })
   }))
 
   // copy css-vars/unflavored icons to dist
@@ -53,7 +53,7 @@ try {
   consola.info('Building themes and icon definitions...')
 
   // generate iconDefinitions.json file and save to dist
-  const icons = await readdir(join(DIST, flavors[0], 'icons'))
+  const icons = await readdir(join(DIST, themes[0][0], 'icons'))
   const iconDefinitions = icons.reduce((d, i) => ({
     ...d,
     [basename(i, '.svg')]: { iconPath: `./icons/${i}` },
@@ -65,9 +65,9 @@ try {
 
   // compile theme.json and write to dist
   const theme = compileTheme({}, iconDefinitions)
-  await Promise.all(flavors.map(async (f) => {
+  await Promise.all(themes.map(async ([name]) => {
     await writeFile(
-      join(DIST, f, 'theme.json'),
+      join(DIST, name, 'theme.json'),
       JSON.stringify(theme, null, 2),
     )
   }))

@@ -9,6 +9,9 @@ type FolderIcons = Record<string, {
 
 // @keep-sorted
 const folderIcons: FolderIcons = {
+  'adcrawl': {
+    folderNames: ['adcrawl', 'ad-crawl', 'ad_crawl'],
+  },
   'admin': {
     folderNames: [
       'admin',
@@ -23,7 +26,7 @@ const folderIcons: FolderIcons = {
     folderNames: ['.agents'],
   },
   'android': {
-    folderNames: ['android'],
+    folderNames: ['android', 'android_automaton', 'apk_tools'],
   },
   'animation': {
     folderNames: [
@@ -47,6 +50,9 @@ const folderIcons: FolderIcons = {
       'apps',
     ],
   },
+  'apple': {
+    folderNames: ['ios', 'ios_automaton', 'ios_automaton_alt', 'ios_patch'],
+  },
   'arxiv': {
     folderNames: ['arxiv', '.arxiv'],
   },
@@ -54,6 +60,7 @@ const folderIcons: FolderIcons = {
     folderNames: [
       'asset',
       'assets',
+      'resources',
     ],
   },
   'audio': {
@@ -72,6 +79,9 @@ const folderIcons: FolderIcons = {
       'audit',
       'audits',
     ],
+  },
+  'autotouch': {
+    folderNames: ['autotouch'],
   },
   'aws': {
     folderNames: [
@@ -112,6 +122,9 @@ const folderIcons: FolderIcons = {
   },
   'checkpoint': {
     folderNames: ['checkpoint', 'checkpoints', '.checkpoint', '.checkpoints'],
+  },
+  'chrome': {
+    folderNames: ['chrome'],
   },
   'circle-ci': {
     folderNames: ['.circleci'],
@@ -180,6 +193,10 @@ const folderIcons: FolderIcons = {
       'connections',
       'integration',
       'integrations',
+      'http',
+      'request',
+      'socket',
+      'websocket',
     ],
   },
   'constant': {
@@ -237,6 +254,9 @@ const folderIcons: FolderIcons = {
       'database',
       'databases',
       'sql',
+      'android_sqlite3',
+      'ios_sqlite3',
+      'android_ad_dbs',
       'data',
       '_data',
     ],
@@ -286,6 +306,9 @@ const folderIcons: FolderIcons = {
       'articles',
     ],
   },
+  'dopamine': {
+    folderNames: ['dopamine'],
+  },
   'download': {
     folderNames: [
       'downloads',
@@ -304,7 +327,11 @@ const folderIcons: FolderIcons = {
       'sample',
       'samples',
       'sample-data',
+      'test_data',
     ],
+  },
+  'facebook': {
+    folderNames: ['facebook', 'facebook_ad', 'facebook_native'],
   },
   'fastlane': {
     folderNames: ['fastlane', '.fastlane'],
@@ -323,6 +350,9 @@ const folderIcons: FolderIcons = {
   },
   'forgejo': {
     folderNames: ['.forgejo'],
+  },
+  'frida': {
+    folderNames: ['frida', 'ios_frida', 'android_frida', 'frida-envs'],
   },
   'functions': {
     folderNames: [
@@ -363,11 +393,17 @@ const folderIcons: FolderIcons = {
   'gitlab': {
     folderNames: ['.gitlab'],
   },
+  'google': {
+    folderNames: ['google'],
+  },
   'gradle': {
     folderNames: ['gradle', '.gradle'],
   },
   'graphql': {
     folderNames: ['graphql', 'gql'],
+  },
+  'gunosy': {
+    folderNames: ['gunosy'],
   },
   'hooks': {
     folderNames: ['hook', 'hooks', 'trigger', 'triggers'],
@@ -388,6 +424,9 @@ const folderIcons: FolderIcons = {
       'image',
       'imgs',
       'img',
+      'sample_image',
+      'sponavi_images',
+      'image_template_matching',
       'icons',
       'icon',
       'icos',
@@ -413,6 +452,9 @@ const folderIcons: FolderIcons = {
   'include': {
     folderNames: ['include', 'includes'],
   },
+  'instagram': {
+    folderNames: ['instagram', 'instagram_curl'],
+  },
   'intellij': {
     folderNames: ['.idea'],
   },
@@ -434,6 +476,9 @@ const folderIcons: FolderIcons = {
       '_layouts',
     ],
   },
+  'lemon8': {
+    folderNames: ['lemon8'],
+  },
   'lib': {
     folderNames: [
       'lib',
@@ -445,6 +490,9 @@ const folderIcons: FolderIcons = {
       '.library',
       '.libraries',
     ],
+  },
+  'line': {
+    folderNames: ['line', 'line_blog', 'line_native', 'line_ad_crawler', 'line_news_ad_data'],
   },
   'linux': {
     folderNames: ['linux'],
@@ -469,6 +517,9 @@ const folderIcons: FolderIcons = {
   },
   'log': {
     folderNames: ['log', 'logs', '.log', '.logs'],
+  },
+  'lua': {
+    folderNames: ['lua', 'lua_template'],
   },
   'luau': {
     folderNames: ['luau_packages'],
@@ -529,14 +580,21 @@ const folderIcons: FolderIcons = {
     folderNames: [
       'package',
       'packages',
+      'debs',
       'pkg',
       'pkgs',
       'crate',
       'crates',
     ],
   },
+  'pangle': {
+    folderNames: ['pangle'],
+  },
   'pesde': {
     folderNames: ['.pesde', 'pesde'],
+  },
+  'pinterest': {
+    folderNames: ['pinterest'],
   },
   'plugins': {
     folderNames: [
@@ -607,6 +665,9 @@ const folderIcons: FolderIcons = {
       'roblox_server_packages',
     ],
   },
+  'rooter': {
+    folderNames: ['rooter', 'rooter_inc', 'rooterinc', 'rooterinc.bitbucket.io'],
+  },
   'routes': {
     folderNames: [
       'routes',
@@ -616,6 +677,9 @@ const folderIcons: FolderIcons = {
   },
   'rules': {
     folderNames: ['rules'],
+  },
+  'safari': {
+    folderNames: ['safari'],
   },
   'sass': {
     folderNames: [
@@ -646,13 +710,21 @@ const folderIcons: FolderIcons = {
     folderNames: [
       'share',
       'shared',
+      'common',
+      'support',
     ],
   },
   'skills': {
     folderNames: ['skill', 'skills'],
   },
+  'smartnews': {
+    folderNames: ['smartnews'],
+  },
   'speech': {
     folderNames: ['asr', 'se'],
+  },
+  'spotify': {
+    folderNames: ['spotify'],
   },
   'src': {
     folderNames: [
@@ -711,6 +783,8 @@ const folderIcons: FolderIcons = {
       'test',
       'tests',
       'testing',
+      'unit',
+      'feature_test',
       '__tests__',
       '__snapshots__',
       '__mocks__',
@@ -726,10 +800,25 @@ const folderIcons: FolderIcons = {
       'themes',
     ],
   },
+  'theos': {
+    folderNames: ['theos', 'theosat', 'autotouch_alt'],
+  },
+  'threads': {
+    folderNames: ['threads'],
+  },
+  'tiktok': {
+    folderNames: ['tiktok', 'tiktok_lite', 'tiktok_swiper'],
+  },
   'turbo': {
     folderNames: [
       '.turbo',
     ],
+  },
+  'tver': {
+    folderNames: ['tver', 'tver-androidtv'],
+  },
+  'twitter': {
+    folderNames: ['twitter', 'twitter_cookie_updater'],
   },
   'types': {
     folderNames: [
@@ -782,6 +871,7 @@ const folderIcons: FolderIcons = {
       'page',
       'pages',
       'public_html',
+      'webview',
       'html',
     ],
   },
@@ -816,8 +906,14 @@ const folderIcons: FolderIcons = {
   'xmake': {
     folderNames: ['xmake', '.xmake'],
   },
+  'yahoo': {
+    folderNames: ['yahoo', 'yahoo_app', 'yahoo_japan', 'yahoo_news', 'yahoo_weather', 'yahoo_cookie_updater'],
+  },
   'yarn': {
     folderNames: ['.yarn'],
+  },
+  'youtube': {
+    folderNames: ['youtube', 'youtubeapp_ad', 'youtube_swiper'],
   },
 }
 

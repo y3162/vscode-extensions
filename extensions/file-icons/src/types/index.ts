@@ -1,5 +1,5 @@
-import type { FlavorName } from '@catppuccin/palette'
 import type { Uri } from 'vscode'
+import type { ThemeName } from '~/constants/themes'
 
 /**
  * Config interacting with `<flavor>/theme.json` files.
@@ -30,7 +30,7 @@ export type Config = ThemeConfig & IconsConfig
 /**
  * Runtime theme paths
  */
-export type ThemePaths = Record<FlavorName, {
+export type ThemePaths = Record<ThemeName, {
   icons: Uri
   theme: Uri
 }>
@@ -51,6 +51,8 @@ export interface VscTheme {
   folderExpanded: string
   rootFolder: string
   rootFolderExpanded: string
+  rootFolderNames: Record<string, string>
+  rootFolderNamesExpanded: Record<string, string>
   languageIds: Record<string, string>
   fileExtensions: Record<string, string>
   fileNames: Record<string, string>

@@ -12,7 +12,7 @@ import { defaultConfig } from '~/defaults'
  */
 export function monochromeIcon(svg: string, flavor: FlavorName) {
   return svg.replaceAll(
-    /var\(--vscode-ctp-\w+\)/g,
+    /var\(--vscode-ctp-\w+\)|#[\da-f]{3,8}\b/gi,
     flavors[flavor].colors.text.hex,
   )
 }

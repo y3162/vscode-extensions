@@ -267,7 +267,7 @@ const fileIcons: FileIcons = {
   },
   'binary': {
     languageIds: ['code-text-binary'],
-    fileExtensions: ['bin'],
+    fileExtensions: ['bin', 'o', 'a', 'so', 'dylib'],
   },
   'biome': {
     fileNames: ['biome.json', 'biome.jsonc'],
@@ -608,6 +608,7 @@ const fileIcons: FileIcons = {
   },
   'diff': {
     languageIds: ['diff'],
+    fileExtensions: ['diff'],
   },
   'django': {
     languageIds: [
@@ -1449,6 +1450,7 @@ const fileIcons: FileIcons = {
       'pub',
       'key',
       'pem',
+      'p8',
       'asc',
       'gpg',
       'passwd',
@@ -1493,7 +1495,9 @@ const fileIcons: FileIcons = {
       'sty',
       'dtx',
       'ltx',
+      'dvi',
     ],
+    fileNames: ['.latexmkrc'],
   },
   'latte': {
     fileExtensions: ['latte'],
@@ -1847,6 +1851,10 @@ const fileIcons: FileIcons = {
   'nx': {
     fileNames: ['nx.json'],
   },
+  'objective-c': {
+    languageIds: ['objective-c', 'objective-cpp'],
+    fileExtensions: ['mm'],
+  },
   'ocaml': {
     fileExtensions: [
       'ml',
@@ -2136,10 +2144,11 @@ const fileIcons: FileIcons = {
   },
   'python': {
     languageIds: ['python'],
-    fileExtensions: ['py'],
+    fileExtensions: ['py', 'pyi', 'pyx', 'pxd', 'pyf'],
+    fileNames: ['py.typed'],
   },
   'pytorch': {
-    fileExtensions: ['pt'],
+    fileExtensions: ['pt', 'pth'],
   },
   'r': {
     languageIds: [
@@ -2268,6 +2277,7 @@ const fileIcons: FileIcons = {
       'rb',
       'erb',
       'rbs',
+      'podspec',
     ],
     fileNames: ['.ruby-version'],
   },
@@ -2596,6 +2606,9 @@ const fileIcons: FileIcons = {
   'text': {
     languageIds: ['plaintext'],
     fileExtensions: ['txt'],
+  },
+  'theos': {
+    fileExtensions: ['x', 'xm', 'xi', 'xmi'],
   },
   'todo': {
     fileExtensions: ['todo'],
@@ -3123,6 +3136,11 @@ const fileIcons: FileIcons = {
   },
   'xcode': {
     fileExtensions: [
+      'pbxproj',
+      'xcscheme',
+      'xcconfig',
+      'storyboard',
+      'xib',
       'xcsettings',
       'xcworkspacedata',
     ],
@@ -3188,7 +3206,7 @@ const fileIcons: FileIcons = {
       'aseprite-extension',
       'bz',
       'bz2',
-      'db',
+      'deb',
       'gz',
       'paq8n',
       'paq8o',

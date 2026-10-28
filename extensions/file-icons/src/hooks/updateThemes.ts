@@ -1,6 +1,6 @@
 import type { ExtensionContext } from 'vscode'
-import { flavorEntries } from '@catppuccin/palette'
 import { Uri, window, workspace } from 'vscode'
+import { themeFlavors } from '~/constants/themes'
 import { getConfig } from '~/hooks/configuration'
 import { getIconDefinitions } from '~/hooks/iconDefinitions'
 import { readFile, writeFile, writeJsonFile } from '~/hooks/interactions'
@@ -18,23 +18,23 @@ export async function updateThemes(context: ExtensionContext, icons = false) {
   const paths = getThemePaths(context)
   const config = getConfig()
   const hash = iconHash(config)
-  const flavors = flavorEntries.map(([f]) => f)
+  const themes = Object.keys(themeFlavors) as Array<keyof typeof themeFlavors>
 
   if (icons) {
     const unflavored = getUnflavoredPath(context)
     const unflavoredIcons = await workspace.fs.readDirectory(unflavored)
 
-    await Promise.all(flavors.map(async (flavor) => {
+    await Promise.all(themes.map(async (themeName) => {
       // delete flavored icons
-      await workspace.fs.delete(paths[flavor].icons, { recursive: true })
+      await workspace.fs.delete(paths[themeName].icons, { recursive: true })
       // recreate flavored icon folder
-      await workspace.fs.createDirectory(paths[flavor].icons)
+      await workspace.fs.createDirectory(paths[themeName].icons)
       // recreate flavored icons with hashed paths
       await Promise.all(unflavoredIcons.map(async ([i]) => {
         const icon = await readFile(Uri.joinPath(unflavored, i))
         await writeFile(
-          Uri.joinPath(paths[flavor].icons, hashedSvgPath(i, hash)),
-          compileIcon(icon, flavor, { monochrome: config.monochrome }),
+          Uri.joinPath(paths[themeName].icons, hashedSvgPath(i, hash)),
+          compileIcon(icon, themeFlavors[themeName], { monochrome: config.monochrome }),
         )
       }))
     })).catch((e: Error) => {
@@ -48,8 +48,8 @@ export async function updateThemes(context: ExtensionContext, icons = false) {
 
   // create and write `theme.json` files
   const theme = compileTheme(config, iconDefinitions)
-  await Promise.all(flavors.map(async (flavor) => {
-    await writeJsonFile(paths[flavor].theme, theme)
+  await Promise.all(themes.map(async (themeName) => {
+    await writeJsonFile(paths[themeName].theme, theme)
   })).catch((e: Error) => {
     window.showErrorMessage(`Failed to save re-compiled theme: \n${e.message}`)
   })

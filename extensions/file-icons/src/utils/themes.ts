@@ -23,6 +23,8 @@ export function compileTheme(overrides: Partial<ThemeConfig>, iconDefinitions: I
     folderExpanded: '_folder_open',
     rootFolder: '_root',
     rootFolderExpanded: '_root_open',
+    rootFolderNames: specificFolders ? associations.folderNames : {},
+    rootFolderNamesExpanded: specificFolders ? expanded(associations.folderNames) : {},
 
     languageIds: associations.languageIds,
     fileExtensions: associations.fileExtensions,

@@ -39,12 +39,12 @@ export function spawnCli(request: CliRunRequest, launchProcess: typeof spawn = s
   const lines = child.stdout ? createInterface({ input: child.stdout }) : emptyLines();
   const result = new Promise<CliExit>((resolve) => {
     let settled = false;
-    const finish = (code: number | null, signal: NodeJS.Signals | null) => {
+    const finish = (code: number | null, signal: NodeJS.Signals | null, error?: Error) => {
       if (settled) return;
       settled = true;
-      resolve({ code, signal, stderr: redactSecrets(stderr.trim()) });
+      resolve({ code, signal, stderr: redactSecrets(stderr.trim() || error?.message || '') });
     };
-    child.on('error', () => finish(null, null));
+    child.on('error', (error) => finish(null, null, error));
     child.on('exit', (code, signal) => finish(code, signal));
   });
   return {

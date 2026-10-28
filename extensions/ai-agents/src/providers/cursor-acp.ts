@@ -5,6 +5,7 @@ import type {
 import type { SessionOptions } from './session-options.js';
 import { AssistantSegments } from './segments.js';
 import { StdioJsonRpc } from './stdio-rpc.js';
+import { agentLaunch } from './codex-binary.js';
 import { classifyTool, toolStatus } from '../tool-kind.js';
 import { readLocation } from './read-location.js';
 import { extensionVersion } from '../version.js';
@@ -60,11 +61,8 @@ function todosOf(value: unknown): TodoEntry[] {
 }
 
 export async function createCursorAcpSession(options: SessionOptions): Promise<AgentSession> {
-  const rpc = new StdioJsonRpc({
-    command: options.agentPath || 'agent',
-    args: ['--sandbox', options.sandbox === 'disabled' ? 'disabled' : 'enabled', ...(options.model ? ['--model', options.model] : []), 'acp'],
-    cwd: options.cwd,
-  });
+  const rpc = new StdioJsonRpc(agentLaunch(options.agentPath,
+    ['--sandbox', options.sandbox === 'disabled' ? 'disabled' : 'enabled', ...(options.model ? ['--model', options.model] : []), 'acp'], options.cwd));
   const replay: ChatMessage[] = [];
   let sessionId = options.resumeId ?? '';
   let mode = options.mode ?? 'agent';

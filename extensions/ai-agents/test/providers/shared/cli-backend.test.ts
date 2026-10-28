@@ -504,7 +504,7 @@ process.stdin.on('end', () => {
   const failing = path.join(cwd, 'fail.js');
   await writeFile(failing, 'process.exit(4);\n');
   await assert.rejects(readCliText(spawnCli({ command: failing, args: [], cwd }), new AbortController().signal), /exited \(4\)/);
-  await assert.rejects(readCliText(spawnCli({ command: path.join(cwd, 'missing-bin'), args: [], cwd }), new AbortController().signal), /exited \(signal\)/);
+  await assert.rejects(readCliText(spawnCli({ command: path.join(cwd, 'missing-bin'), args: [], cwd }), new AbortController().signal), /ENOENT/);
 
   const sleeping = spawnCli({ command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'], cwd });
   const killed = readCliText(sleeping, new AbortController().signal);

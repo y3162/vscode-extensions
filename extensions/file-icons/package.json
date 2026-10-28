@@ -99,24 +99,14 @@
     ],
     "iconThemes": [
       {
-        "id": "file-icons-mocha",
-        "label": "File Icons Mocha",
-        "path": "./dist/mocha/theme.json"
+        "id": "file-icons-light",
+        "label": "File Icons Light",
+        "path": "./dist/light/theme.json"
       },
       {
-        "id": "file-icons-latte",
-        "label": "File Icons Latte",
-        "path": "./dist/latte/theme.json"
-      },
-      {
-        "id": "file-icons-frappe",
-        "label": "File Icons Frappé",
-        "path": "./dist/frappe/theme.json"
-      },
-      {
-        "id": "file-icons-macchiato",
-        "label": "File Icons Macchiato",
-        "path": "./dist/macchiato/theme.json"
+        "id": "file-icons-dark",
+        "label": "File Icons Dark",
+        "path": "./dist/dark/theme.json"
       }
     ]
   },
