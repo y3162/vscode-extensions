@@ -1,0 +1,27 @@
+{
+  "surface": "workbench chat editor group",
+  "logicalTree": [
+    "editor split",
+    "chat editor group (400px at 1280 viewport)",
+    "virtualized message scroller",
+    "user card: composer-human-message",
+    "activity header: ui-collapsible-header (Thought, Explored)",
+    "assistant body: ui-markdown paragraph, no bubble",
+    "plan activity: agent-transcript-row-activity + ui-tool-call-card__body",
+    "plan actions: View Plan, ui-split-button Build",
+    "context usage: composer-context-usage-tray-slot",
+    "review strip: composer-toolbar-section-header",
+    "composer: full-input-box inside composer-bar.editor"
+  ],
+  "cursorToExtension": [
+    { "cursor": "composer-human-message", "extension": ".user-card", "live": "Fills the 368px content column. Radius 12px. Border white 12%. Font 13px/18.2px. Outer padding 0.", "adopt": "Keep full width and 12px radius. Do not hardcode 13px; use the editor font." },
+    { "cursor": "ui-collapsible-header Thought/Explored", "extension": "activity header", "live": "346x22, 14px/22px, flex gap 4px, transparent.", "adopt": "Header is 14px/22px and at least 22px tall. The old 12px activity size matched the review labels, not these headers." },
+    { "cursor": "ui-markdown paragraph", "extension": ".assistant", "live": "14px/22px, no background, no radius.", "adopt": "Keep the frameless answer." },
+    { "cursor": "composer-questionnaire-toolbar", "extension": "none", "live": "Pinned between scroller and composer during Plan questions.", "adopt": "Not added. This extension has no question flow." },
+    { "cursor": "View Plan + Build split button", "extension": "plan-view", "live": "Unframed chat row. Buttons 24px, radius 6px. Build fill rgb(241, 180, 103) in Dark.", "adopt": "Keep View plan then Build. Do not hardcode the amber; use the theme button color." },
+    { "cursor": "plan-editor", "extension": "in-turn plan card", "live": "Separate editor, wrapper max-width 800px, padding 32px 24px 64px.", "adopt": "Do not open a second editor. The in-turn card stays." },
+    { "cursor": "review strip", "extension": ".change-bar", "live": "Directly above the composer. Pending: file count, Undo All, Keep All, Review. Accepted: file count and Review.", "adopt": "Keep the bar above the composer. Drop the accept actions after accept. Diff totals were not on this bar." },
+    { "cursor": "full-input-box", "extension": ".composer", "live": "368x75, radius 12px, padding 8px 10px 6px 10px, border white 20%. Action row 28px.", "adopt": "Use this box, not the empty Agents Window 40px toolbar." },
+    { "cursor": "composer-context-usage-tray-slot", "extension": "none", "live": "12px card above the review strip. Category rows 24px, 12px labels, gap 8px.", "adopt": "Not added. No usage field in the current protocol." }
+  ]
+}

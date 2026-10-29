@@ -1,0 +1,2278 @@
+{
+  "capturedAt": "2026-10-29T00:13+09:00",
+  "state": "plan-mode-questions",
+  "page": "workbench-ws",
+  "cursor": "3.26.13",
+  "viewport": {
+    "w": 1280,
+    "h": 800
+  },
+  "screenshotLocal": "/tmp/cursor-ui-probe-chat-20261029/captures/plan-questions-1of2.png",
+  "note": "Message and option prose redacted. Screenshot kept outside the repo.",
+  "title": "ws",
+  "themeClass": "glass-typography-refresh unifiedsidebarhidden chat-editor-group-enabled",
+  "glass": null,
+  "vw": 1280,
+  "vh": 800,
+  "colorScheme": "normal",
+  "editorBg": "#181818",
+  "distances": {
+    "humanBottomToQuestionTop": 297,
+    "questionBottomToComposerTop": -66,
+    "inputInsideComposer": {
+      "inputH": 22,
+      "composerH": 22
+    }
+  },
+  "scrollers": [
+    {
+      "cls": [
+        "composer-react-virtual-plane",
+        "virtualized-composer-messages-scroll-container"
+      ],
+      "box": {
+        "x": 881,
+        "y": 70,
+        "w": 400,
+        "h": 347
+      },
+      "scrollTop": 372.5,
+      "scrollHeight": 719,
+      "clientHeight": 347,
+      "overflowY": "auto"
+    }
+  ],
+  "questionTree": {
+    "tag": "DIV",
+    "cls": [],
+    "attrs": {},
+    "x": 881,
+    "y": 417,
+    "w": 400,
+    "h": 352,
+    "children": [
+      {
+        "tag": "DIV",
+        "cls": [],
+        "attrs": {},
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0
+      },
+      {
+        "tag": "DIV",
+        "cls": [],
+        "attrs": {},
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "children": [
+          {
+            "tag": "DIV",
+            "cls": [
+              "composer-realtime-voice-tray-slot"
+            ],
+            "attrs": {},
+            "x": 0,
+            "y": 0,
+            "w": 0,
+            "h": 0
+          }
+        ]
+      },
+      {
+        "tag": "DIV",
+        "cls": [],
+        "attrs": {},
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "children": [
+          {
+            "tag": "DIV",
+            "cls": [],
+            "attrs": {},
+            "x": 897,
+            "y": 417,
+            "w": 368,
+            "h": 277,
+            "children": [
+              {
+                "tag": "DIV",
+                "cls": [
+                  "hide-if-empty",
+                  "has-pending-questionnaire"
+                ],
+                "attrs": {},
+                "x": 906,
+                "y": 417,
+                "w": 350,
+                "h": 277,
+                "children": [
+                  {
+                    "tag": "DIV",
+                    "cls": [
+                      "composer-questionnaire-toolbar"
+                    ],
+                    "attrs": {},
+                    "x": 907,
+                    "y": 418,
+                    "w": 348,
+                    "h": 276,
+                    "children": [
+                      {
+                        "tag": "DIV",
+                        "cls": [
+                          "composer-questionnaire-toolbar-header"
+                        ],
+                        "attrs": {},
+                        "x": 917,
+                        "y": 424,
+                        "w": 332,
+                        "h": 20,
+                        "children": [
+                          {
+                            "tag": "SPAN",
+                            "cls": [
+                              "codicon",
+                              "codicon-chat-question",
+                              "composer-questionnaire-toolbar-icon"
+                            ],
+                            "attrs": {},
+                            "x": 917,
+                            "y": 426,
+                            "w": 16,
+                            "h": 16
+                          },
+                          {
+                            "tag": "SPAN",
+                            "cls": [
+                              "composer-questionnaire-toolbar-title"
+                            ],
+                            "attrs": {},
+                            "x": 941,
+                            "y": 424,
+                            "w": 61,
+                            "h": 20,
+                            "text": "Questions"
+                          },
+                          {
+                            "tag": "DIV",
+                            "cls": [
+                              "composer-questionnaire-toolbar-stepper"
+                            ],
+                            "attrs": {},
+                            "x": 1148,
+                            "y": 424,
+                            "w": 73,
+                            "h": 20,
+                            "children": [
+                              {
+                                "tag": "DIV",
+                                "cls": [
+                                  "anysphere-icon-button",
+                                  "bg-[transparent]",
+                                  "border-none",
+                                  "text-[var(--cursor-text-primary)]",
+                                  "flex",
+                                  "w-4",
+                                  "items-center",
+                                  "justify-center"
+                                ],
+                                "attrs": {},
+                                "x": 1148,
+                                "y": 425,
+                                "w": 16,
+                                "h": 16
+                              },
+                              {
+                                "tag": "SPAN",
+                                "cls": [
+                                  "composer-questionnaire-toolbar-stepper-label"
+                                ],
+                                "attrs": {},
+                                "x": 1168,
+                                "y": 424,
+                                "w": 33,
+                                "h": 20,
+                                "text": "1 of 2"
+                              },
+                              {
+                                "tag": "DIV",
+                                "cls": [
+                                  "anysphere-icon-button",
+                                  "bg-[transparent]",
+                                  "border-none",
+                                  "text-[var(--cursor-text-primary)]",
+                                  "flex",
+                                  "w-4",
+                                  "items-center",
+                                  "justify-center"
+                                ],
+                                "attrs": {},
+                                "x": 1205,
+                                "y": 425,
+                                "w": 16,
+                                "h": 16
+                              }
+                            ]
+                          },
+                          {
+                            "tag": "DIV",
+                            "cls": [
+                              "anysphere-icon-button",
+                              "bg-[transparent]",
+                              "border-none",
+                              "text-[var(--cursor-text-primary)]",
+                              "flex",
+                              "w-4",
+                              "items-center",
+                              "justify-center",
+                              "composer-questionnaire-toolbar-collapse-button"
+                            ],
+                            "attrs": {},
+                            "x": 1231,
+                            "y": 425,
+                            "w": 16,
+                            "h": 16,
+                            "children": [
+                              {
+                                "tag": "SPAN",
+                                "cls": [
+                                  "codicon",
+                                  "codicon-chevron-down",
+                                  "!text-[11px]"
+                                ],
+                                "attrs": {},
+                                "x": 1234,
+                                "y": 428,
+                                "w": 11,
+                                "h": 11
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "tag": "DIV",
+                        "cls": [
+                          "composer-questionnaire-toolbar-collapsible"
+                        ],
+                        "attrs": {},
+                        "x": 913,
+                        "y": 455,
+                        "w": 336,
+                        "h": 200,
+                        "children": [
+                          {
+                            "tag": "DIV",
+                            "cls": [
+                              "composer-questionnaire-toolbar-collapsible-inner"
+                            ],
+                            "attrs": {},
+                            "x": 913,
+                            "y": 455,
+                            "w": 336,
+                            "h": 200,
+                            "children": [
+                              {
+                                "tag": "DIV",
+                                "cls": [
+                                  "composer-questionnaire-toolbar-scroll-container"
+                                ],
+                                "attrs": {},
+                                "x": 913,
+                                "y": 455,
+                                "w": 336,
+                                "h": 200
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "tag": "DIV",
+                        "cls": [
+                          "composer-questionnaire-toolbar-actions"
+                        ],
+                        "attrs": {},
+                        "x": 913,
+                        "y": 667,
+                        "w": 336,
+                        "h": 20,
+                        "children": [
+                          {
+                            "tag": "DIV",
+                            "cls": [
+                              "flex",
+                              "flex-nowrap",
+                              "items-center",
+                              "justify-center",
+                              "gap-[4px]",
+                              "px-[6px]",
+                              "rounded",
+                              "cursor-pointer",
+                              "whitespace-nowrap",
+                              "shrink-0",
+                              "anysphere-text-button",
+                              "composer-skip-button"
+                            ],
+                            "attrs": {
+                              "data-disabled": "false",
+                              "data-click-ready": "true"
+                            },
+                            "x": 1112,
+                            "y": 667,
+                            "w": 52,
+                            "h": 20,
+                            "children": [
+                              {
+                                "tag": "SPAN",
+                                "cls": [
+                                  "inline-flex",
+                                  "items-baseline",
+                                  "gap-[2px]",
+                                  "min-w-0",
+                                  "overflow-hidden"
+                                ],
+                                "attrs": {},
+                                "x": 1118,
+                                "y": 669,
+                                "w": 46,
+                                "h": 16
+                              }
+                            ]
+                          },
+                          {
+                            "tag": "DIV",
+                            "cls": [
+                              "flex",
+                              "flex-nowrap",
+                              "items-center",
+                              "justify-center",
+                              "gap-[4px]",
+                              "px-[6px]",
+                              "rounded",
+                              "cursor-pointer",
+                              "whitespace-nowrap",
+                              "shrink-0",
+                              "anysphere-button",
+                              "composer-run-button"
+                            ],
+                            "attrs": {
+                              "data-disabled": "true",
+                              "data-click-ready": "false"
+                            },
+                            "x": 1172,
+                            "y": 667,
+                            "w": 77,
+                            "h": 20,
+                            "children": [
+                              {
+                                "tag": "SPAN",
+                                "cls": [
+                                  "inline-flex",
+                                  "items-baseline",
+                                  "gap-[2px]",
+                                  "min-w-0",
+                                  "overflow-hidden"
+                                ],
+                                "attrs": {},
+                                "x": 1178,
+                                "y": 669,
+                                "w": 65,
+                                "h": 16
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "DIV",
+        "cls": [
+          "composer-input-blur-wrapper"
+        ],
+        "attrs": {},
+        "x": 897,
+        "y": 693,
+        "w": 368,
+        "h": 75,
+        "children": [
+          {
+            "tag": "DIV",
+            "cls": [
+              "ai-input-full-input-box",
+              "full-input-box"
+            ],
+            "attrs": {},
+            "x": 897,
+            "y": 693,
+            "w": 368,
+            "h": 75,
+            "children": [
+              {
+                "tag": "DIV",
+                "cls": [],
+                "attrs": {},
+                "x": 908,
+                "y": 702,
+                "w": 346,
+                "h": 59,
+                "children": [
+                  {
+                    "tag": "DIV",
+                    "cls": [],
+                    "attrs": {},
+                    "x": 908,
+                    "y": 702,
+                    "w": 346,
+                    "h": 59,
+                    "children": [
+                      {
+                        "tag": "DIV",
+                        "cls": [
+                          "scrollable-div-container",
+                          "smooth-height"
+                        ],
+                        "attrs": {},
+                        "x": 908,
+                        "y": 702,
+                        "w": 346,
+                        "h": 22,
+                        "children": [
+                          {
+                            "tag": "DIV",
+                            "cls": [
+                              "monaco-scrollable-element",
+                              "mac"
+                            ],
+                            "attrs": {
+                              "role": "presentation"
+                            },
+                            "x": 908,
+                            "y": 702,
+                            "w": 346,
+                            "h": 22,
+                            "children": [
+                              {
+                                "tag": "DIV",
+                                "cls": [],
+                                "attrs": {},
+                                "x": 908,
+                                "y": 702,
+                                "w": 346,
+                                "h": 22
+                              },
+                              {
+                                "tag": "DIV",
+                                "cls": [
+                                  "invisible",
+                                  "scrollbar",
+                                  "horizontal"
+                                ],
+                                "attrs": {
+                                  "role": "presentation",
+                                  "aria-hidden": "true"
+                                },
+                                "x": 908,
+                                "y": 714,
+                                "w": 336,
+                                "h": 10
+                              },
+                              {
+                                "tag": "DIV",
+                                "cls": [
+                                  "invisible",
+                                  "scrollbar",
+                                  "vertical"
+                                ],
+                                "attrs": {
+                                  "role": "presentation",
+                                  "aria-hidden": "true"
+                                },
+                                "x": 1244,
+                                "y": 702,
+                                "w": 10,
+                                "h": 22
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "tag": "DIV",
+                        "cls": [
+                          "ai-input-full-input-box-bottom-container"
+                        ],
+                        "attrs": {},
+                        "x": 908,
+                        "y": 724,
+                        "w": 346,
+                        "h": 37,
+                        "children": [
+                          {
+                            "tag": "DIV",
+                            "cls": [],
+                            "attrs": {},
+                            "x": 908,
+                            "y": 733,
+                            "w": 346,
+                            "h": 28,
+                            "children": [
+                              {
+                                "tag": "DIV",
+                                "cls": [],
+                                "attrs": {},
+                                "x": 908,
+                                "y": 733,
+                                "w": 346,
+                                "h": 28
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "humanTree": {
+    "tag": "DIV",
+    "cls": [
+      "human-message-with-todos-wrapper"
+    ],
+    "attrs": {},
+    "x": 897,
+    "y": 80,
+    "w": 368,
+    "h": 41,
+    "children": [
+      {
+        "tag": "DIV",
+        "cls": [
+          "composer-human-message-container",
+          "human-execution-message-top"
+        ],
+        "attrs": {},
+        "x": 897,
+        "y": 80,
+        "w": 368,
+        "h": 40,
+        "children": [
+          {
+            "tag": "DIV",
+            "cls": [],
+            "attrs": {},
+            "x": 897,
+            "y": 80,
+            "w": 368,
+            "h": 40,
+            "children": [
+              {
+                "tag": "DIV",
+                "cls": [
+                  "composer-human-message"
+                ],
+                "attrs": {},
+                "x": 897,
+                "y": 80,
+                "w": 368,
+                "h": 40,
+                "children": [
+                  {
+                    "tag": "DIV",
+                    "cls": [
+                      "composer-human-message-content"
+                    ],
+                    "attrs": {},
+                    "x": 898,
+                    "y": 81,
+                    "w": 366,
+                    "h": 38,
+                    "children": [
+                      {
+                        "tag": "DIV",
+                        "cls": [
+                          "composer-human-message-body",
+                          "flex",
+                          "w-full",
+                          "justify-between",
+                          "box-border",
+                          "gap-2.5",
+                          "items-center"
+                        ],
+                        "attrs": {},
+                        "x": 908,
+                        "y": 89,
+                        "w": 346,
+                        "h": 22,
+                        "children": [
+                          {
+                            "tag": "DIV",
+                            "cls": [
+                              "human-message-inline-body",
+                              "min-w-0",
+                              "h-min"
+                            ],
+                            "attrs": {},
+                            "x": 908,
+                            "y": 89,
+                            "w": 158,
+                            "h": 22
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "DIV",
+        "cls": [
+          "human-execution-message-bottom"
+        ],
+        "attrs": {},
+        "x": 897,
+        "y": 119,
+        "w": 368,
+        "h": 2,
+        "children": [
+          {
+            "tag": "DIV",
+            "cls": [],
+            "attrs": {
+              "aria-hidden": "true"
+            },
+            "x": 897,
+            "y": 119,
+            "w": 368,
+            "h": 2
+          },
+          {
+            "tag": "DIV",
+            "cls": [
+              "composer-fade-overlay"
+            ],
+            "attrs": {},
+            "x": 897,
+            "y": 121,
+            "w": 368,
+            "h": 20
+          }
+        ]
+      }
+    ]
+  },
+  "composerTree": {
+    "tag": "DIV",
+    "cls": [
+      "scrollable-div-container",
+      "smooth-height"
+    ],
+    "attrs": {},
+    "x": 908,
+    "y": 702,
+    "w": 346,
+    "h": 22,
+    "children": [
+      {
+        "tag": "DIV",
+        "cls": [
+          "monaco-scrollable-element",
+          "mac"
+        ],
+        "attrs": {
+          "role": "presentation"
+        },
+        "x": 908,
+        "y": 702,
+        "w": 346,
+        "h": 22,
+        "children": [
+          {
+            "tag": "DIV",
+            "cls": [],
+            "attrs": {},
+            "x": 908,
+            "y": 702,
+            "w": 346,
+            "h": 22,
+            "children": [
+              {
+                "tag": "DIV",
+                "cls": [],
+                "attrs": {},
+                "x": 908,
+                "y": 702,
+                "w": 346,
+                "h": 22,
+                "children": [
+                  {
+                    "tag": "DIV",
+                    "cls": [],
+                    "attrs": {},
+                    "x": 908,
+                    "y": 702,
+                    "w": 346,
+                    "h": 22,
+                    "children": [
+                      {
+                        "tag": "DIV",
+                        "cls": [
+                          "aislash-editor-grid"
+                        ],
+                        "attrs": {},
+                        "x": 908,
+                        "y": 702,
+                        "w": 692,
+                        "h": 22,
+                        "children": [
+                          {
+                            "tag": "DIV",
+                            "cls": [
+                              "aislash-editor-input"
+                            ],
+                            "attrs": {
+                              "contenteditable": "true",
+                              "data-lexical-editor": "true",
+                              "data-editor-owns-history": "true",
+                              "role": "textbox"
+                            },
+                            "x": 908,
+                            "y": 702,
+                            "w": 346,
+                            "h": 22,
+                            "children": [
+                              {
+                                "tag": "P",
+                                "cls": [],
+                                "attrs": {},
+                                "x": 908,
+                                "y": 702,
+                                "w": 346,
+                                "h": 22
+                              }
+                            ]
+                          },
+                          {
+                            "tag": "DIV",
+                            "cls": [],
+                            "attrs": {},
+                            "x": 1254,
+                            "y": 702,
+                            "w": 346,
+                            "h": 22,
+                            "children": [
+                              {
+                                "tag": "DIV",
+                                "cls": [
+                                  "aislash-editor-placeholder"
+                                ],
+                                "attrs": {},
+                                "x": 908,
+                                "y": 702,
+                                "w": 346,
+                                "h": 22,
+                                "text": "[text:25]"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "tag": "DIV",
+            "cls": [
+              "invisible",
+              "scrollbar",
+              "horizontal"
+            ],
+            "attrs": {
+              "role": "presentation",
+              "aria-hidden": "true"
+            },
+            "x": 908,
+            "y": 714,
+            "w": 336,
+            "h": 10,
+            "children": [
+              {
+                "tag": "DIV",
+                "cls": [
+                  "slider"
+                ],
+                "attrs": {},
+                "x": 908,
+                "y": 714,
+                "w": 336,
+                "h": 10
+              }
+            ]
+          },
+          {
+            "tag": "DIV",
+            "cls": [
+              "invisible",
+              "scrollbar",
+              "vertical"
+            ],
+            "attrs": {
+              "role": "presentation",
+              "aria-hidden": "true"
+            },
+            "x": 1244,
+            "y": 702,
+            "w": 10,
+            "h": 22,
+            "children": [
+              {
+                "tag": "DIV",
+                "cls": [
+                  "slider"
+                ],
+                "attrs": {},
+                "x": 1244,
+                "y": 702,
+                "w": 10,
+                "h": 22
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "marks": [
+    {
+      "name": "questionsLabel",
+      "cls": "composer-questionnaire-toolbar-title",
+      "attrs": {},
+      "box": {
+        "x": 941,
+        "y": 424,
+        "w": 61,
+        "h": 20
+      },
+      "style": {
+        "display": "block",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "normal",
+        "alignItems": "normal",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "61.1094px",
+        "height": "19.5px",
+        "minWidth": "auto",
+        "maxWidth": "none",
+        "minHeight": "auto",
+        "maxHeight": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "0px",
+        "borderRightWidth": "0px",
+        "borderBottomWidth": "0px",
+        "borderLeftWidth": "0px",
+        "borderTopStyle": "none",
+        "borderTopColor": "rgba(240, 240, 240, 0.74)",
+        "borderRadius": "0px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgba(240, 240, 240, 0.74)",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "19.5px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "visible",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "boxSizing": "content-box",
+        "opacity": "1",
+        "whiteSpace": "normal",
+        "textAlign": "start",
+        "gridTemplateColumns": "none"
+      },
+      "parentChain": [
+        {
+          "tag": "SPAN",
+          "cls": "composer-questionnaire-toolbar-title"
+        },
+        {
+          "tag": "DIV",
+          "cls": "composer-questionnaire-toolbar-header"
+        },
+        {
+          "tag": "DIV",
+          "cls": "composer-questionnaire-toolbar"
+        },
+        {
+          "tag": "DIV",
+          "cls": "hide-if-empty has-pending-questionnaire "
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "composer-bar editor"
+        }
+      ]
+    },
+    {
+      "name": "humanMessage",
+      "cls": "composer-human-message",
+      "attrs": {},
+      "box": {
+        "x": 897,
+        "y": 80,
+        "w": 368,
+        "h": 40
+      },
+      "style": {
+        "display": "flex",
+        "position": "relative",
+        "flexDirection": "column",
+        "flexWrap": "nowrap",
+        "justifyContent": "normal",
+        "alignItems": "normal",
+        "alignSelf": "flex-end",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "368px",
+        "height": "40px",
+        "minWidth": "150px",
+        "maxWidth": "none",
+        "minHeight": "auto",
+        "maxHeight": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "1px",
+        "borderRightWidth": "1px",
+        "borderBottomWidth": "1px",
+        "borderLeftWidth": "1px",
+        "borderTopStyle": "solid",
+        "borderTopColor": "color(srgb 0.941176 0.941176 0.941176 / 0.12)",
+        "borderRadius": "12px",
+        "backgroundColor": "color(srgb 0.303495 0.303495 0.303495 / 0.135294)",
+        "background": "color(srgb 0.303495 0.303495 0.303495 / 0.135294) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgba(240, 240, 240, 0.74)",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "18.2px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "visible",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "boxSizing": "border-box",
+        "opacity": "1",
+        "whiteSpace": "normal",
+        "textAlign": "start",
+        "gridTemplateColumns": "none"
+      },
+      "parentChain": [
+        {
+          "tag": "DIV",
+          "cls": "composer-human-message"
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "composer-human-message-container human-execution-message-top"
+        },
+        {
+          "tag": "DIV",
+          "cls": "human-message-with-todos-wrapper"
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "relative composer-rendered-message hide-if-empty composer-message-blur"
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "virtualized-composer-messages-row-body"
+        }
+      ]
+    },
+    {
+      "name": "composerInput",
+      "cls": "aislash-editor-input",
+      "attrs": {
+        "contenteditable": "true",
+        "data-lexical-editor": "true",
+        "data-editor-owns-history": "true",
+        "role": "textbox"
+      },
+      "box": {
+        "x": 908,
+        "y": 702,
+        "w": 346,
+        "h": 22
+      },
+      "style": {
+        "display": "block",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "normal",
+        "alignItems": "normal",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "346px",
+        "height": "22px",
+        "minWidth": "auto",
+        "maxWidth": "none",
+        "minHeight": "auto",
+        "maxHeight": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "0px",
+        "borderRightWidth": "0px",
+        "borderBottomWidth": "0px",
+        "borderLeftWidth": "0px",
+        "borderTopStyle": "none",
+        "borderTopColor": "rgb(240, 240, 240)",
+        "borderRadius": "0px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgb(240, 240, 240)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "hidden",
+        "overflowX": "hidden",
+        "overflowY": "hidden",
+        "boxSizing": "border-box",
+        "opacity": "1",
+        "whiteSpace": "pre-wrap",
+        "textAlign": "start",
+        "gridTemplateColumns": "none"
+      },
+      "parentChain": [
+        {
+          "tag": "DIV",
+          "cls": "aislash-editor-input"
+        },
+        {
+          "tag": "DIV",
+          "cls": "aislash-editor-grid"
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "monaco-scrollable-element mac"
+        },
+        {
+          "tag": "DIV",
+          "cls": "scrollable-div-container smooth-height "
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        }
+      ]
+    },
+    {
+      "name": "markdown-0",
+      "cls": "ui-markdown ui-4xmdv1 ui-1bcdmom ui-ci6ffn ui-1hx0egp ui-vryglj ui-p7ewxj ui-1xr1fm3 ui-1hjypbk ui-1sxvp6b ui-o9w7m5 ui-17ewauw ui-1vakzcb ui-105xmc4 ui-1nsav61 ui-1jxofbz ui-947h55 ui-ta7kcf ui-1iagb",
+      "attrs": {
+        "data-size": "md"
+      },
+      "box": {
+        "x": 908,
+        "y": -200,
+        "w": 346,
+        "h": 44
+      },
+      "style": {
+        "display": "block",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "normal",
+        "alignItems": "normal",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "346px",
+        "height": "44px",
+        "minWidth": "0px",
+        "maxWidth": "none",
+        "minHeight": "0px",
+        "maxHeight": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "0px",
+        "borderRightWidth": "0px",
+        "borderBottomWidth": "0px",
+        "borderLeftWidth": "0px",
+        "borderTopStyle": "none",
+        "borderTopColor": "rgb(240, 240, 240)",
+        "borderRadius": "0px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgb(240, 240, 240)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "visible",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "boxSizing": "content-box",
+        "opacity": "1",
+        "whiteSpace": "normal",
+        "textAlign": "start",
+        "gridTemplateColumns": "none"
+      },
+      "parentChain": [
+        {
+          "tag": "DIV",
+          "cls": "ui-markdown ui-4xmdv1 ui-1bcdmom ui-ci6ffn ui-1hx0egp ui-vryglj"
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "agent-transcript-row agent-transcript-row-markdown ui-euugli ui-198po50 ui-1heor9g"
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "virtualized-composer-messages-row-body"
+        },
+        {
+          "tag": "DIV",
+          "cls": "composer-react-virtual-plane-row virtualized-composer-messages-row"
+        },
+        {
+          "tag": "DIV",
+          "cls": "composer-react-virtual-plane-inner virtualized-composer-messages-virtual-plane"
+        },
+        {
+          "tag": "DIV",
+          "cls": "virtualized-composer-messages-content-shell"
+        }
+      ]
+    },
+    {
+      "name": "markdown-1",
+      "cls": "ui-markdown ui-4xmdv1 ui-1bcdmom ui-ci6ffn ui-1hx0egp ui-vryglj ui-p7ewxj ui-1xr1fm3 ui-1hjypbk ui-1sxvp6b ui-o9w7m5 ui-17ewauw ui-1vakzcb ui-105xmc4 ui-1nsav61 ui-1jxofbz ui-947h55 ui-ta7kcf ui-1iagb",
+      "attrs": {
+        "data-size": "md"
+      },
+      "box": {
+        "x": 908,
+        "y": -106,
+        "w": 346,
+        "h": 66
+      },
+      "style": {
+        "display": "block",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "normal",
+        "alignItems": "normal",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "346px",
+        "height": "66px",
+        "minWidth": "0px",
+        "maxWidth": "none",
+        "minHeight": "0px",
+        "maxHeight": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "0px",
+        "borderRightWidth": "0px",
+        "borderBottomWidth": "0px",
+        "borderLeftWidth": "0px",
+        "borderTopStyle": "none",
+        "borderTopColor": "rgb(240, 240, 240)",
+        "borderRadius": "0px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgb(240, 240, 240)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "visible",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "boxSizing": "content-box",
+        "opacity": "1",
+        "whiteSpace": "normal",
+        "textAlign": "start",
+        "gridTemplateColumns": "none"
+      },
+      "parentChain": [
+        {
+          "tag": "DIV",
+          "cls": "ui-markdown ui-4xmdv1 ui-1bcdmom ui-ci6ffn ui-1hx0egp ui-vryglj"
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "agent-transcript-row agent-transcript-row-markdown ui-euugli ui-198po50 ui-1heor9g"
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "virtualized-composer-messages-row-body"
+        },
+        {
+          "tag": "DIV",
+          "cls": "composer-react-virtual-plane-row virtualized-composer-messages-row"
+        },
+        {
+          "tag": "DIV",
+          "cls": "composer-react-virtual-plane-inner virtualized-composer-messages-virtual-plane"
+        },
+        {
+          "tag": "DIV",
+          "cls": "virtualized-composer-messages-content-shell"
+        }
+      ]
+    },
+    {
+      "name": "markdown-2",
+      "cls": "ui-markdown ui-ci6ffn ui-1hx0egp ui-1xr1fm3 ui-1hjypbk ui-1sxvp6b ui-o9w7m5 ui-17ewauw ui-1vakzcb ui-105xmc4 ui-1nsav61 ui-1jxofbz ui-947h55 ui-ta7kcf ui-1iagb1a ui-ez8t0j ui-i2wo5x ui-1m7taqw ui-5etu",
+      "attrs": {
+        "data-size": "sm"
+      },
+      "box": {
+        "x": 943,
+        "y": 455,
+        "w": 306,
+        "h": 54
+      },
+      "style": {
+        "display": "block",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "normal",
+        "alignItems": "normal",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "306px",
+        "height": "54px",
+        "minWidth": "auto",
+        "maxWidth": "none",
+        "minHeight": "auto",
+        "maxHeight": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "0px",
+        "borderRightWidth": "0px",
+        "borderBottomWidth": "0px",
+        "borderLeftWidth": "0px",
+        "borderTopStyle": "none",
+        "borderTopColor": "rgb(240, 240, 240)",
+        "borderRadius": "0px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgb(240, 240, 240)",
+        "fontSize": "13px",
+        "fontWeight": "590",
+        "lineHeight": "18px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "visible",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "boxSizing": "content-box",
+        "opacity": "1",
+        "whiteSpace": "normal",
+        "textAlign": "start",
+        "gridTemplateColumns": "none"
+      },
+      "parentChain": [
+        {
+          "tag": "DIV",
+          "cls": "ui-markdown ui-ci6ffn ui-1hx0egp ui-1xr1fm3 ui-1hjypbk ui-1sxvp6b"
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "composer-questionnaire-toolbar-question-label"
+        },
+        {
+          "tag": "DIV",
+          "cls": "composer-questionnaire-toolbar-question composer-questionnaire-toolbar-question-active"
+        },
+        {
+          "tag": "DIV",
+          "cls": "composer-questionnaire-toolbar-questions"
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "monaco-scrollable-element mac"
+        }
+      ]
+    },
+    {
+      "name": "markdown-3",
+      "cls": "ui-markdown ui-ci6ffn ui-1hx0egp ui-1xr1fm3 ui-1hjypbk ui-1sxvp6b ui-o9w7m5 ui-17ewauw ui-1vakzcb ui-105xmc4 ui-1nsav61 ui-1jxofbz ui-947h55 ui-ta7kcf ui-1iagb1a ui-ez8t0j ui-i2wo5x ui-1m7taqw ui-5etu",
+      "attrs": {
+        "data-size": "sm"
+      },
+      "box": {
+        "x": 943,
+        "y": 635,
+        "w": 236,
+        "h": 18
+      },
+      "style": {
+        "display": "block",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "normal",
+        "alignItems": "normal",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "236.109px",
+        "height": "18px",
+        "minWidth": "auto",
+        "maxWidth": "none",
+        "minHeight": "auto",
+        "maxHeight": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "0px",
+        "borderRightWidth": "0px",
+        "borderBottomWidth": "0px",
+        "borderLeftWidth": "0px",
+        "borderTopStyle": "none",
+        "borderTopColor": "rgb(240, 240, 240)",
+        "borderRadius": "0px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgb(240, 240, 240)",
+        "fontSize": "13px",
+        "fontWeight": "590",
+        "lineHeight": "18px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "visible",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "boxSizing": "content-box",
+        "opacity": "1",
+        "whiteSpace": "normal",
+        "textAlign": "start",
+        "gridTemplateColumns": "none"
+      },
+      "parentChain": [
+        {
+          "tag": "DIV",
+          "cls": "ui-markdown ui-ci6ffn ui-1hx0egp ui-1xr1fm3 ui-1hjypbk ui-1sxvp6b"
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "composer-questionnaire-toolbar-question-label"
+        },
+        {
+          "tag": "DIV",
+          "cls": "composer-questionnaire-toolbar-question"
+        },
+        {
+          "tag": "DIV",
+          "cls": "composer-questionnaire-toolbar-questions"
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "monaco-scrollable-element mac"
+        }
+      ]
+    },
+    {
+      "name": "markdown-4",
+      "cls": "ui-markdown ui-ci6ffn ui-1xr1fm3 ui-1hjypbk ui-1sxvp6b ui-o9w7m5 ui-17ewauw ui-1vakzcb ui-105xmc4 ui-1nsav61 ui-1jxofbz ui-947h55 ui-ta7kcf ui-1iagb1a ui-ez8t0j ui-i2wo5x ui-1m7taqw ui-5etuts ui-w690q",
+      "attrs": {
+        "data-size": "sm"
+      },
+      "box": {
+        "x": 991,
+        "y": 738,
+        "w": 82,
+        "h": 18
+      },
+      "style": {
+        "display": "block",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "normal",
+        "alignItems": "normal",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "81.6641px",
+        "height": "18px",
+        "minWidth": "0px",
+        "maxWidth": "none",
+        "minHeight": "auto",
+        "maxHeight": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "0px",
+        "borderRightWidth": "0px",
+        "borderBottomWidth": "0px",
+        "borderLeftWidth": "0px",
+        "borderTopStyle": "none",
+        "borderTopColor": "rgb(240, 240, 240)",
+        "borderRadius": "0px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgb(240, 240, 240)",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "18px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "hidden",
+        "overflowX": "hidden",
+        "overflowY": "hidden",
+        "boxSizing": "content-box",
+        "opacity": "1",
+        "whiteSpace": "nowrap",
+        "textAlign": "center",
+        "gridTemplateColumns": "none"
+      },
+      "parentChain": [
+        {
+          "tag": "DIV",
+          "cls": "ui-markdown ui-ci6ffn ui-1xr1fm3 ui-1hjypbk ui-1sxvp6b ui-o9w7m5"
+        },
+        {
+          "tag": "SPAN",
+          "cls": "vscode-model-picker__trigger-text"
+        },
+        {
+          "tag": "BUTTON",
+          "cls": "ui-button ui-9f619 ui-jb2p0i ui-mkeg23 ui-1y0btm7 ui-9r1u3d"
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": ""
+        },
+        {
+          "tag": "DIV",
+          "cls": "flex gap-1"
+        },
+        {
+          "tag": "DIV",
+          "cls": "composer-bar-input-buttons"
+        }
+      ]
+    }
+  ],
+  "buttons": [
+    {
+      "cls": [
+        "composer-questionnaire-toolbar-option-letter"
+      ],
+      "aria": null,
+      "ariaPressed": null,
+      "ariaChecked": null,
+      "box": {
+        "x": 918,
+        "y": 519,
+        "w": 19,
+        "h": 19
+      },
+      "style": {
+        "display": "flex",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "alignItems": "center",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "19px",
+        "height": "19px",
+        "minWidth": "19px",
+        "maxWidth": "none",
+        "minHeight": "auto",
+        "maxHeight": "none",
+        "paddingTop": "1px",
+        "paddingRight": "1px",
+        "paddingBottom": "1px",
+        "paddingLeft": "1px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "1px",
+        "borderRightWidth": "1px",
+        "borderBottomWidth": "1px",
+        "borderLeftWidth": "1px",
+        "borderTopStyle": "solid",
+        "borderTopColor": "rgba(240, 240, 240, 0.07)",
+        "borderRadius": "3px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgba(240, 240, 240, 0.74)",
+        "fontSize": "10px",
+        "fontWeight": "700",
+        "lineHeight": "10px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "visible",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "boxSizing": "border-box",
+        "opacity": "1",
+        "whiteSpace": "normal",
+        "textAlign": "center",
+        "gridTemplateColumns": "none"
+      },
+      "text": "A"
+    },
+    {
+      "cls": [
+        "composer-questionnaire-toolbar-option-letter"
+      ],
+      "aria": null,
+      "ariaPressed": null,
+      "ariaChecked": null,
+      "box": {
+        "x": 918,
+        "y": 546,
+        "w": 19,
+        "h": 19
+      },
+      "style": {
+        "display": "flex",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "alignItems": "center",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "19px",
+        "height": "19px",
+        "minWidth": "19px",
+        "maxWidth": "none",
+        "minHeight": "auto",
+        "maxHeight": "none",
+        "paddingTop": "1px",
+        "paddingRight": "1px",
+        "paddingBottom": "1px",
+        "paddingLeft": "1px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "1px",
+        "borderRightWidth": "1px",
+        "borderBottomWidth": "1px",
+        "borderLeftWidth": "1px",
+        "borderTopStyle": "solid",
+        "borderTopColor": "rgba(240, 240, 240, 0.07)",
+        "borderRadius": "3px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgba(240, 240, 240, 0.74)",
+        "fontSize": "10px",
+        "fontWeight": "700",
+        "lineHeight": "10px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "visible",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "boxSizing": "border-box",
+        "opacity": "1",
+        "whiteSpace": "normal",
+        "textAlign": "center",
+        "gridTemplateColumns": "none"
+      },
+      "text": "B"
+    },
+    {
+      "cls": [
+        "composer-questionnaire-toolbar-option-letter"
+      ],
+      "aria": null,
+      "ariaPressed": null,
+      "ariaChecked": null,
+      "box": {
+        "x": 918,
+        "y": 573,
+        "w": 19,
+        "h": 19
+      },
+      "style": {
+        "display": "flex",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "alignItems": "center",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "19px",
+        "height": "19px",
+        "minWidth": "19px",
+        "maxWidth": "none",
+        "minHeight": "auto",
+        "maxHeight": "none",
+        "paddingTop": "1px",
+        "paddingRight": "1px",
+        "paddingBottom": "1px",
+        "paddingLeft": "1px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "1px",
+        "borderRightWidth": "1px",
+        "borderBottomWidth": "1px",
+        "borderLeftWidth": "1px",
+        "borderTopStyle": "solid",
+        "borderTopColor": "rgba(240, 240, 240, 0.07)",
+        "borderRadius": "3px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgba(240, 240, 240, 0.74)",
+        "fontSize": "10px",
+        "fontWeight": "700",
+        "lineHeight": "10px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "visible",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "boxSizing": "border-box",
+        "opacity": "1",
+        "whiteSpace": "normal",
+        "textAlign": "center",
+        "gridTemplateColumns": "none"
+      },
+      "text": "C"
+    },
+    {
+      "cls": [
+        "composer-questionnaire-toolbar-option-letter"
+      ],
+      "aria": null,
+      "ariaPressed": null,
+      "ariaChecked": null,
+      "box": {
+        "x": 918,
+        "y": 600,
+        "w": 19,
+        "h": 19
+      },
+      "style": {
+        "display": "flex",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "alignItems": "center",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "19px",
+        "height": "19px",
+        "minWidth": "19px",
+        "maxWidth": "none",
+        "minHeight": "auto",
+        "maxHeight": "none",
+        "paddingTop": "1px",
+        "paddingRight": "1px",
+        "paddingBottom": "1px",
+        "paddingLeft": "1px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "1px",
+        "borderRightWidth": "1px",
+        "borderBottomWidth": "1px",
+        "borderLeftWidth": "1px",
+        "borderTopStyle": "solid",
+        "borderTopColor": "rgba(240, 240, 240, 0.07)",
+        "borderRadius": "3px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgba(240, 240, 240, 0.74)",
+        "fontSize": "10px",
+        "fontWeight": "700",
+        "lineHeight": "10px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "visible",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "boxSizing": "border-box",
+        "opacity": "1",
+        "whiteSpace": "normal",
+        "textAlign": "center",
+        "gridTemplateColumns": "none"
+      },
+      "text": "D"
+    },
+    {
+      "cls": [
+        "composer-questionnaire-toolbar-option-letter"
+      ],
+      "aria": null,
+      "ariaPressed": null,
+      "ariaChecked": null,
+      "box": {
+        "x": 918,
+        "y": 663,
+        "w": 19,
+        "h": 19
+      },
+      "style": {
+        "display": "flex",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "alignItems": "center",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "19px",
+        "height": "19px",
+        "minWidth": "19px",
+        "maxWidth": "none",
+        "minHeight": "auto",
+        "maxHeight": "none",
+        "paddingTop": "1px",
+        "paddingRight": "1px",
+        "paddingBottom": "1px",
+        "paddingLeft": "1px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "1px",
+        "borderRightWidth": "1px",
+        "borderBottomWidth": "1px",
+        "borderLeftWidth": "1px",
+        "borderTopStyle": "solid",
+        "borderTopColor": "rgba(240, 240, 240, 0.07)",
+        "borderRadius": "3px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgba(240, 240, 240, 0.74)",
+        "fontSize": "10px",
+        "fontWeight": "700",
+        "lineHeight": "10px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "visible",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "boxSizing": "border-box",
+        "opacity": "1",
+        "whiteSpace": "normal",
+        "textAlign": "center",
+        "gridTemplateColumns": "none"
+      },
+      "text": "A"
+    },
+    {
+      "cls": [
+        "composer-questionnaire-toolbar-option-letter"
+      ],
+      "aria": null,
+      "ariaPressed": null,
+      "ariaChecked": null,
+      "box": {
+        "x": 918,
+        "y": 707,
+        "w": 19,
+        "h": 19
+      },
+      "style": {
+        "display": "flex",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "alignItems": "center",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "19px",
+        "height": "19px",
+        "minWidth": "19px",
+        "maxWidth": "none",
+        "minHeight": "auto",
+        "maxHeight": "none",
+        "paddingTop": "1px",
+        "paddingRight": "1px",
+        "paddingBottom": "1px",
+        "paddingLeft": "1px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "1px",
+        "borderRightWidth": "1px",
+        "borderBottomWidth": "1px",
+        "borderLeftWidth": "1px",
+        "borderTopStyle": "solid",
+        "borderTopColor": "rgba(240, 240, 240, 0.07)",
+        "borderRadius": "3px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgba(240, 240, 240, 0.74)",
+        "fontSize": "10px",
+        "fontWeight": "700",
+        "lineHeight": "10px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "visible",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "boxSizing": "border-box",
+        "opacity": "1",
+        "whiteSpace": "normal",
+        "textAlign": "center",
+        "gridTemplateColumns": "none"
+      },
+      "text": "B"
+    },
+    {
+      "cls": [
+        "composer-questionnaire-toolbar-option-letter"
+      ],
+      "aria": null,
+      "ariaPressed": null,
+      "ariaChecked": null,
+      "box": {
+        "x": 918,
+        "y": 734,
+        "w": 19,
+        "h": 19
+      },
+      "style": {
+        "display": "flex",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "alignItems": "center",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "19px",
+        "height": "19px",
+        "minWidth": "19px",
+        "maxWidth": "none",
+        "minHeight": "auto",
+        "maxHeight": "none",
+        "paddingTop": "1px",
+        "paddingRight": "1px",
+        "paddingBottom": "1px",
+        "paddingLeft": "1px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "1px",
+        "borderRightWidth": "1px",
+        "borderBottomWidth": "1px",
+        "borderLeftWidth": "1px",
+        "borderTopStyle": "solid",
+        "borderTopColor": "rgba(240, 240, 240, 0.07)",
+        "borderRadius": "3px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgba(240, 240, 240, 0.74)",
+        "fontSize": "10px",
+        "fontWeight": "700",
+        "lineHeight": "10px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "visible",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "boxSizing": "border-box",
+        "opacity": "1",
+        "whiteSpace": "normal",
+        "textAlign": "center",
+        "gridTemplateColumns": "none"
+      },
+      "text": "C"
+    },
+    {
+      "cls": [
+        "composer-questionnaire-toolbar-option-letter"
+      ],
+      "aria": null,
+      "ariaPressed": null,
+      "ariaChecked": null,
+      "box": {
+        "x": 918,
+        "y": 761,
+        "w": 19,
+        "h": 19
+      },
+      "style": {
+        "display": "flex",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "alignItems": "center",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "19px",
+        "height": "19px",
+        "minWidth": "19px",
+        "maxWidth": "none",
+        "minHeight": "auto",
+        "maxHeight": "none",
+        "paddingTop": "1px",
+        "paddingRight": "1px",
+        "paddingBottom": "1px",
+        "paddingLeft": "1px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "1px",
+        "borderRightWidth": "1px",
+        "borderBottomWidth": "1px",
+        "borderLeftWidth": "1px",
+        "borderTopStyle": "solid",
+        "borderTopColor": "rgba(240, 240, 240, 0.07)",
+        "borderRadius": "3px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgba(240, 240, 240, 0.74)",
+        "fontSize": "10px",
+        "fontWeight": "700",
+        "lineHeight": "10px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "visible",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "boxSizing": "border-box",
+        "opacity": "1",
+        "whiteSpace": "normal",
+        "textAlign": "center",
+        "gridTemplateColumns": "none"
+      },
+      "text": "D"
+    },
+    {
+      "cls": [
+        "ui-button",
+        "ui-9f619",
+        "ui-jb2p0i",
+        "ui-mkeg23",
+        "ui-1y0btm7",
+        "ui-9r1u3d",
+        "ui-1ypdohk",
+        "ui-1j1ks5o"
+      ],
+      "aria": null,
+      "ariaPressed": null,
+      "ariaChecked": null,
+      "box": {
+        "x": 984,
+        "y": 737,
+        "w": 111,
+        "h": 20
+      },
+      "style": {
+        "display": "inline-flex",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "alignItems": "center",
+        "alignSelf": "auto",
+        "gap": "6px",
+        "rowGap": "6px",
+        "columnGap": "6px",
+        "width": "110.664px",
+        "height": "20px",
+        "minWidth": "0px",
+        "maxWidth": "100%",
+        "minHeight": "0px",
+        "maxHeight": "none",
+        "paddingTop": "0px",
+        "paddingRight": "6px",
+        "paddingBottom": "0px",
+        "paddingLeft": "6px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "1px",
+        "borderRightWidth": "1px",
+        "borderBottomWidth": "1px",
+        "borderLeftWidth": "1px",
+        "borderTopStyle": "solid",
+        "borderTopColor": "rgba(0, 0, 0, 0)",
+        "borderRadius": "4px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "background": "rgba(0, 0, 0, 0) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "color(srgb 0.941176 0.941176 0.941176 / 0.74)",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "18px",
+        "fontFamily": "-apple-system, \"system-ui\", sans-serif",
+        "overflow": "hidden",
+        "overflowX": "hidden",
+        "overflowY": "hidden",
+        "boxSizing": "border-box",
+        "opacity": "1",
+        "whiteSpace": "nowrap",
+        "textAlign": "center",
+        "gridTemplateColumns": "none"
+      },
+      "text": "Grok 4.7 High"
+    },
+    {
+      "cls": [
+        "ui-prompt-input-submit-button",
+        "ui-78zum5",
+        "ui-6s0dn4",
+        "ui-l56j7k",
+        "ui-2lah0s",
+        "ui-exx8yu",
+        "ui-1xpa7k",
+        "ui-18d9i69"
+      ],
+      "aria": "Start voice chat",
+      "ariaPressed": null,
+      "ariaChecked": null,
+      "box": {
+        "x": 1234,
+        "y": 737,
+        "w": 20,
+        "h": 20
+      },
+      "style": {
+        "display": "flex",
+        "position": "static",
+        "flexDirection": "row",
+        "flexWrap": "nowrap",
+        "justifyContent": "center",
+        "alignItems": "center",
+        "alignSelf": "auto",
+        "gap": "normal",
+        "rowGap": "normal",
+        "columnGap": "normal",
+        "width": "20px",
+        "height": "20px",
+        "minWidth": "auto",
+        "maxWidth": "none",
+        "minHeight": "auto",
+        "maxHeight": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "0px",
+        "marginRight": "0px",
+        "marginBottom": "0px",
+        "marginLeft": "0px",
+        "borderTopWidth": "0px",
+        "borderRightWidth": "0px",
+        "borderBottomWidth": "0px",
+        "borderLeftWidth": "0px",
+        "borderTopStyle": "none",
+        "borderTopColor": "rgb(0, 0, 0)",
+        "borderRadius": "9999px",
+        "backgroundColor": "rgb(240, 240, 240)",
+        "background": "rgb(240, 240, 240) none repeat scroll 0% 0% / auto padding-box border-box",
+        "color": "rgb(24, 24, 24)",
+        "fontSize": "13.3333px",
+        "fontWeight": "400",
+        "lineHeight": "normal",
+        "fontFamily": "Arial",
+        "overflow": "visible",
+        "overflowX": "visible",
+        "overflowY": "visible",
+        "boxSizing": "border-box",
+        "opacity": "1",
+        "whiteSpace": "normal",
+        "textAlign": "center",
+        "gridTemplateColumns": "none"
+      },
+      "text": ""
+    }
+  ]
+}

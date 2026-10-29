@@ -1,0 +1,213 @@
+{
+  "capturedAt": "2026-10-29T00:16+09:00",
+  "state": "plan-view",
+  "cursor": "3.26.13",
+  "page": "workbench editor split: plan document (left) + chat editor group (right). Not the Agents Window.",
+  "viewport": {
+    "w": 1280,
+    "h": 800
+  },
+  "theme": {
+    "editorBackground": "#181818",
+    "text": "rgb(240, 240, 240)",
+    "note": "Dark. Body class includes glass-typography-refresh and chat-editor-group-enabled."
+  },
+  "screenshotLocal": "/tmp/cursor-ui-probe-chat-20261029/captures/plan-view.png",
+  "note": "Plan prose, filenames, and account text redacted. Screenshot is outside the repo.",
+  "columns": {
+    "planEditorGroup": {
+      "x": 0,
+      "y": 35,
+      "w": 880,
+      "h": 743
+    },
+    "chatEditorGroup": {
+      "x": 881,
+      "messageColumnWidth": 368,
+      "scroll": {
+        "x": 881,
+        "y": 70,
+        "w": 400,
+        "h": 623,
+        "scrollTop": 345,
+        "scrollHeight": 968,
+        "clientHeight": 623
+      }
+    }
+  },
+  "planDocument": {
+    "root": "div.plan-editor",
+    "renderer": "TipTap ProseMirror inside .plan-editor__richtext. Monaco editor count was 0.",
+    "wrapper": {
+      "cls": "plan-editor__wrapper",
+      "x": 40,
+      "y": 102,
+      "w": 800,
+      "h": 1014,
+      "maxWidth": "800px",
+      "padding": "32px 24px 64px 24px",
+      "display": "flex",
+      "flexDirection": "column"
+    },
+    "content": {
+      "cls": "plan-editor__richtext-content",
+      "x": 64,
+      "y": 134,
+      "w": 752,
+      "fontSize": "13px",
+      "lineHeight": "20.8px",
+      "fontWeight": "400",
+      "color": "rgb(240, 240, 240)"
+    },
+    "h1": {
+      "fontSize": "22.75px",
+      "lineHeight": "28.4375px",
+      "fontWeight": "600",
+      "marginBottom": "11.375px",
+      "w": 752,
+      "h": 28
+    },
+    "h2": {
+      "fontSize": "19.5px",
+      "lineHeight": "24.375px",
+      "fontWeight": "600",
+      "marginTop": "24.375px",
+      "marginBottom": "9.75px",
+      "h": 24
+    },
+    "inlineCodeLinks": 3
+  },
+  "chat": {
+    "humanMessage": {
+      "cls": "composer-human-message",
+      "x": 897,
+      "y": 80,
+      "w": 368,
+      "h": 40,
+      "alignSelf": "flex-end",
+      "radius": "12px",
+      "border": "1px solid white 12%",
+      "background": "srgb 0.303 / 13.5% alpha",
+      "fontSize": "13px",
+      "lineHeight": "18.2px"
+    },
+    "thoughtRowsOffscreen": [
+      {
+        "y": -209,
+        "h": 22,
+        "ariaExpanded": "true",
+        "textLen": 17
+      },
+      {
+        "y": -173,
+        "h": 22,
+        "ariaExpanded": "false",
+        "textLen": 13
+      },
+      {
+        "y": -79,
+        "h": 22,
+        "ariaExpanded": "false",
+        "textLen": 52
+      }
+    ],
+    "visibleThought": {
+      "y": 222,
+      "x": 908,
+      "w": 346,
+      "h": 22,
+      "ariaExpanded": "false",
+      "label": "Thought",
+      "duration": "6s",
+      "fontSize": "14px",
+      "lineHeight": "22px",
+      "gap": "4px",
+      "color": "rgba(240, 240, 240, 0.74)",
+      "background": "transparent",
+      "stepGroup": {
+        "cls": [
+          "ui-step-group-collapsible",
+          "agent-transcript-activity-group-collapsible"
+        ],
+        "h": 22
+      }
+    },
+    "planActivityRow": {
+      "cls": "agent-transcript-row agent-transcript-row-activity agent-transcript-activity-muted-outer",
+      "x": 897,
+      "y": 338,
+      "w": 368,
+      "h": 166,
+      "padding": "0 11px",
+      "contentWidth": 346
+    },
+    "createdPlanLabel": {
+      "fontSize": "13px",
+      "lineHeight": "18px",
+      "fontWeight": "400"
+    },
+    "toolCallCardBody": {
+      "cls": "ui-tool-call-card__body",
+      "x": 909,
+      "y": 403,
+      "w": 344,
+      "h": 100,
+      "background": "transparent",
+      "radius": "0px"
+    },
+    "viewPlan": {
+      "x": 1066,
+      "y": 471,
+      "w": 76,
+      "h": 24,
+      "radius": "6px",
+      "gap": "6px",
+      "padding": "0 8px",
+      "fontSize": "13px",
+      "lineHeight": "18px",
+      "background": "transparent",
+      "border": "1px solid transparent"
+    },
+    "build": {
+      "x": 1148,
+      "y": 471,
+      "w": 75,
+      "h": 24,
+      "background": "rgb(241, 180, 103)",
+      "radiusOnMainHalf": "0px",
+      "padding": "0 8px",
+      "fontSize": "13px",
+      "gap": "6px",
+      "shortcut": "⌘⏎",
+      "structure": "ui-split-button with ui-split-button__main plus a Build options icon button",
+      "splitButton": {
+        "w": 95,
+        "h": 24,
+        "radius": "6px",
+        "bg": "rgba(0, 0, 0, 0)",
+        "display": "flex",
+        "overflow": "clip"
+      }
+    },
+    "composer": {
+      "cls": "full-input-box",
+      "x": 897,
+      "y": 693,
+      "w": 368,
+      "h": 75,
+      "radius": "12px",
+      "padding": "8px 10px 6px 10px",
+      "gap": "6px",
+      "border": "1px solid white 20%",
+      "background": "white 3.5% alpha",
+      "mode": "Plan",
+      "input": {
+        "cls": "aislash-editor-input",
+        "h": 22,
+        "fontSize": "14px",
+        "lineHeight": "22px"
+      }
+    }
+  },
+  "splitButton": null
+}

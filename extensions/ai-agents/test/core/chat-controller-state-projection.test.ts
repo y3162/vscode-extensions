@@ -54,6 +54,30 @@ test('similar backend error events update one error row and preserve its first v
   await controller.dispose();
 });
 
+test('reasoning completion retains the last nonempty snapshot and does not finish the turn', async () => {
+  const snapshots: ChatState[] = [];
+  const controller = new ChatController(baseSelection, async () => ({
+    async run(_prompt, _signal, emit) {
+      emit({ id: 'r', role: 'assistant', text: 'First', meta: { type: 'thinking' } });
+      emit({ id: 'r', role: 'assistant', text: 'First updated', meta: { type: 'thinking' } });
+      emit({ id: 'r', role: 'assistant', text: '', meta: { type: 'thinking', thinkingCompleted: true } });
+      emit({ id: 'r', role: 'assistant', text: '', meta: { type: 'thinking', thinkingCompleted: true } });
+      emit({ id: 'tool', role: 'tool', text: 'running: test' });
+    },
+    async dispose() {},
+  }), (snapshot) => snapshots.push(snapshot));
+  await controller.send('think');
+  const done = controller.snapshot();
+  const thought = done.messages.find((message) => message.meta?.type === 'thinking');
+  assert.equal(thought?.text, 'First updated');
+  assert.equal(thought?.meta?.thinkingCompleted, true);
+  assert.equal(thought?.final, undefined);
+  assert.ok(snapshots.some((snapshot) => snapshot.busy && snapshot.messages.some((message) => message.meta?.thinkingCompleted)));
+  assert.equal(done.busy, false);
+  assert.equal(done.turns[0]?.status, 'completed');
+  await controller.dispose();
+});
+
 test('explicit auto-approval resolves once, while stale plan and question decisions preserve error status', async () => {
   const controller = new ChatController(baseSelection, async () => ({ async run() {}, async dispose() {} }), () => {});
   controller.setAutoApprove(true);

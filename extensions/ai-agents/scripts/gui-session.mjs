@@ -190,6 +190,15 @@ async function start() {
     `--user-data-dir=${paths.userData}`, `--extensions-dir=${paths.extensions}`,
     `--shared-data-dir=${paths.sharedData}`, `--extensionDevelopmentPath=${paths.extension}`,
   ];
+  // Opt in only for the disposable host; Chromium writes the chosen port to
+  // this isolated profile's DevToolsActivePort file. Never attach to a user's host.
+  if (process.env.AI_AGENTS_GUI_CDP === '1') {
+    receipt.launchArgs.push('--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0');
+  }
+  if (process.env.AI_AGENTS_GUI_VIEWMODEL_FIXTURE === '1') {
+    receipt.launchArgs.push(`--extensionTestsPath=${join(paths.extension, 'test/fixtures/host-viewmodel.cjs')}`);
+    receipt.backend = 'isolated Extension Host ViewModel fixture; no CLI';
+  }
   await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
   const checked = await preflight(root, receipt);
   assertCodeSignedApp(checked.appBundle);
@@ -201,6 +210,7 @@ async function start() {
     CURSOR_HOME: paths.cursorHome,
     TMPDIR: paths.tmp,
     LANG: 'en_US.UTF-8',
+    ...(process.env.AI_AGENTS_GUI_VIEWMODEL_FIXTURE === '1' ? { AI_AGENTS_GUI_FIXTURE_ROOT: root } : {}),
   };
   const child = spawn(checked.executable, receipt.launchArgs, { cwd: root, env, detached: true, stdio: 'ignore' });
   receipt.processId = child.pid;

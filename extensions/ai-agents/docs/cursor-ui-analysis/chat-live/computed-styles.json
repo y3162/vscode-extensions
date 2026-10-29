@@ -1,0 +1,64 @@
+{
+  "note": "Values are getComputedStyle from the 1280px Dark chat editor. They are not the empty Agents Window.",
+  "userMessage": {
+    "selector": ".composer-human-message",
+    "display": "flex",
+    "alignSelf": "flex-end",
+    "width": "368px",
+    "minWidth": "150px",
+    "height": "40px",
+    "borderRadius": "12px",
+    "border": "1px solid white 12%",
+    "background": "srgb 0.303 / 13.5% alpha",
+    "fontSize": "13px",
+    "lineHeight": "18.2px",
+    "padding": "0px",
+    "fontWeight": "400"
+  },
+  "thoughtHeader": {
+    "selector": ".ui-collapsible-header",
+    "display": "flex",
+    "alignItems": "center",
+    "gap": "4px",
+    "width": "346px",
+    "height": "22px",
+    "fontSize": "14px",
+    "lineHeight": "22px",
+    "background": "transparent",
+    "color": "rgba(240, 240, 240, 0.74)"
+  },
+  "assistantParagraph": {
+    "selector": ".ui-markdown__paragraph",
+    "fontSize": "14px",
+    "lineHeight": "22px",
+    "background": "transparent",
+    "borderRadius": "0px"
+  },
+  "planDocument": {
+    "wrapperMaxWidth": "800px",
+    "wrapperPadding": "32px 24px 64px 24px",
+    "body": { "fontSize": "13px", "lineHeight": "20.8px" },
+    "h1": { "fontSize": "22.75px", "lineHeight": "28.4375px", "fontWeight": "600", "marginBottom": "11.375px" },
+    "h2": { "fontSize": "19.5px", "lineHeight": "24.375px", "fontWeight": "600", "marginTop": "24.375px", "marginBottom": "9.75px" }
+  },
+  "viewPlan": { "height": "24px", "borderRadius": "6px", "padding": "0 8px", "gap": "6px", "fontSize": "13px", "background": "transparent" },
+  "buildSplit": { "height": "24px", "borderRadius": "6px", "overflow": "clip", "mainBackground": "rgb(241, 180, 103)" },
+  "reviewActions": { "height": "20px", "padding": "0 6px", "gap": "4px", "borderRadius": "4px", "fontSize": "12px", "lineHeight": "16px", "reviewBackground": "rgb(98, 98, 98)" },
+  "filesLabel": { "fontSize": "12px", "lineHeight": "18.2px", "color": "white 66%" },
+  "composer": {
+    "height": "75px",
+    "borderRadius": "12px",
+    "padding": "8px 10px 6px 10px",
+    "gap": "6px",
+    "border": "1px solid white 20%",
+    "background": "white 3.5% alpha",
+    "input": { "height": "22px", "fontSize": "14px", "lineHeight": "22px" },
+    "actionRowHeight": "28px",
+    "actionRowDisplay": "grid",
+    "actionRowJustify": "space-between",
+    "mode": { "height": "20px", "fontSize": "12px", "padding": "2px 4px 2px 8px", "radius": "pill", "background": "white 14%" }
+  },
+  "contextCard": { "borderRadius": "12px", "background": "rgb(24, 24, 24)", "overflow": "hidden" },
+  "contextCategoryRow": { "height": "24px", "gap": "8px", "padding": "4px 6px", "borderRadius": "6px", "labelFontSize": "12px", "labelLineHeight": "16px" },
+  "questionnaireTitle": { "fontSize": "13px", "lineHeight": "19.5px", "color": "rgba(240, 240, 240, 0.74)" }
+}

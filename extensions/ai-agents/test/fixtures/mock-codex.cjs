@@ -55,6 +55,43 @@ process.stdin.on('end', () => {
     emit({ type: 'turn.failed', error: { message: 'fixture backend error' } });
     return;
   }
+  if (prompt.includes('GUI_THINKING_GATE')) {
+    const trace = (stage, id = 'fixture_thinking') => fs.appendFileSync(path.join(process.cwd(), 'gui-thinking-trace.jsonl'), JSON.stringify({ at: new Date().toISOString(), stage, id, pid: process.pid, cwd: process.cwd() }) + '\n');
+    trace('gate-start');
+    process.once('exit', (code) => trace(`process-exit:${code}`));
+    trace('item.started');
+    emit({ type: 'item.started', item: { id: 'fixture_thinking', type: 'reasoning', text: 'Synthetic thinking for GUI acceptance' } });
+    trace('item.updated');
+    emit({ type: 'item.updated', item: { id: 'fixture_thinking', type: 'reasoning', text: 'Synthetic thinking for GUI acceptance' } });
+    let updated = false;
+    let completed = false;
+    let toolStarted = false;
+    const timer = setInterval(() => {
+      if (!updated && fs.existsSync(path.join(process.cwd(), 'gui-update-thinking'))) {
+        updated = true;
+        trace('item.updated:additional');
+        emit({ type: 'item.updated', item: { id: 'fixture_thinking', type: 'reasoning', text: 'Synthetic thinking for GUI acceptance updated' } });
+      }
+      if (!completed && (fs.existsSync(path.join(process.cwd(), 'gui-complete-thinking')) || fs.existsSync(path.join(process.cwd(), 'gui-release-thinking')))) {
+        completed = true;
+        trace('item.completed');
+        emit({ type: 'item.completed', item: { id: 'fixture_thinking', type: 'reasoning', text: '' } });
+      }
+      if (completed && !toolStarted && fs.existsSync(path.join(process.cwd(), 'gui-start-tool'))) {
+        toolStarted = true;
+        trace('tool.started', 'fixture_tool');
+        emit({ type: 'item.started', item: { id: 'fixture_tool', type: 'command_execution', command: 'fixture tool', aggregated_output: '', status: 'in_progress' } });
+      }
+      if (!fs.existsSync(path.join(process.cwd(), 'gui-release-thinking'))) return;
+      clearInterval(timer);
+      trace('gate-released');
+      if (toolStarted) emit({ type: 'item.completed', item: { id: 'fixture_tool', type: 'command_execution', command: 'fixture tool', aggregated_output: 'done', status: 'completed', exit_code: 0 } });
+      emit({ type: 'item.completed', item: { id: 'fixture_answer', type: 'agent_message', text: 'Synthetic thinking complete' } });
+      trace('turn.completed');
+      emit({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, cache_write_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 } });
+    }, 50);
+    return;
+  }
   if (prompt.includes('EMIT_DIFF')) {
     const file = prompt.match(/EMIT_DIFF\s+(\S+)/)?.[1] || 'note.txt';
     emit({ type: 'item.completed', item: { id: 'item_diff', type: 'file_change', status: 'completed', changes: [{ kind: 'update', path: file, previousText: 'original\n' }] } });

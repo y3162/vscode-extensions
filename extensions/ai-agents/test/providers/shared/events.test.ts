@@ -16,7 +16,8 @@ test('Codex errors, unknown items, and cache-write deltas stay explicit', () => 
   assert.match(codexUpdate({ id: 'mcp', type: 'mcp_tool_call', status: 'failed', server: 'docs', tool: 'search', arguments: {}, error: { message: 'denied' } })?.text ?? '', /denied/);
   assert.match(codexUpdate({ id: 'web', type: 'web_search', query: 'protocol' })?.text ?? '', /protocol/);
   assert.match(codexUpdate({ id: 'todos', type: 'todo_list', items: [{ text: 'write tests', completed: false }, { text: 'done', completed: true }] })?.text ?? '', /○ write tests[\s\S]*✓ done/);
-  assert.equal(codexUpdate({ id: 'reason', type: 'reasoning', text: 'hidden' }), undefined);
+  assert.deepEqual(codexUpdate({ id: 'reason', type: 'reasoning', text: 'summary' }), { id: 'reason', role: 'assistant', text: 'summary', meta: { type: 'thinking' } });
+  assert.equal(codexUpdate({ id: 'empty', type: 'reasoning', text: ' \n' }), undefined);
   assert.equal(codexUpdate({ id: 'mcp-ok', type: 'mcp_tool_call', status: 'completed', server: 'docs', tool: 'search', arguments: {} })?.text.includes('undefined'), false);
   assert.equal(codexUpdate({ id: 'empty-files', type: 'file_change', status: 'completed', changes: [] })?.text, 'completed\n');
   const delta = usageDifference(

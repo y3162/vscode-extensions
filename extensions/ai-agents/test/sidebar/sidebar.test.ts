@@ -220,8 +220,9 @@ test('webview messages drive the sidebar without starting an agent session', asy
     assert.match(view.webview.html, /script-src 'nonce-/);
     assert.match(view.webview.html, /vscode-webview:\/\/test/);
     assert.equal(sidebar.isReady(), true);
-    assert.equal(states(view).at(-1)?.shell.conversationId, 'front');
-    assert.equal(states(view).at(-1)?.full, true);
+    const opened = states(view).find((item) => item.full);
+    assert.equal(opened?.shell.conversationId, 'front');
+    assert.equal(opened?.full, true);
 
     const beforeUnknown = view.messages.length;
     await sidebar.handleMessage(null);

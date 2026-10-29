@@ -296,8 +296,8 @@ test('turns merge files, thoughts, tools, and answers', () => {
   assert.equal(turn?.startedAt, 20);
   assert.equal(turn?.endedAt, 1);
   const thinking = turn?.log.find((segment) => segment.type === 'thinking');
-  assert.equal(thinking?.type === 'thinking' ? thinking.text : '', 'Hello world\nmore');
-  assert.equal(thinking?.type === 'thinking' ? thinking.durationMs : undefined, 6);
+  assert.equal(thinking?.type === 'thinking' ? thinking.text : '', 'Hello');
+  assert.deepEqual(turn?.log.filter((segment) => segment.type === 'thinking').map((segment) => segment.id), ['think1', 'think2', 'think3', 'think4']);
   const tools = turn?.log.find((segment) => segment.type === 'tools');
   assert.equal(tools?.type === 'tools' ? tools.tools[0]?.kind : '', 'git');
   assert.equal(tools?.type === 'tools' ? tools.tools[0]?.status : '', 'error');

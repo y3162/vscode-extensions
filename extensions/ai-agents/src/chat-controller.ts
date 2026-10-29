@@ -9,6 +9,7 @@ import { upsertSession } from './session-index.js';
 import { usageDifference } from './usage.js';
 import { addUsage, lightMeta } from './providers/details.js';
 import { mergeFileChanges } from './change-review.js';
+import { changeSetFingerprint, type ReviewProbe } from './review-acceptance.js';
 import { lineChangeCounts } from './diff-stats.js';
 import {
   buildTurnRewindPlan, commitTurnRewindJournal, discardTurnRewindJournal, prepareTurnRewindJournal, readSafeWorkspaceFile,
@@ -17,7 +18,7 @@ import {
 import {
   emptyPlanState, errorMessage, redactSecrets, type AgentInteractions, type AgentMode, type AgentSession, type AgentUpdate, type ChatMessage,
   type ChatState, type ConnectionStatus, type FileChange, type PermissionDecision, type PermissionRequest, type PlanRequest, type PlanState,
-  type QuestionRequest, type QueuedPrompt, type Selection, type SendExtras, type SessionSummary, type TerminalRecord, type TurnFileSnapshot, type TurnOptions, type TurnRecord,
+  type QuestionRequest, type QueuedPrompt, type ReviewAcceptance, type Selection, type SendExtras, type SessionSummary, type TerminalRecord, type TurnFileSnapshot, type TurnOptions, type TurnRecord,
 } from './types.js';
 
 type SessionFactory = (selection: Selection, context?: { signal?: AbortSignal; resumeId?: string }) => Promise<AgentSession>;
@@ -103,6 +104,7 @@ export class ChatController {
   private turnWait = 0;
   private waitStarted?: number;
   private readonly state: ChatState;
+  private reviewProbe: ReviewProbe | undefined;
   readonly interactions: AgentInteractions;
 
   constructor(
@@ -289,6 +291,7 @@ export class ChatController {
       this.trimSubagentHistory(child.id);
     }
     this.retainedId = id;
+    this.reviewProbe = undefined;
     this.state.subagentWaiting = undefined;
     this.restored = true;
     this.state.status = 'idle';
@@ -456,6 +459,7 @@ export class ChatController {
       plan: structuredClone(planBefore),
       usage,
       usageSamples,
+      reviewAcceptance: undefined,
       subagents,
       terminals: structuredClone(terminals),
       terminalError: undefined,
@@ -464,6 +468,29 @@ export class ChatController {
       pendingPlan: null,
       pendingQuestion: null,
     };
+  }
+
+  reviewProbeSnapshot(): ReviewProbe | undefined { return this.reviewProbe; }
+
+  setReviewProbe(probe: ReviewProbe): void {
+    if (JSON.stringify(this.reviewProbe) === JSON.stringify(probe)) return;
+    this.reviewProbe = probe;
+    this.publish();
+  }
+
+  acceptReview(acceptance: ReviewAcceptance): boolean {
+    if (this.rewinding) return false;
+    if (acceptance.fingerprint !== changeSetFingerprint(this.state.changes)) return false;
+    this.state.reviewAcceptance = acceptance;
+    this.publish();
+    return true;
+  }
+
+  removeChanges(paths: string[]): void {
+    if (this.rewinding) return;
+    const drop = new Set(paths);
+    this.state.changes = this.state.changes.filter((change) => !drop.has(change.path));
+    this.publish();
   }
 
   setTerminals(terminals: TerminalRecord[]): void {
@@ -1004,6 +1031,9 @@ export class ChatController {
         this.state.messages[index] = {
           ...message,
           id: previous.id,
+          ...(message.meta?.type === 'thinking' && !message.text.trim() ? { text: previous.text } : {}),
+          ...(message.meta?.type === 'thinking' && previous.meta?.type === 'thinking' && previous.meta.thinkingCompleted
+            ? { meta: { ...message.meta, thinkingCompleted: true } } : {}),
           ...(message.role === 'error' ? { text: previous.text } : {}),
           at: previous.at ?? message.at,
         };
@@ -1107,7 +1137,7 @@ export class ChatController {
   }
 
   private markFinal(turnId: string): void {
-    const messages = this.state.messages.filter((message) => message.role === 'assistant' && message.id.startsWith(`${turnId}:`));
+    const messages = this.state.messages.filter((message) => message.role === 'assistant' && message.meta?.type !== 'thinking' && message.id.startsWith(`${turnId}:`));
     if (messages.some((message) => message.final)) return;
     const last = messages.at(-1);
     if (last) last.final = true;
@@ -1351,6 +1381,8 @@ export class ChatController {
         await session?.dispose();
         this.state.messages = [];
         this.state.changes = [];
+        this.state.reviewAcceptance = undefined;
+        this.reviewProbe = undefined;
         this.state.todos = [];
         this.state.usage = null;
         this.state.usageSamples = {};

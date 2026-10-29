@@ -20,6 +20,7 @@ export interface ViewFile {
 
 export interface ViewMeta {
   type: NonNullable<ChatMessage['meta']>['type'];
+  thinkingCompleted?: boolean;
   files?: ViewFile[];
   todos?: { content: string; status: string }[];
   task?: string;
@@ -172,6 +173,13 @@ export interface ViewShell {
   conversationId: string;
   queue: { id: string; text: string; images: number }[];
   changes: ViewChange[];
+  /** Host-owned review state. Older clients omit it and the bar stays pending. */
+  review?: {
+    status: 'pending' | 'accepted' | 'conflict';
+    undoEnabled: boolean;
+    keepEnabled: boolean;
+    undoReason?: string;
+  };
   planView: ViewPlan | null;
   timings: ViewTurnTiming[];
   subagents: ViewSubagent[];

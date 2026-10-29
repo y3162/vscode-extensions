@@ -4,6 +4,7 @@ import { lstat, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { lineChangeCounts, previewTextDiff } from './diff-stats.js';
 import { isInsideWorkspace } from './change-review.js';
+import { contentDigest } from './review-acceptance.js';
 import type { FileChange } from './types.js';
 
 const maxSnapshot = 500_000;
@@ -127,6 +128,7 @@ export async function captureGitBaselines(
           ...(afterMode !== undefined ? { mode: afterMode } : {}),
           ...(preview.length ? { preview } : {}),
           ...(after !== undefined ? lineChangeCounts(before ?? '', after ?? '') : {}),
+          ...(after === undefined ? {} : { observedDigest: after === null ? null : contentDigest(after) }),
         });
       }
       return changes;
@@ -161,7 +163,10 @@ export async function refreshChangeStats(cwd: string, changes: FileChange[]): Pr
       continue;
     }
     const current = await readWorkspaceText(cwd, change.path);
-    next.push(applyTextStats(change, current));
+    const stats = applyTextStats(change, current);
+    if (change.observedDigest !== undefined) next.push({ ...stats, observedDigest: change.observedDigest });
+    else if (current === undefined) next.push(stats);
+    else next.push({ ...stats, observedDigest: current === null ? null : contentDigest(current) });
   }
   return next;
 }

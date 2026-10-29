@@ -19,6 +19,7 @@ export class Transcript {
   private readonly subagentWait: HTMLElement;
   private readonly nodes = new Map<string, HTMLElement>();
   private readonly logSig = new WeakMap<HTMLElement, Segment[]>();
+  private readonly logRunning = new WeakMap<HTMLElement, boolean>();
   private readonly answerText = new WeakMap<HTMLElement, string>();
   private readonly userState = new WeakMap<HTMLElement, NonNullable<TurnModel['user']>>();
   private readonly renderedUsers = new WeakSet<HTMLElement>();
@@ -26,7 +27,8 @@ export class Transcript {
   private readonly openLogs = new Set<string>();
   private readonly closedLogs = new Set<string>();
   private readonly openDetails = new Set<string>();
-  private readonly openThoughts = new Set<string>();
+  private readonly thoughtChoices = new Map<string, boolean>();
+  private conversationKey: string | null = null;
   private copySequence = 0;
   private readonly copying = new Map<string, HTMLButtonElement>();
   private readonly copySources = new WeakMap<Element, string>();
@@ -46,6 +48,7 @@ export class Transcript {
     private readonly onOpenSubagent: (id: string) => void = () => {},
     private readonly onTogglePlan: (expanded: boolean) => void = () => {},
     private readonly onPickSessionModel: (anchor: HTMLElement) => void = () => {},
+    approvalHost?: HTMLElement,
   ) {
     this.planHost = dom.el('div', 'plan-slot');
     this.planHost.hidden = true;
@@ -54,6 +57,7 @@ export class Transcript {
     this.subagentWait.setAttribute('role', 'status');
     this.pending = dom.el('div', 'pending');
     this.pending.hidden = true;
+    if (approvalHost) approvalHost.append(this.pending);
     this.root.addEventListener('click', (event) => this.onClick(event));
   }
 
@@ -64,10 +68,20 @@ export class Transcript {
   }
 
   render(messages: readonly ViewMessage[], shell: ViewShell, copy: Copy, planExpanded = false): void {
+    const conversationKey = shell.conversationId ?? shell.sessionId ?? shell.cwd;
+    if (this.conversationKey !== null && this.conversationKey !== conversationKey) {
+      for (const node of this.nodes.values()) node.remove();
+      this.nodes.clear();
+      this.openLogs.clear();
+      this.closedLogs.clear();
+      this.openDetails.clear();
+      this.cancelEditing();
+    }
+    this.conversationKey = conversationKey;
     this.shell = shell;
     this.labels = copy;
     if (!this.planHost.parentElement) this.root.append(this.planHost);
-    if (this.pending.parentElement !== this.root) this.root.append(this.pending);
+    if (!this.pending.parentElement) this.root.append(this.pending);
     const pending = Boolean(shell.permission || shell.plan || shell.question);
     this.turns = buildTurns(messages, shell.busy, pending, shell.timings ?? []);
     const ids = new Set(this.turns.map((turn) => turn.id));
@@ -76,17 +90,23 @@ export class Transcript {
       if (!ids.has(id)) { node.remove(); this.nodes.delete(id); }
     }
     this.root.querySelector('.empty')?.remove();
-    if (!this.turns.length) this.root.insertBefore(this.empty(copy), this.pending);
+    if (!this.turns.length) this.insertInThread(this.empty(copy));
     for (const turn of this.turns) this.syncTurn(turn, shell.locale, copy);
     renderPending(this.pending, shell, this.dom, copy, this.post);
     if (shell.plan) renderPlanBody(this.pending, (parent, text) => renderMarkdown(parent, text, this.dom, copy.copy), shell.plan.request.overview, shell.plan.request.plan);
     renderPlanView(this.planHost, shell, this.dom, copy, this.post, this.onPickModel, planExpanded, this.onTogglePlan);
-    this.root.insertBefore(this.planHost, this.pending);
+    this.insertInThread(this.planHost);
     const wait = shell.subagentWaiting;
     this.subagentWait.hidden = !wait;
     if (wait) this.subagentWait.textContent = wait.count !== undefined && wait.count > 1 ? copy.waitingSubagents : copy.waitingSubagent;
-    if (this.subagentWait.parentElement !== this.root) this.root.insertBefore(this.subagentWait, this.pending);
-    if (this.pending.parentElement !== this.root) this.root.append(this.pending);
+    this.insertInThread(this.subagentWait);
+    if (this.pending.parentElement === this.root) this.root.append(this.pending);
+  }
+
+  private insertInThread(node: HTMLElement): void {
+    const anchor = this.pending.parentElement === this.root ? this.pending : null;
+    if (anchor) this.root.insertBefore(node, anchor);
+    else this.root.append(node);
   }
 
   private empty(copy: Copy): HTMLElement {
@@ -104,7 +124,7 @@ export class Transcript {
       assistant.append(this.logButton(copy), this.dom.el('div', 'log'), this.dom.el('div', 'tool-failures'), this.answerShell(copy), this.dom.el('div', 'errors'), this.dom.el('div', 'turn-usage'));
       article.append(this.dom.el('div', 'user-row'), assistant);
       this.nodes.set(turn.id, article);
-      this.root.insertBefore(article, this.pending);
+      this.insertInThread(article);
     }
     article.classList.toggle('done', turn.done);
     const usageHost = article.querySelector('.turn-usage') as HTMLElement;
@@ -129,9 +149,11 @@ export class Transcript {
       if (isElement(log)) {
         log.hidden = !open || !hasLog;
         const previous = this.logSig.get(log);
-        if (!sameSegments(previous, turn.log)) {
+        const running = !turn.done && !turn.answer;
+        if (!sameSegments(previous, turn.log) || this.logRunning.get(log) !== running) {
           this.logSig.set(log, turn.log);
-          this.fillLog(log, turn.log, copy, !turn.done);
+          this.logRunning.set(log, running);
+          this.fillLog(log, turn.id, turn.log, copy, running);
         }
       }
       const failures = article.querySelector('.tool-failures');
@@ -342,28 +364,36 @@ export class Transcript {
     }
   }
 
-  private fillLog(host: HTMLElement, segments: Segment[], copy: Copy, running: boolean): void {
+  private fillLog(host: HTMLElement, turnId: string, segments: Segment[], copy: Copy, running: boolean): void {
     host.replaceChildren();
-    for (const segment of segments) host.append(this.segment(segment, copy, running));
+    for (const [index, segment] of segments.entries()) {
+      const active = segment.type === 'thinking'
+        ? running && index === segments.length - 1 && !segment.completed && segment.durationMs === undefined
+        : running && segmentTools(segment).some((tool) => tool.status === 'running');
+      host.append(this.segment(segment, copy, active, turnId));
+    }
   }
 
-  private segment(segment: Segment, copy: Copy, running: boolean): HTMLElement {
+  private segment(segment: Segment, copy: Copy, running: boolean, turnId: string): HTMLElement {
     switch (segment.type) {
       case 'thinking': {
         const details = this.dom.el('details', 'thinking');
         details.dataset.id = segment.id;
-        details.open = this.openThoughts.has(segment.id);
+        const key = JSON.stringify([this.conversationKey, turnId, segment.id]);
+        details.open = this.thoughtChoices.get(key) ?? running;
         const summary = this.dom.el('summary', 'log-toggle thought-toggle');
         summary.setAttribute('aria-expanded', String(details.open));
         const icon = this.dom.icon('chevron-right');
         const duration = segment.durationMs ?? (running && segment.startedAt !== undefined ? Math.max(0, Date.now() - segment.startedAt) : undefined);
         const label = thoughtLabel(segment.text, duration, running, copy);
         summary.append(icon, this.dom.el('span', 'btn-label', label));
-        details.addEventListener('toggle', () => {
+        summary.addEventListener('click', (event) => {
+          event.preventDefault();
+          details.open = !details.open;
+          this.thoughtChoices.set(key, details.open);
           summary.setAttribute('aria-expanded', String(details.open));
-          if (details.open) this.openThoughts.add(segment.id);
-          else this.openThoughts.delete(segment.id);
         });
+        details.addEventListener('toggle', () => summary.setAttribute('aria-expanded', String(details.open)));
         details.append(summary, this.dom.el('pre', undefined, segment.text));
         return details;
       }
@@ -620,14 +650,12 @@ export class Transcript {
       if (closing) {
         this.openLogs.delete(id);
         this.closedLogs.add(id);
-        if (turn) {
-          for (const segment of turn.log) if (segment.type === 'thinking') this.openThoughts.delete(segment.id);
-          const log = this.nodes.get(id)?.querySelector('.log');
-          log?.querySelectorAll<HTMLDetailsElement>('details.thinking').forEach((details) => {
-            details.open = false;
-            details.querySelector('summary')?.setAttribute('aria-expanded', 'false');
-          });
-        }
+        const log = this.nodes.get(id)?.querySelector('.log');
+        log?.querySelectorAll<HTMLDetailsElement>('details.thinking').forEach((details) => {
+          details.open = false;
+          details.querySelector('summary')?.setAttribute('aria-expanded', 'false');
+          if (details.dataset.id) this.thoughtChoices.set(JSON.stringify([this.conversationKey, id, details.dataset.id]), false);
+        });
       } else {
         this.closedLogs.delete(id);
         this.openLogs.add(id);
@@ -747,7 +775,7 @@ function sameSegments(previous: Segment[] | undefined, next: Segment[]): boolean
     const right = next[index];
     if (!right || left.type !== right.type || left.id !== right.id) return false;
     switch (left.type) {
-      case 'thinking': return right.type === 'thinking' && left.text === right.text && left.startedAt === right.startedAt && left.durationMs === right.durationMs;
+      case 'thinking': return right.type === 'thinking' && left.text === right.text && left.completed === right.completed && left.startedAt === right.startedAt && left.durationMs === right.durationMs;
       case 'note': return right.type === 'note' && left.text === right.text;
       case 'text': return right.type === 'text' && left.text === right.text && left.final === right.final;
       case 'tools':

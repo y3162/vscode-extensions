@@ -60,6 +60,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   const usageDetail = dom.el('pre');
   usagePanel.append(usageSummary, usageDetail);
   const subagentSlot = dom.el('div', 'subagent-slot');
+  const approvalSlot = dom.el('div', 'approval-slot');
 
   const alert = dom.el('p', 'host-error');
   alert.hidden = true;
@@ -95,7 +96,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   }, () => { post({ type: 'newChat' }); show('chat'); }, () => show('settings'), () => show('history'));
   const history = new HistoryPanel(dom, stage, (id) => openSession(id), () => { post({ type: 'newChat' }); show('chat'); });
   const settings = new SettingsPanel(dom, stage, post, () => { settings.close(); paint(); });
-  const composer = new Composer(dom, dock, post, menu, (panel) => show(panel), subagentSlot);
+  const composer = new Composer(dom, dock, post, menu, (panel) => show(panel), subagentSlot, approvalSlot);
   dock.append(usagePanel);
   const subagentPanel = new SubagentPanel(dom, subagentSlot, (id) => { selectedSubagentId = id; paint(); }, (expanded) => {
     subagentsExpanded = expanded;
@@ -104,7 +105,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
   });
   const transcript = new Transcript(dom, thread, post, (text, retryId) => { composer.editDraft(text, retryId); save(); }, (anchor) => composer.openBuildModel(anchor),
     (turnId, editedText) => post({ type: 'rewind', turnId, editedText }), (id) => { selectedSubagentId = id; paint(); },
-    (expanded) => togglePlanView(expanded), (anchor) => composer.openSessionModel(anchor));
+    (expanded) => togglePlanView(expanded), (anchor) => composer.openSessionModel(anchor), approvalSlot);
 
   function openSession(id: string): void {
     if (!shell) return;
@@ -238,7 +239,7 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
       vscode.postMessage({
         type: 'probeResult',
         turns: thread.querySelectorAll('.turn').length,
-        pending: Boolean(thread.querySelector('.pending-card')),
+        pending: Boolean(document.querySelector('.pending-card')),
         history: page === 'home',
         settings: !settings.hidden,
       });

@@ -70,6 +70,7 @@ export class Composer {
     private readonly menu: Menu,
     private readonly onNavigate: (panel: 'settings' | 'history' | 'chat') => void,
     subagentSlot?: HTMLElement,
+    approvalSlot?: HTMLElement,
   ) {
     this.banner = dom.el('div', 'banner');
     this.banner.hidden = true;
@@ -129,7 +130,7 @@ export class Composer {
     file.addEventListener('change', () => { this.addImages(file.files); file.value = ''; });
     const activity = dom.el('div', 'dock-activity');
     activity.append(this.changes, ...(subagentSlot ? [subagentSlot] : []));
-    parent.append(this.banner, activity, form, file);
+    parent.append(this.banner, activity, ...(approvalSlot ? [approvalSlot] : []), form, file);
     this.modelMenu = new ModelMenu(dom, menu.element.parentElement ?? parent);
     this.fileInput = file;
     form.addEventListener('submit', (event) => event.preventDefault());
@@ -327,7 +328,7 @@ export class Composer {
   }
 
   private renderChanges(shell: ViewShell, copy: Copy): void {
-    const signature = JSON.stringify([shell.conversationId, shell.sessionId, shell.provider, shell.cwd, shell.locale, shell.changes, shell.terminals, shell.terminalError, shell.additions, shell.deletions]);
+    const signature = JSON.stringify([shell.conversationId, shell.sessionId, shell.provider, shell.cwd, shell.locale, shell.changes, shell.terminals, shell.terminalError, shell.additions, shell.deletions, shell.review]);
     if (signature === this.changesSignature) return;
     this.changesSignature = signature;
     const count = shell.changes.length;
@@ -336,10 +337,9 @@ export class Composer {
     this.changes.replaceChildren();
     if (shell.terminalError) this.changes.append(this.dom.el('p', 'error-block', `${copy.backgroundTerminals}: ${shell.terminalError}`));
     if (count) {
-      const head = this.dom.el('div', 'change-head');
-      const name = count === 1 ? shell.changes[0]!.name : `${count} ${count === 1 ? copy.file : copy.files}`;
-      const stats = shell.additions === 0 && shell.deletions === 0 ? '' : ` +${shell.additions} −${shell.deletions}`;
-      const toggle = this.dom.button('ghost change-toggle', `${name}${stats}`, this.changesExpanded ? 'chevron-down' : 'chevron-right');
+      const head = this.dom.el('div', 'change-head review-bar');
+      const name = count === 1 ? shell.changes[0]!.name : `${count} ${copy.files}`;
+      const toggle = this.dom.button('ghost change-toggle', name, this.changesExpanded ? 'chevron-down' : 'chevron-right');
       toggle.setAttribute('aria-expanded', String(this.changesExpanded));
       const items = this.dom.el('div', 'change-items');
       items.hidden = !this.changesExpanded;
@@ -349,11 +349,31 @@ export class Composer {
         toggle.setAttribute('aria-expanded', String(this.changesExpanded));
         toggle.querySelector('.codicon')!.className = `codicon codicon-chevron-${this.changesExpanded ? 'down' : 'right'}`;
       });
-      head.append(toggle);
-      const review = this.dom.button('ghost', copy.review);
+      const actions = this.dom.el('div', 'review-actions');
+      const reviewState = shell.review;
+      const showDecisions = reviewState?.status !== 'accepted';
+      if (showDecisions) {
+        const undo = this.dom.button('review-action', copy.undoAll);
+        undo.dataset.action = 'undo-all';
+        undo.disabled = reviewState?.undoEnabled !== true;
+        if (reviewState?.undoReason) {
+          undo.title = reviewState.undoReason;
+          undo.setAttribute('aria-label', `${copy.undoAll}. ${reviewState.undoReason}`);
+        }
+        undo.addEventListener('click', () => this.post({ type: 'undoAllChanges' }));
+        const keep = this.dom.button('review-action', copy.keepAll);
+        keep.dataset.action = 'keep-all';
+        keep.disabled = reviewState?.keepEnabled === false;
+        keep.addEventListener('click', () => this.post({ type: 'keepAllChanges' }));
+        actions.append(undo, keep);
+      }
+      const review = this.dom.button('review-action review-open', copy.review);
       review.addEventListener('click', () => this.post({ type: 'reviewChanges' }));
-      head.append(review);
-      this.changes.append(head, items);
+      actions.append(review);
+      head.append(toggle, actions);
+      this.changes.append(head);
+      if (reviewState?.undoReason && reviewState.status !== 'accepted') this.changes.append(this.dom.el('p', 'review-note', reviewState.undoReason));
+      this.changes.append(items);
       for (const change of shell.changes) items.append(this.changeRow(change, copy));
     }
     if (terminals.length) {

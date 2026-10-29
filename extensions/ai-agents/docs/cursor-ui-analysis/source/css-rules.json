@@ -1,0 +1,30 @@
+[
+  {
+    "selector": ".composer-human-message:not(.standalone-glass)",
+    "offset": 523622,
+    "specificity": "0,2,0",
+    "properties": "width:100%; min-width:150px; background:var(--vscode-input-background); border:1px solid var(--cursor-stroke-secondary); radius:var(--conversation-surface-border-radius)",
+    "condition": "not standalone-glass"
+  },
+  {
+    "selector": ".ai-input-full-input-box",
+    "offset": 241710,
+    "specificity": "0,1,0",
+    "properties": "padding:.5rem .625rem .375rem; gap:.375rem; border and radius variables; input background",
+    "condition": "compact override changes direction and padding"
+  },
+  {
+    "selector": ".composer-toolbar-section-header:hover .composer-toolbar-section-header-label",
+    "offset": 515353,
+    "specificity": "0,3,0",
+    "properties": "opacity:1; base label opacity:.8",
+    "condition": "hover"
+  },
+  {
+    "selector": ".composer-unified-dropdown:not(.disabled):hover",
+    "offset": 220562,
+    "specificity": "0,3,0",
+    "properties": "opacity:1",
+    "condition": "hover and enabled"
+  }
+]

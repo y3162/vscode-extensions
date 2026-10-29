@@ -126,11 +126,13 @@ Composer の classic 入力（B）: `.ai-input-full-input-box` は column、gap 
 
 ## 未計測
 
+2026-10-29 に、ワークベンチのチャット列で質問、計画、レビュー帯、受け入れ後のトークン内訳を測った。数値は [CURSOR_UI_CHAT_LIVE_2026.md](CURSOR_UI_CHAT_LIVE_2026.md)。次は、その回でも残っているものである。
+
 - 編集用サイドバー（auxiliary bar）の実 DOM
-- ユーザー発言、思考本文、ツール展開、ファイルレビュー、Plan、Approval の computed style
+- 思考の展開本文、ツール展開、インライン diff、Approval の computed style
 - Light と High Contrast の計算色
 - ストリーミング中の開閉
 - 入力の自動伸長後の高さ
 - モデルメニューの座標
 
-これらは CSS / JS の宣言があるものだけ B とし、実行画面の px としては書かない。
+ユーザーカード、折りたたみの Thought、計画ボタン、レビュー帯、会話中 Composer は実行画面で測れた。上の残りは、CSS / JS の宣言があるものだけ B とし、実行画面の px としては書かない。

@@ -1,0 +1,34 @@
+[
+  {
+    "cursor": "User Message",
+    "extension": "webview/transcript.ts; styles.css"
+  },
+  {
+    "cursor": "Thinking",
+    "extension": "webview/turns.ts; transcript.ts"
+  },
+  {
+    "cursor": "Activity / Tools",
+    "extension": "webview/turns.ts; transcript.ts; strings.ts"
+  },
+  {
+    "cursor": "File Review",
+    "extension": "review-acceptance.ts; sidebar.ts; composer.ts"
+  },
+  {
+    "cursor": "Composer",
+    "extension": "webview/composer.ts; styles.css"
+  },
+  {
+    "cursor": "Plan / Build",
+    "extension": "webview/plan-view.ts"
+  },
+  {
+    "cursor": "Assistant",
+    "extension": "webview/transcript.ts; markdown.ts"
+  },
+  {
+    "cursor": "Terminal / Subagent",
+    "extension": "webview/transcript.ts; subagents.ts"
+  }
+]

@@ -91,7 +91,10 @@ test('usage, banners, changes, terminals, and the queue post their own commands'
   assert.equal(countType(sent, 'dismissWarning'), 2);
   assert.equal(posted(sent, 'send'), undefined);
   assert.match(document.querySelector('.change-head')?.textContent ?? '', /2 Files/);
-  assert.match(document.querySelector('.change-head')?.textContent ?? '', /\+3 −1/);
+  assert.match(document.querySelector('.change-head')?.textContent ?? '', /Undo All/);
+  assert.match(document.querySelector('.change-head')?.textContent ?? '', /Keep All/);
+  assert.doesNotMatch(document.querySelector('.change-head')?.textContent ?? '', /\+3 −1/);
+  assert.match(document.querySelector('.change-file .add')?.textContent ?? '', /\+3/);
   click([...document.querySelectorAll('.change-head button')].find((button) => button.textContent?.includes('Review'))!);
   assert.equal(posted(sent, 'reviewChanges')?.type, 'reviewChanges');
   const files = [...document.querySelectorAll('.change-file')];

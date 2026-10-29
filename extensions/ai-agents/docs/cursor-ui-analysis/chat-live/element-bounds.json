@@ -1,0 +1,41 @@
+{
+  "viewport": { "w": 1280, "h": 800 },
+  "surface": "Dark workbench. Chat is the right editor group, not the Agents Window.",
+  "columns": {
+    "leftEditor": { "x": 0, "y": 35, "w": 880, "h": 743 },
+    "chatEditor": { "x": 881, "y": 35, "w": 400, "h": 743 },
+    "chatContent": { "x": 897, "w": 368, "inset": "16px horizontal" }
+  },
+  "planQuestions": {
+    "scroller": { "x": 881, "y": 70, "w": 400, "h": 347, "scrollHeight": 719 },
+    "questionnaire": { "x": 907, "y": 418, "w": 348, "h": 276 },
+    "composer": { "x": 897, "y": 693, "w": 368, "h": 75 }
+  },
+  "planView": {
+    "planEditor": { "x": 0, "y": 102, "w": 880, "h": 676 },
+    "planWrapper": { "x": 40, "y": 102, "w": 800, "maxWidth": 800 },
+    "prose": { "x": 64, "y": 134, "w": 752 },
+    "thoughtHeaderVisible": { "x": 908, "y": 222, "w": 346, "h": 22 },
+    "planActivity": { "x": 897, "y": 338, "w": 368, "h": 166 },
+    "viewPlan": { "x": 1066, "y": 471, "w": 76, "h": 24 },
+    "buildSplit": { "w": 95, "h": 24 },
+    "composer": { "x": 897, "y": 693, "w": 368, "h": 75 }
+  },
+  "afterBuild": {
+    "scroller": { "x": 881, "y": 70, "w": 400, "h": 569, "scrollHeight": 3165 },
+    "terminalRow": { "x": 907, "y": 640, "w": 348, "h": 24 },
+    "reviewBar": { "x": 907, "y": 667, "w": 348, "h": 26 },
+    "undo": { "x": 1073, "y": 670, "w": 60, "h": 20 },
+    "keep": { "x": 1137, "y": 670, "w": 58, "h": 20 },
+    "review": { "x": 1199, "y": 670, "w": 52, "h": 20 },
+    "composer": { "x": 897, "y": 693, "w": 368, "h": 75 }
+  },
+  "accepted": {
+    "contextCard": { "x": 897, "y": 372, "w": 368, "h": 259 },
+    "contextSlot": { "x": 897, "y": 372, "w": 368, "h": 267 },
+    "meter": { "y": 432, "w": 344, "h": 5 },
+    "reviewBar": { "x": 907, "y": 667, "w": 348, "h": 26 },
+    "composer": { "x": 897, "y": 693, "w": 368, "h": 75 },
+    "actionRow": { "x": 908, "y": 733, "w": 346, "h": 28 }
+  }
+}

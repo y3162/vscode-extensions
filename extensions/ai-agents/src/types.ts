@@ -103,6 +103,13 @@ export interface FileChange {
   preview?: FileDiffLine[];
   additions?: number;
   deletions?: number;
+  /** SHA-256 of the file as first observed after the agent write. null means the file was absent. */
+  observedDigest?: string | null;
+}
+
+export interface ReviewAcceptance {
+  fingerprint: string;
+  digests: Record<string, string | null>;
 }
 
 export interface FileDiffLine {
@@ -226,6 +233,7 @@ export interface TerminalRecord {
 
 export interface UpdateMeta {
   type: 'usage' | 'files' | 'thinking' | 'todo' | 'image' | 'task' | 'plan' | 'subagent' | 'subagentWait' | 'terminals';
+  thinkingCompleted?: boolean;
   usage?: UsageStats;
   files?: FileChange[];
   todos?: TodoEntry[];
@@ -357,6 +365,8 @@ export interface ChatState {
   usage: UsageStats | null;
   usageSamples?: Record<string, UsageStats>;
   changes: FileChange[];
+  /** Kept files for the current change set. Absent on older saved conversations. */
+  reviewAcceptance?: ReviewAcceptance;
   todos: TodoEntry[];
   sessions: SessionSummary[];
   autoApprove: boolean;

@@ -154,7 +154,7 @@ export async function createCodexCliSession(options: SessionOptions, dependencie
           if (record.type !== 'item.started' && record.type !== 'item.updated' && record.type !== 'item.completed') return;
           const item = threadItem(record.item);
           if (!item || signal.aborted) return;
-          const update = codexUpdate(item);
+          const update = codexUpdate(item, record.type === 'item.completed');
           const meta = codexMeta(item);
           const tool = codexTool(item);
           if (update) emit({ ...update, ...(meta ? { meta } : {}), ...(tool ? { tool } : {}) });

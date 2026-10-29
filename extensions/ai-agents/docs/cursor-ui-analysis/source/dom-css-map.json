@@ -1,0 +1,66 @@
+[
+  {
+    "ui": "User Message",
+    "js": "desktop 29622400, 29626800; human renderer",
+    "dom": ".composer-rendered-message[data-message-kind=human] > .composer-human-message",
+    "css": "desktop CSS 523622",
+    "state": "suppressed / plan execution / expand / restore; inline display for hidden",
+    "evidence": "static + 2026-10-29 live"
+  },
+  {
+    "ui": "Thinking",
+    "js": "desktop 11086000–11089108; Npu, V5s, Lpu; ThinkingLine.js",
+    "dom": ".ui-thinking-collapsible / .ui-collapsible-header",
+    "css": "StyleX ui-byyjgo, ui-13epnph; not found in desktop or glass CSS",
+    "state": "loading uses separate inverted closed state and opens with body; completed defaults closed; header-only not expandable",
+    "evidence": "static; completed header live"
+  },
+  {
+    "ui": "Activity / Tools",
+    "js": "desktop 11089108–11095976; Wpu, umv, dmv, hmv, pmv, vmv",
+    "dom": ".agent-transcript-row-work-group > .ui-step-group-collapsible",
+    "css": "StyleX; header computed 14px/22px",
+    "state": "thinking, browser, wait, edits, commands, images, mixed in priority order",
+    "evidence": "static; collapsed live"
+  },
+  {
+    "ui": "File Review",
+    "js": "desktop 28784500–28796350; fTr, acceptAll / rejectAll; menu 30196554",
+    "dom": ".composer-toolbar-section-header",
+    "css": "desktop 515268–515440; inline flex, 26px container, action padding 4px",
+    "state": "counts derived separately from action eligibility; pending tool decisions have priority; questionnaire suppresses toolbar; undo confirmation resets after 4s",
+    "evidence": "static + pending/accepted live"
+  },
+  {
+    "ui": "Composer",
+    "js": "desktop 28517783, 28671416; Solid templates and focus handlers",
+    "dom": ".full-input-box > .aislash-editor-input + bottom container > .composer-bar-input-buttons",
+    "css": "desktop 241710; measured 28px row; dropdown 220384",
+    "state": "mode, model, focus, submit and queue; full availability predicates not traced",
+    "evidence": "static + live"
+  },
+  {
+    "ui": "Plan / Build",
+    "js": "desktop 10996810, 11390328, 29833083",
+    "dom": ".agent-transcript-row-activity > .ui-tool-call-card__body; separate .plan-editor",
+    "css": "live button height 24px, radius 6px",
+    "state": "plan completion and build observed; eligibility implementation not fully traced",
+    "evidence": "live + string references only"
+  },
+  {
+    "ui": "Assistant",
+    "js": "not isolated",
+    "dom": ".ui-markdown paragraph",
+    "css": "live 14px/22px, no background or border",
+    "state": "streaming not observed",
+    "evidence": "live"
+  },
+  {
+    "ui": "Terminal / Subagent",
+    "js": "step-layout.js near desktop 11096000 distinguishes shell block and task text",
+    "dom": "expanded details not observed",
+    "css": "not mapped",
+    "state": "layout depends on detail mode and tool type; execution semantics not traced",
+    "evidence": "static partial"
+  }
+]

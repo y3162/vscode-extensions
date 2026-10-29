@@ -37,7 +37,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   outline: 2px solid var(--vscode-focusBorder);
   outline-offset: 1px;
 }
-.shell { height: 100%; display: flex; flex-direction: column; min-height: 0; min-width: 0; container-type: inline-size; --ui-gutter: 12px; --ui-border: var(--vscode-contrastBorder, var(--vscode-panel-border, var(--vscode-widget-border, transparent))); --ui-text-secondary: var(--vscode-descriptionForeground); --ui-surface: var(--vscode-sideBar-background); --agent-bg: var(--vscode-sideBar-background); --agent-fg: var(--vscode-foreground); --agent-muted: var(--vscode-descriptionForeground); --agent-stroke: color-mix(in srgb, var(--vscode-foreground) 12%, transparent); --agent-stroke-strong: color-mix(in srgb, var(--vscode-foreground) 20%, transparent); --agent-fill: var(--vscode-input-background); --agent-radius: 12px; --agent-radius-row: 4px; --agent-radius-pill: 999px; --agent-line: 1.57; --agent-gap-turn: 16px; --agent-gap-step: 6px; --agent-gutter: 12px; --agent-column: min(100%, 640px); }
+.shell { height: 100%; display: flex; flex-direction: column; min-height: 0; min-width: 0; container-type: inline-size; --ui-gutter: 12px; --ui-border: var(--vscode-contrastBorder, var(--vscode-panel-border, var(--vscode-widget-border, transparent))); --ui-text-secondary: var(--vscode-descriptionForeground); --ui-surface: var(--vscode-sideBar-background); --agent-bg: var(--vscode-sideBar-background); --agent-fg: var(--vscode-foreground); --agent-muted: var(--vscode-descriptionForeground); --agent-stroke: color-mix(in srgb, var(--vscode-foreground) 12%, transparent); --agent-stroke-strong: color-mix(in srgb, var(--vscode-foreground) 20%, transparent); --agent-fill: var(--vscode-input-background); --agent-radius: 12px; --agent-radius-row: 4px; --agent-radius-pill: 999px; --agent-line: 1.57; --agent-line-user: 1.4; --agent-gap-turn: 16px; --agent-gap-step: 6px; --agent-gutter: 12px; --agent-column: min(100%, 640px); }
 .top-bar, .composer-row, .row-left, .row-right, .panel-bar, .card-actions, .change-bar, .banner, .env, .tool-row, .file-header, .queue-item {
   display: flex; align-items: center; gap: .4em;
 }
@@ -113,9 +113,10 @@ button.bubble:not(:disabled):hover { background: color-mix(in srgb, var(--vscode
   text-align: left;
   white-space: normal;
   overflow-wrap: anywhere;
-  line-height: var(--agent-line);
+  line-height: var(--agent-line-user);
+  font-size: inherit;
 }
-.user-body { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.user-body { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: inherit; line-height: var(--agent-line-user); }
 .user-actions { display: flex; justify-content: flex-end; opacity: 0; }
 .user-card:hover .user-actions, .user-card:focus-within .user-actions { opacity: 1; }
 .user-actions .codicon { color: var(--agent-muted); }
@@ -132,7 +133,7 @@ ul.chips { list-style: none; margin: 0; padding: 0; }
 .log-toggle { color: var(--vscode-descriptionForeground); padding-left: 0; width: 100%; align-items: flex-start; text-align: left; }
 .log-toggle .btn-label { white-space: normal; }
 .log-toggle[aria-expanded="true"] .codicon-chevron-right { transform: rotate(90deg); }
-.log { display: flex; flex-direction: column; gap: .15em; margin: .15em 0 var(--ui-space-2); color: var(--ui-text-secondary); }
+.log { display: flex; flex-direction: column; gap: var(--agent-gap-step); margin: .15em 0 var(--ui-space-2); color: var(--ui-text-secondary); }
 .progress-note { color: var(--vscode-foreground); }
 .explore-rows { display: flex; flex-direction: column; gap: .05em; margin: .1em 0 .15em .9em; }
 .explore > summary, .thinking > summary { list-style: none; }
@@ -181,7 +182,8 @@ a { color: var(--vscode-textLink-foreground); }
 .shell-command-line { display: flex; align-items: baseline; gap: .65em; min-width: 0; padding: .6em .75em; line-height: 1.55; border-top: 1px solid var(--vscode-panel-border, transparent); font-family: var(--vscode-editor-font-family, monospace); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--vscode-terminal-foreground, var(--vscode-foreground)); background: var(--vscode-terminal-background, var(--vscode-editor-background)); }
 .shell-command-line code { color: inherit; background: transparent; padding: 0; border: 0; border-radius: 0; }
 .activity-group > summary, .activity-row {
-  min-height: 22px; font-size: 12px; padding: 1px 0 1px 8px; border-radius: var(--agent-radius-row); gap: 8px;
+  box-sizing: border-box; height: 22px; min-height: 22px; max-height: 22px;
+  font-size: 14px; line-height: 22px; padding: 0 0 0 8px; border-radius: var(--agent-radius-row); gap: 4px;
 }
 .activity-group > summary .codicon { font-size: 12px; }
 .activity-group > summary:hover, .activity-row:hover { background: color-mix(in srgb, var(--vscode-foreground) 6%, transparent); }
@@ -386,15 +388,15 @@ textarea {
 }
 .composer-card {
   display: flex; flex-direction: column; min-width: 0;
-  border: 1px solid var(--vscode-contrastBorder, var(--agent-stroke));
+  border: 1px solid var(--vscode-contrastBorder, var(--agent-stroke-strong));
   border-radius: var(--agent-radius); background: var(--agent-fill);
-  padding: 0; position: relative;
+  padding: 8px 10px 6px 10px; position: relative;
 }
 .composer-card:hover { border-color: var(--agent-stroke-strong); }
 .composer-card:focus-within { border-color: var(--vscode-focusBorder); outline: 1px solid var(--vscode-focusBorder); outline-offset: 0; }
 .composer-card textarea:focus-visible { outline: none; }
-.composer-card textarea { flex: 1 1 auto; min-height: 44px; max-height: 30vh; padding: 8px 10px 0; }
-.composer-card .composer-row { height: 40px; min-height: 40px; padding: 8px; gap: 8px; box-sizing: border-box; justify-content: space-between; flex-wrap: nowrap; }
+.composer-card textarea { flex: 1 1 auto; min-height: 1.4em; max-height: 30vh; padding: 0; }
+.composer-card .composer-row { height: 28px; min-height: 28px; max-height: 28px; flex: 0 0 28px; padding: 0; gap: 4px; box-sizing: border-box; justify-content: space-between; flex-wrap: nowrap; align-items: center; overflow: hidden; }
 .composer-note { margin: 0; padding: 0 10px 8px; color: var(--agent-muted); font-size: 12px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-card .send, .composer-card .stop { width: 24px; height: 24px; min-width: 24px; min-height: 24px; border-radius: 999px; }
 .mode .btn-label { max-width: none; overflow: visible; text-overflow: clip; flex: 0 0 auto; }
@@ -665,3 +667,57 @@ textarea {
 .menu-item.active .menu-value, .menu-item.active small { color: inherit; }
 
 .ghost, .log-toggle, .tool-line, .session-row, .change-file > .file-link { min-height: 28px; }
+.log-toggle[data-action="toggle-log"],
+.activity-group > summary.activity-row {
+  box-sizing: border-box;
+  height: 22px;
+  min-height: 22px;
+  max-height: 22px;
+  font-size: 14px;
+  line-height: 22px;
+  padding: 0 0 0 8px;
+  gap: 4px;
+}
+.composer-card .pill,
+.composer-card .mode,
+.composer-card .model-name,
+.composer-card .env,
+.composer-card .access-label,
+.composer-card .icon-btn.attach {
+  box-sizing: border-box;
+  height: 20px;
+  min-height: 20px;
+  max-height: 20px;
+  font-size: 12px;
+  line-height: 20px;
+  padding: 0 6px;
+}
+.composer-card .icon-btn.attach { width: 20px; min-width: 20px; padding: 0; }
+.composer-card .row-left,
+.composer-card .row-right { height: 28px; max-height: 28px; align-items: center; }
+.review-bar { min-height: 22px; gap: 4px; font-size: 12px; line-height: 20px; }
+.change-toggle { height: 20px; min-height: 20px; max-height: 20px; font-size: 12px; line-height: 20px; padding: 0 4px; }
+.review-actions { display: flex; align-items: center; gap: 4px; margin-left: auto; flex: 0 0 auto; }
+.review-action {
+  box-sizing: border-box;
+  height: 20px;
+  min-height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  line-height: 20px;
+}
+.review-open { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
+.review-note { margin: 0; color: var(--agent-muted); font-size: 12px; line-height: 16px; }
+.approval-slot:empty { display: none; }
+.plan-actions .secondary,
+.plan-actions .build {
+  box-sizing: border-box;
+  height: 24px;
+  min-height: 24px;
+  border-radius: 6px;
+  padding: 0 8px;
+}

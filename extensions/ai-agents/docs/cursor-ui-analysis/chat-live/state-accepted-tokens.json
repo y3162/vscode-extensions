@@ -1,0 +1,34 @@
+{
+  "capturedAt": "2026-10-29T00:25+09:00",
+  "state": "accepted-with-context-usage",
+  "cursor": "3.26.13",
+  "page": "workbench chat editor group, 400px, beside a preview editor. Not the Agents Window.",
+  "viewport": { "w": 1280, "h": 800 },
+  "theme": { "editorBackground": "#181818", "note": "Dark. Light and high contrast were not measured." },
+  "screenshotLocal": "/tmp/cursor-ui-probe-chat-20261029/captures/accepted-tokens.png",
+  "note": "Conversation prose and the composer draft are redacted. Token figures are this session's widget, not design tokens.",
+  "reviewAfterAccept": {
+    "undoAll": "absent",
+    "keepAll": "absent",
+    "filesLabel": { "text": "2 Files", "cls": "composer-toolbar-section-header-label", "x": 933, "y": 673, "w": 37, "h": 14, "fontSize": "12px" },
+    "review": { "x": 1199, "y": 670, "w": 52, "h": 20, "stillPresent": true },
+    "bar": { "x": 907, "y": 667, "w": 348, "h": 26 }
+  },
+  "contextUsage": {
+    "slot": { "cls": "composer-context-usage-tray-slot", "x": 897, "y": 372, "w": 368, "h": 267, "padding": "0 0 8px", "justifyContent": "flex-end" },
+    "card": { "x": 897, "y": 372, "w": 368, "h": 259, "radius": "12px", "background": "rgb(24, 24, 24)", "overflow": "hidden", "border": "none", "fontSize": "13px", "lineHeight": "18.2px" },
+    "header": { "y": 380, "h": 20, "title": "Context Usage", "action": "View Report", "minimize": true },
+    "summary": { "y": 408, "h": 16, "left": "8% Full", "right": "token total for this session" },
+    "meter": { "y": 432, "w": 344, "h": 5, "note": "Bounds only. Fill color was not read from this node." },
+    "categoryRow": { "display": "flex", "alignItems": "center", "gap": "8px", "height": "24px", "padding": "4px 6px", "margin": "0 -6px", "radius": "6px", "labelFontSize": "12px", "labelLineHeight": "16px" },
+    "categories": ["System prompt", "Tool definitions", "Rules", "Skills", "MCP & dynamic tools", "Subagent definitions", "Conversation"]
+  },
+  "composer": {
+    "box": { "x": 897, "y": 693, "w": 368, "h": 75, "radius": "12px", "padding": "8px 10px 6px 10px", "gap": "6px" },
+    "bottomContainer": { "cls": "ai-input-full-input-box-bottom-container", "x": 908, "y": 724, "w": 346, "h": 37, "display": "flex", "justifyContent": "space-between", "alignItems": "center", "gap": "8.8px" },
+    "actionRow": { "cls": "composer-bar-input-buttons", "x": 908, "y": 733, "w": 346, "h": 28, "display": "grid", "justifyContent": "space-between", "alignItems": "center" },
+    "mode": { "text": "Agent", "cls": "composer-unified-dropdown", "h": 20, "fontSize": "12px", "lineHeight": "16.8px", "padding": "2px 4px 2px 8px", "radius": "pill", "background": "white 14%", "gap": "2px" },
+    "modelTrigger": { "x": 993, "y": 737, "w": 111, "h": 20 }
+  },
+  "columnPadding": { "chatPane": { "x": 881, "w": 400 }, "contentInset": "0 16px", "contentWidth": 368 }
+}

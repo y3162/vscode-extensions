@@ -5,6 +5,7 @@ import path from 'node:path';
 import { capabilitiesFor, defaultControls, modelApplyMode, normalizeControls, type AgentControls } from './capabilities.js';
 import { inferIntent } from './plan-state.js';
 import { revertChange } from './change-review.js';
+import { applyUndoAll, captureAcceptance, changeSetFingerprint, inspectUndoAll, readChangeDigest, undoReasonText } from './review-acceptance.js';
 import { createCodexCliHistory } from './providers/codex-cli-history.js';
 import { listCursorCliSessions } from './providers/cursor-cli.js';
 import { usageText } from './usage.js';
@@ -383,6 +384,7 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       dismissedWarning: this.dismissedWarning,
       tokens: this.controller.interactionTokens(),
       backends: { codex: this.controls.codex.backend, cursor: this.controls.cursor.backend },
+      reviewProbe: this.controller.reviewProbeSnapshot(),
     });
     const rewindable = state.selection.provider === 'codex' && (controls.backend === 'app-server' || controls.backend === 'cli') ? this.controller.rewindableTurnIds() : new Set<string>();
     const messages = state.messages.map((message) => toViewMessage(message, message.role === 'user' && rewindable.has(message.id)));
@@ -404,6 +406,94 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     }
     for (const entry of this.registry.background()) {
       if (!entry.controller.snapshot().busy && !entry.controller.hasLiveTerminals() && !entry.controller.hasLiveChildren()) void entry.controller.hibernate();
+    }
+    void this.refreshReviewProbe();
+  }
+
+  private undoAllLock = false;
+  private reviewProbeToken = 0;
+
+  private dirtyPaths(): Set<string> {
+    const paths = new Set<string>();
+    for (const document of vscode.workspace.textDocuments) {
+      const doc = document as { isDirty?: boolean; uri?: { fsPath?: string } };
+      if (doc.isDirty && doc.uri?.fsPath) paths.add(path.resolve(doc.uri.fsPath));
+    }
+    return paths;
+  }
+
+  private async refreshReviewProbe(): Promise<void> {
+    const controller = this.controller;
+    const token = ++this.reviewProbeToken;
+    const state = controller.snapshot();
+    const roots = this.folders().map((folder) => folder.path);
+    const plan = await inspectUndoAll(state.changes, roots, this.dirtyPaths());
+    if (token !== this.reviewProbeToken || this.controller !== controller) return;
+    const digests: Record<string, string | null> = {};
+    for (const change of state.changes) {
+      const digest = await readChangeDigest(change, roots);
+      if (digest !== undefined) digests[change.path] = digest;
+    }
+    if (token !== this.reviewProbeToken || this.controller !== controller) return;
+    const fingerprint = changeSetFingerprint(state.changes);
+    if (changeSetFingerprint(controller.snapshot().changes) !== fingerprint) return;
+    controller.setReviewProbe({
+      fingerprint,
+      digests,
+      undoEnabled: plan.ok,
+      ...(plan.ok ? {} : { undoReason: undoReasonText(plan.blocks) }),
+    });
+  }
+
+  private async keepAll(): Promise<void> {
+    if (this.undoAllLock) return;
+    const controller = this.controller;
+    const roots = this.folders().map((folder) => folder.path);
+    const fingerprint = changeSetFingerprint(controller.snapshot().changes);
+    const captured = await captureAcceptance(controller.snapshot().changes, roots);
+    if (!captured.ok) throw new Error(captured.reason);
+    if (this.controller !== controller || changeSetFingerprint(controller.snapshot().changes) !== fingerprint) {
+      throw new Error(this.locale === 'ja' ? '変更集合が変わったため、受け入れを中止しました。' : 'The change set changed, so Keep All was cancelled.');
+    }
+    if (!controller.acceptReview(captured.acceptance)) {
+      throw new Error(this.locale === 'ja' ? '変更集合が変わったため、受け入れを中止しました。' : 'The change set changed, so Keep All was cancelled.');
+    }
+  }
+
+  private async undoAll(): Promise<void> {
+    if (this.undoAllLock) return;
+    this.undoAllLock = true;
+    try {
+      const controller = this.controller;
+      const roots = this.folders().map((folder) => folder.path);
+      const plan = await inspectUndoAll(controller.snapshot().changes, roots, this.dirtyPaths());
+      if (!plan.ok) throw new Error(undoReasonText(plan.blocks) || (this.locale === 'ja' ? '安全に一括Undoできないため中止しました。' : 'Undo All was cancelled because it is not safe.'));
+      const names = plan.targets.map((change) => path.basename(change.path));
+      const label = this.locale === 'ja' ? 'すべて戻す' : 'Undo All';
+      const preview = names.slice(0, 20).join('\n');
+      const more = names.length > 20 ? `\n… +${names.length - 20}` : '';
+      const choice = await vscode.window.showWarningMessage(
+        this.locale === 'ja'
+          ? `次の ${names.length} ファイルを変更前の内容に戻します。\n${preview}${more}`
+          : `Restore ${names.length} file(s) to their saved before-state.\n${preview}${more}`,
+        { modal: true },
+        label,
+      );
+      if (choice !== label || this.controller !== controller) return;
+      const again = await inspectUndoAll(controller.snapshot().changes, roots, this.dirtyPaths());
+      const same = again.ok && again.targets.map((item) => item.path).join('\0') === plan.targets.map((item) => item.path).join('\0');
+      if (!same) throw new Error(this.locale === 'ja' ? '確認後にファイルが変わったため、一括Undoを中止しました。' : 'Files changed after confirmation, so Undo All was cancelled.');
+      const result = await applyUndoAll(again.targets, roots, revertChange);
+      if (result.restored.length) controller.removeChanges(result.restored);
+      if (result.failed) {
+        const done = result.restored.map((item) => path.basename(item)).join(', ') || (this.locale === 'ja' ? 'なし' : 'none');
+        const failed = `${path.basename(result.failed.path)}: ${result.failed.message}`;
+        throw new Error(this.locale === 'ja'
+          ? `一部のファイルは復元できませんでした。復元済み: ${done}。失敗: ${failed}`
+          : `Undo All did not finish. Restored: ${done}. Failed: ${failed}`);
+      }
+    } finally {
+      this.undoAllLock = false;
     }
   }
 
@@ -511,6 +601,8 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       case 'setBuildModel':
       case 'setBuildParam': await this.setBuildModel(message); return;
       case 'reviewChanges': await this.reviewAll(); return;
+      case 'keepAllChanges': await this.keepAll(); return;
+      case 'undoAllChanges': await this.undoAll(); return;
       case 'terminateTerminal': await this.terminateTerminal(message); return;
       case 'openTerminal': await this.openTerminal(message); return;
       case 'resolveQuestion': this.resolveQuestion(message); return;

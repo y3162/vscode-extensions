@@ -60,7 +60,10 @@ test('the spec column, user card, activity group, and composer bar are in the pr
   assert.match(css, /--agent-radius:\s*12px/);
   assert.match(css, /padding-left:\s*max\(16px,\s*calc\(\(100% - 640px\) \/ 2\)\)/);
   assert.match(css, /\.bubble\.user-card\s*\{[^}]*width:\s*100%/);
-  assert.match(css, /\.composer-card \.composer-row\s*\{[^}]*height:\s*40px/);
+  assert.match(css, /\.composer-card \.composer-row\s*\{[^}]*height:\s*28px/);
+  assert.match(css, /\.composer-card\s*\{[^}]*var\(--agent-stroke-strong\)/);
+  assert.match(css, /\.activity-group > summary, \.activity-row\s*\{[^}]*font-size:\s*14px/);
+  assert.match(css, /--agent-line-user:\s*1\.4/);
   assert.match(css, /\.composer-card \.send[^}]*width:\s*24px/);
   assert.match(css, /\.shell-command-output\s*\{[^}]*max-height:\s*8em/);
   assert.match(css, /var\(--vscode-contrastBorder,\s*var\(--agent-stroke\)\)/);
@@ -88,6 +91,67 @@ test('a user message is a full-width card and empty thinking is absent', () => {
   assert.equal(document.querySelector('details.ran .shell-command-output')?.textContent, 'ok');
   assert.equal(document.querySelector('.answer')?.textContent?.includes('Done'), true);
   assert.equal(document.querySelector('.change-bar')?.hidden, true);
+});
+
+test('thinking and tool groups reflect their own state and refresh when a turn ends', () => {
+  const { document, emit } = boot();
+  const user: ViewMessage = { id: 'u', role: 'user', text: 'Go' };
+  const thought: ViewMessage = { id: 't', role: 'status', text: 'Consider it', turnId: 'u', meta: { type: 'thinking' } };
+  emit(shell({ busy: true, presence: 'working' }), [user, thought]);
+  assert.match(document.querySelector('.thinking summary')?.textContent ?? '', /Thinking/);
+  emit(shell(), [user, thought]);
+  assert.match(document.querySelector('.thinking summary')?.textContent ?? '', /Thought/);
+
+  const tool: ViewMessage = { id: 's', role: 'tool', text: 'done', turnId: 'u', tool: { kind: 'shell', name: 'test', status: 'completed', target: 'npm test' } };
+  emit(shell({ busy: true, presence: 'working' }), [user, thought, tool]);
+  assert.match(document.querySelector('.thinking summary')?.textContent ?? '', /Thought/);
+  assert.match(document.querySelector('.ran summary')?.textContent ?? '', /Ran/);
+});
+
+test('thinking defaults follow activity while explicit choices survive redraw and remain scoped to a conversation', () => {
+  const { document, emit } = boot();
+  const user: ViewMessage = { id: 'u', role: 'user', text: 'Go' };
+  const thought: ViewMessage = { id: 't', role: 'status', text: 'Consider it', turnId: 'u', meta: { type: 'thinking' } };
+  const active = shell({ busy: true, presence: 'working' });
+  const detail = () => document.querySelector<HTMLDetailsElement>('.thinking')!;
+  emit(active, [user, thought]);
+  assert.equal(detail().open, true);
+  detail().querySelector<HTMLElement>('summary')!.click();
+  assert.equal(detail().open, false);
+  emit(active, [user, { ...thought, text: 'Consider it further' }]);
+  assert.equal(detail().open, false);
+  emit(shell(), [user, thought]);
+  assert.equal(detail().open, false);
+  detail().querySelector<HTMLElement>('summary')!.click();
+  emit(shell(), [user, { ...thought, text: 'Finished' }]);
+  assert.equal(detail().open, true);
+  emit(shell({ conversationId: 'other', busy: true, presence: 'working' }), [user, thought]);
+  assert.equal(detail().open, true);
+  detail().querySelector<HTMLElement>('summary')!.click();
+  emit(shell({ conversationId: 'front' }), [user, thought]);
+  assert.equal(detail().open, true);
+  emit(shell({ conversationId: 'third', busy: true, presence: 'working' }), [user, thought]);
+  assert.equal(detail().open, true);
+  emit(shell({ conversationId: 'third' }), [user, thought]);
+  assert.equal(detail().open, false);
+});
+
+test('an item completion closes untouched thinking before the turn or a following tool completes', () => {
+  const { document, emit } = boot();
+  const user: ViewMessage = { id: 'u', role: 'user', text: 'Go' };
+  const thought: ViewMessage = { id: 't', role: 'assistant', text: 'Consider it', turnId: 'u', meta: { type: 'thinking' } };
+  const active = shell({ busy: true, presence: 'working' });
+  emit(active, [user, thought]);
+  assert.equal(document.querySelector<HTMLDetailsElement>('.thinking')?.open, true);
+  const completed: ViewMessage = { ...thought, meta: { type: 'thinking', thinkingCompleted: true } };
+  emit(active, [user, completed]);
+  assert.equal(document.querySelector<HTMLDetailsElement>('.thinking')?.open, false);
+  assert.match(document.querySelector('.thinking summary')?.textContent ?? '', /Thought/);
+  const tool: ViewMessage = { id: 'tool', role: 'tool', text: 'running', turnId: 'u', tool: { kind: 'shell', name: 'test', status: 'running' } };
+  emit(active, [user, completed, tool]);
+  assert.match(document.querySelector('.thinking summary')?.textContent ?? '', /Thought/);
+  emit(shell(), [user, completed, tool]);
+  assert.match(document.querySelector('.thinking summary')?.textContent ?? '', /Thought/);
 });
 
 test('approval buttons follow allow, session, deny and a blocked plan names its reason', () => {
@@ -118,13 +182,41 @@ test('one changed file is named on the review bar and a missing folder explains 
     additions: 2, deletions: 1,
   }));
   assert.match(document.querySelector('.change-toggle')?.textContent ?? '', /app\.ts/);
-  assert.match(document.querySelector('.change-toggle')?.textContent ?? '', /\+2/);
+  assert.doesNotMatch(document.querySelector('.change-toggle')?.textContent ?? '', /\+2/);
+  assert.match(document.querySelector('.change-file .add')?.textContent ?? '', /\+2/);
   document.querySelector<HTMLButtonElement>('.change-toggle')!.click();
   const diff = document.querySelector('.review-diff')?.textContent ?? '';
   assert.equal(diff.includes('+line 11'), true);
   assert.equal(diff.includes('+line 12'), false);
   assert.equal(document.querySelector('.composer-note')?.hidden, false);
   assert.match(document.querySelector('.composer-note')?.textContent ?? '', /Open a folder/);
+});
+
+test('an accepted review keeps the count and Review, and hides Undo and Keep', () => {
+  const { document, emit, sent } = boot();
+  const changes = [{ path: 'src/app.ts', name: 'app.ts', kind: 'update', additions: 2, deletions: 1, canRevert: true, canDiff: true, synthetic: false }];
+  emit(shell({
+    changes,
+    additions: 2,
+    deletions: 1,
+    review: { status: 'pending', undoEnabled: true, keepEnabled: true },
+  }));
+  assert.equal(document.querySelector('[data-action="undo-all"]')?.hasAttribute('disabled'), false);
+  assert.equal(document.querySelector('[data-action="keep-all"]') instanceof document.defaultView!.HTMLButtonElement, true);
+  document.querySelector<HTMLButtonElement>('[data-action="keep-all"]')!.click();
+  assert.equal(sent.at(-1) && (sent.at(-1) as { type?: string }).type, 'keepAllChanges');
+  emit(shell({
+    changes,
+    additions: 2,
+    deletions: 1,
+    review: { status: 'accepted', undoEnabled: false, keepEnabled: false },
+  }));
+  assert.match(document.querySelector('.change-head')?.textContent ?? '', /app\.ts/);
+  assert.match(document.querySelector('.change-head')?.textContent ?? '', /Review/);
+  assert.equal(document.querySelector('[data-action="undo-all"]'), null);
+  assert.equal(document.querySelector('[data-action="keep-all"]'), null);
+  document.querySelector<HTMLButtonElement>('.review-open')!.click();
+  assert.equal((sent.at(-1) as { type?: string }).type, 'reviewChanges');
 });
 
 test('japanese copy keeps the work-time and mode labels', () => {

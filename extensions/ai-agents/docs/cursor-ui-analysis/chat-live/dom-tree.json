@@ -1,0 +1,47 @@
+{
+  "note": "Stable class names and parent order from the live chat editor. Hashed utility classes and message text are omitted.",
+  "chatColumn": {
+    "editor-group-container.has-composer-editor": {
+      "virtualized-composer-messages-scroll-container": {
+        "composer-rendered-message": {
+          "composer-human-message": ["composer-human-message-content", "composer-human-message-body"]
+        },
+        "agent-transcript-row-work-group": {
+          "ui-collapsible.ui-step-group-collapsible": ["ui-collapsible-header"]
+        },
+        "agent-transcript-row-activity": {
+          "ui-tool-call-card__body": ["View Plan button", "ui-split-button Build"]
+        },
+        "assistant": ["ui-markdown paragraph"]
+      },
+      "composer-context-usage-tray-slot": ["Context Usage card", "category rows"],
+      "composer-bar.editor": {
+        "composer-toolbar-section-header": ["composer-toolbar-section-header-label", "Undo All", "Keep All", "Review"],
+        "composer-input-blur-wrapper": {
+          "full-input-box": {
+            "aislash-editor-input": "lexical textbox",
+            "ai-input-full-input-box-bottom-container": {
+              "composer-bar-input-buttons": ["composer-unified-dropdown", "vscode-model-picker__trigger"]
+            }
+          }
+        }
+      }
+    }
+  },
+  "planDocument": {
+    "plan-editor": {
+      "plan-editor__wrapper": {
+        "plan-editor__richtext": ["plan-editor__richtext-content", "ProseMirror"]
+      }
+    }
+  },
+  "planQuestions": {
+    "has-pending-questionnaire": {
+      "composer-questionnaire-toolbar": [
+        "composer-questionnaire-toolbar-header",
+        "composer-questionnaire-toolbar-collapsible",
+        "composer-questionnaire-toolbar-actions"
+      ]
+    }
+  }
+}

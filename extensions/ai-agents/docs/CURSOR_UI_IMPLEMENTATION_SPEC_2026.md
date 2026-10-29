@@ -2,7 +2,22 @@
 
 この文書が次の実装の契約である。Cursor のクラス名は移植しない。DOM は Webview の中で作り替える。Extension Host、CLI、セッション保存は維持する。Thinking の本文が無いときに文章を作らない。
 
-根拠の記号は [CURSOR_UI_REVERSE_ENGINEERING_2026.md](CURSOR_UI_REVERSE_ENGINEERING_2026.md) と同じ。レイアウトの見た目は [ui-redesign-preview/cursor-spec-2026.html](ui-redesign-preview/cursor-spec-2026.html)。
+根拠の記号は [CURSOR_UI_REVERSE_ENGINEERING_2026.md](CURSOR_UI_REVERSE_ENGINEERING_2026.md) と同じ。2026-10-29 の会話画面は [CURSOR_UI_CHAT_LIVE_2026.md](CURSOR_UI_CHAT_LIVE_2026.md) と [CURSOR_UI_CHAT_SPEC_DELTA_2026.md](CURSOR_UI_CHAT_SPEC_DELTA_2026.md)。レイアウトの見た目は [ui-redesign-preview/cursor-spec-2026.html](ui-redesign-preview/cursor-spec-2026.html)。
+
+## 0. 2026-10-29 の改訂
+
+実測したのは通常ワークベンチのチャット列である。空の Agents Window ではない。変更前と、採否は差分文書の表が正本である。
+
+| 箇所 | 変更前 | 変更後 | 種別 |
+| --- | --- | --- | --- |
+| Composer 操作行 | 高さ 40px | 高さ 28px。箱の padding は `8px 10px 6px 10px` | 実測。40px は空ホームの記録として残す |
+| Composer の枠 | 前景 12% | 前景 20% | 実測 |
+| 活動見出し | 12px | 14px、行高 22px、最小高さ 22px | 実測。12px はレビュー帯のラベルに残す |
+| ユーザー本文 | 14px、行高 1.57 | エディタの文字サイズ。行高は約 1.4 | 実測は 13px / 18.2px。13px は固定しない |
+| レビュー | 件数、増減、Review | 未受け入れは件数、Undo、Keep、Review。受け入れ後は件数と Review。増減は帯に必須にしない | 実測。増減を外すのは未出現のため |
+| ユーザー背景 | input 背景 | 変更なし | 実測は半透明だった。Webview には採らない |
+| Build の色 | テーマのボタン | 変更なし | Dark の琥珀色は採らない |
+| 640px 列 | 最大 640px、中央 | 変更なし | この会話画面では未出現 |
 
 ## 1. デザインシステム
 
@@ -13,14 +28,15 @@
 | `--agent-bg` | `var(--vscode-sideBar-background)` | サイドバー地 |
 | `--agent-fg` | `var(--vscode-foreground)` | |
 | `--agent-muted` | `var(--vscode-descriptionForeground)` | |
-| `--agent-stroke` | `color-mix(in srgb, var(--vscode-foreground) 12%, transparent)` | B。`--cursor-stroke-secondary` |
-| `--agent-stroke-strong` | `color-mix(in srgb, var(--vscode-foreground) 20%, transparent)` | B。hover |
+| `--agent-stroke` | `color-mix(in srgb, var(--vscode-foreground) 12%, transparent)` | B。ユーザーカード。会話画面でも白 12% |
+| `--agent-stroke-strong` | `color-mix(in srgb, var(--vscode-foreground) 20%, transparent)` | 会話 Composer の枠。hover にも使う |
 | `--agent-fill` | `var(--vscode-input-background)` | B。ユーザーカード |
 | `--agent-radius` | `12px` | A の `--cursor-radius-xl` と B の会話 surface |
 | `--agent-radius-row` | `4px` | B。活動行 |
 | `--agent-radius-pill` | `999px` | A。モデルトリガー |
 | `--agent-font` | `var(--vscode-font-family)` | テーマ。Cursor の 13px 固定は使わない |
-| `--agent-line` | `1.57` | B の 22/14 に合わせた比 |
+| `--agent-line` | `1.57` | 回答本文。実測 22/14 |
+| `--agent-line-user` | `1.4` | ユーザーカード。実測 18.2/13 |
 | `--agent-gap-turn` | `16px` | B。`--conversation-block-gap` |
 | `--agent-gap-step` | `6px` | B |
 | `--agent-gutter` | `12px` | E。300px で 40px 余白は狭すぎる |
@@ -70,9 +86,9 @@ DOM:
 </article>
 ```
 
-- 列幅 100%。右寄せにしない。`max-width` で縮めない（B の `width: 100%`。project-send の 480px 吹き出しは不採用）
-- 背景 `--agent-fill`、枠 1px `--agent-stroke`、角丸 12px、padding 8px 10px、内部 gap 6px
-- 本文は pre-wrap。line-height 1.57
+- 列幅 100%。右寄せにしない。`max-width` で縮めない。会話画面でも内容列を埋めていた。project-send の 480px 吹き出しは不採用
+- 背景 `--agent-fill`、枠 1px `--agent-stroke`、角丸 12px、padding 8px 10px、内部 gap 6px。Cursor のカード外側 padding は 0 で、背景は半透明だった。Webview では input 背景と 8px 10px を維持する
+- 本文は pre-wrap。line-height は `--agent-line-user`。文字サイズはエディタのフォントに合わせ、14px には上げない
 - 添付は本文の下の chip。ファイル名のみ。フルパスは `title` に置き、画面の主テキストにしない
 - 操作（編集、再送、入力へ戻す）は hover または focus-within まで `opacity: 0`。キーボードでは focus-within で出す
 - 長文はカード内で折り返す。カード自体は畳まない
@@ -101,7 +117,7 @@ DOM:
 | 失敗 | 動詞はエラー形 | 同じ | 理由は折りたたみの外。`tool-reason` を残す |
 | subagent | Working | Completed task | 名前。`durationMs` があるときだけ秒 |
 
-行: 高さの最小 22px、font-size 12px、padding `1px 0 1px 8px`、radius 4px、gap 8px。chevron、動詞、詳細。hover 背景は前景 6%。
+行: 高さの最小 22px、font-size 14px、line-height 22px、padding `1px 0 1px 8px`、radius 4px。見出し内の gap は 4px。行と行の 6px は、前回のステップ間隔を維持する。chevron、動詞、詳細。hover 背景は前景 6%。12px はレビュー帯のラベルに使う。
 
 展開の中は 12px、muted。ターミナル全文は出さない。最大高さ 8em、`overflow: auto`。ファイル diff の全文もここには出さない。
 
@@ -123,7 +139,11 @@ DOM:
 
 Composer の直上。変更 0 なら DOM を出さない。
 
-閉じ: `› {N} ファイル  +a −d` と右端 `Review`。1 件のときはファイル名。増減が両方 0 なら増減を省略。
+未受け入れ: `{N} ファイル`、`Undo`、`Keep`、右端 `Review`。ボタンは高さ 20px、角丸 4px、文字 12px。Review だけ塗りつぶす。
+
+受け入れ後: Undo と Keep を外し、件数と Review を残す。変更 0 なら帯ごと出さない。
+
+増減 `+a −d` は、この会話の帯には出ていなかった。帯の必須テキストにしない。ファイルを開いた diff には残す。
 
 開き: ファイル名、`+a −d`、既存の diff / revert。インライン diff は 12 行で打ち切り、残りはエディタで開く。
 
@@ -142,9 +162,9 @@ DOM:
 </form>
 ```
 
-- 枠 1px `--agent-stroke`、角丸 12px、背景 `--agent-fill`。角丸 20px は使わない（E）
-- textarea の最小高さ 44px、最大は Webview の 30%。空の計測値 64px はホームの中央プロンプトであり、サイドバーの最小値にはしない
-- バーは高さ 40px、padding 8px、gap 8px（A）
+- 枠 1px `--agent-stroke-strong`、角丸 12px、背景 `--agent-fill`、padding `8px 10px 6px 10px`。角丸 20px は使わない
+- textarea の最小高さは 1 行。最大は Webview の 30%。空ホームの入力 64px と、操作行 40px は、この会話 Composer の値ではない
+- 操作行は高さ 28px、左右 end に分ける。モードは高さ 20px の pill、文字 12px
 - Mode は Agent / Plan / Ask。ラベルは隠さない。300px でも文字を残す
 - Model は 1 行 ellipsis。メニューはボタンの上に開く。幅はボタン以上、最大 280px
 - 添付は capability が画像を拒否するとき disabled にし、理由を `title` に出す
@@ -155,8 +175,8 @@ DOM:
 
 Plan:
 
-- ターン内のカード。角丸 12px、枠 `--agent-stroke`、padding 10px
-- タイトル、overview 2 行、`View plan` で Markdown を開く、`Build`
+- ターン内のカード。角丸 12px、枠 `--agent-stroke`、padding 10px。Cursor のチャット内計画は枠が無く、本文は別エディタだった。Webview に第二エディタは作らない
+- タイトル、overview 2 行、`View plan` で Markdown を開く、`Build`。ボタン高さは 24px。Build の Dark 琥珀色は採らず、テーマの主ボタンにする
 - `canBuild` が false のとき Build は disabled。理由は `title` と accessible name
 - Build は既存のローカル実行。クラウドへ切り替えない
 - phase が building の間、Build は「停止」または disabled。既存の phase 名を使う
@@ -230,7 +250,7 @@ Backend の新規フィールドは要らない。
 - 思考本文が空のフィクスチャで、Thinking の文章が出ない
 - ターミナル出力が 8em を超えてスレッドを占有しない
 - 変更 0 でレビューバーが無い
-- Composer のバーが 40px、送信が右端
+- Composer の操作行が 28px、送信が右端。枠は前景 20%、角丸 12px
 - Plan の Build が canBuild false で押せない
 - 承認の 3 ボタンが対象の下にあり、拒否が主ボタンではない
 - Dark、Light、High Contrast で枠がテーマに追従する

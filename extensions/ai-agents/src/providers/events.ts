@@ -1,10 +1,11 @@
 import type { ThreadItem } from './codex-items.js';
 import type { AgentUpdate } from '../types.js';
 
-export function codexUpdate(item: ThreadItem): AgentUpdate | undefined {
+export function codexUpdate(item: ThreadItem, completed = false): AgentUpdate | undefined {
   const base = { id: item.id };
   switch (item.type) {
     case 'agent_message': return { ...base, role: 'assistant', text: item.text };
+    case 'reasoning': return item.text.trim() || completed ? { ...base, role: 'assistant', text: item.text, meta: { type: 'thinking', ...(completed ? { thinkingCompleted: true } : {}) } } : undefined;
     case 'command_execution': return {
       ...base, role: 'tool',
       text: `${item.status}: ${item.command}\n${item.aggregated_output}`,

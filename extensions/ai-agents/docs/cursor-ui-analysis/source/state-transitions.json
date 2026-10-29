@@ -1,0 +1,6 @@
+{
+  "thinking": "Npu has separate local booleans for loading collapse and completed expansion; loading open when text and not manually closed; completed open when expandable and selected. Completion action Thought or parsed heading. Duration under 500ms briefly except heading parsing branch.",
+  "review": "Toolbar counts unique URIs via v_m and Uma separately from fTr action predicates. Pending decisions invoke acceptToolCall/rejectToolCall; ordinary acceptAll/rejectAll use composer service. Worktree applied changes follow undoAllAppliedChanges. Accepted live count survives, underlying retention not established.",
+  "composer": "focus and submission wired in Solid renderer; mode/model menus and full disabled conditions not traced.",
+  "limits": "No CDP matched rules; no current live connection; unknown state transitions are not claimed."
+}

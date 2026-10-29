@@ -1,0 +1,35 @@
+{
+  "cursor": "3.26.13",
+  "commit": "3bfec373749d3d4a53a151283022d49743ab50b0",
+  "quality": "stable",
+  "date": "2026-10-20",
+  "electron": "42.10.0",
+  "chrome": "148.0.7778.280",
+  "probe": {
+    "pid": 34502,
+    "port": "127.0.0.1:9334",
+    "userDataDir": "/tmp/cursor-ui-probe-chat-20261029/user",
+    "extensionsDir": "/tmp/cursor-ui-probe-chat-20261029/ext",
+    "workspace": "/tmp/cursor-ui-probe-chat-20261029/ws"
+  },
+  "surface": "Workbench editor-group chat at 1280x800, Dark. The Agents Window stayed on its empty home and was not used as the conversation measurement.",
+  "observed": [
+    { "id": "plan-questions", "file": "state-plan-questions.json", "summary": "Plan questionnaire pinned under the message scroller and above the composer." },
+    { "id": "plan-view", "file": "state-plan-view.json", "summary": "Plan document in the left editor. Chat shows a collapsed Thought row and an unframed Created Plan row with View Plan and Build." },
+    { "id": "after-build-review-bar", "file": "state-build-review-bar.json", "summary": "Agent mode. Review bar directly above the composer, with Undo All, Keep All, and Review." },
+    { "id": "accepted-tokens", "file": "state-accepted-tokens.json", "summary": "Undo All and Keep All gone. Context usage card expanded above the remaining file row." }
+  ],
+  "notObserved": [
+    "300, 390, 600, and 1000 widths",
+    "Light and high contrast",
+    "Streaming",
+    "Expanded thinking body",
+    "Expanded tool call and terminal output",
+    "Inline file diff",
+    "Approval card",
+    "Subagent row",
+    "Model menu and mode menu",
+    "Agents Window conversation",
+    "Auxiliary-bar sidebar chat"
+  ]
+}

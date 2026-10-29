@@ -25,7 +25,7 @@ export interface FileRow {
 }
 
 export type Segment =
-  | { type: 'thinking'; id: string; text: string; startedAt?: number; durationMs?: number }
+  | { type: 'thinking'; id: string; text: string; completed?: boolean; startedAt?: number; durationMs?: number }
   | { type: 'tools'; id: string; tools: ToolRow[] }
   | { type: 'explore'; id: string; tools: ToolRow[] }
   | { type: 'ran'; id: string; tools: ToolRow[] }
@@ -100,7 +100,7 @@ function toolRow(message: ViewMessage): ToolRow | undefined {
 function segmentFrom(message: ViewMessage): Segment | null {
   if (message.meta?.type === 'plan' || message.meta?.type === 'terminals') return null;
   if (message.meta?.type === 'subagent' && message.meta.subagent) return { type: 'subagent', id: message.id, items: [message.meta.subagent] };
-  if (message.meta?.type === 'thinking') return { type: 'thinking', id: message.id, text: message.text, ...(message.at !== undefined ? { startedAt: message.at } : {}) };
+  if (message.meta?.type === 'thinking') return { type: 'thinking', id: message.id, text: message.text, ...(message.meta.thinkingCompleted ? { completed: true } : {}), ...(message.at !== undefined ? { startedAt: message.at } : {}) };
   if (message.meta?.type === 'todo' && message.meta.todos?.length) return { type: 'todo', id: message.id, items: message.meta.todos };
   if (message.meta?.type === 'files' && message.meta.files?.length) return { type: 'files', id: message.id, files: message.meta.files.map(fileRow) };
   if (message.meta?.type === 'image' && message.meta.imagePath) return { type: 'note', id: message.id, text: message.meta.imagePath };
@@ -133,8 +133,9 @@ function pushSegment(list: Segment[], segment: Segment): void {
     return;
   }
   if (last?.type === 'subagent' && segment.type === 'subagent') { last.items.push(...segment.items); return; }
-  if (last?.type === 'thinking' && segment.type === 'thinking') {
+  if (last?.type === 'thinking' && segment.type === 'thinking' && last.id === segment.id) {
     last.text = segment.text.startsWith(last.text) ? segment.text : `${last.text}${last.text.endsWith(segment.text) ? '' : `\n${segment.text}`}`;
+    if (segment.completed) last.completed = true;
     return;
   }
   if (last?.type === 'text' && segment.type === 'text') { last.text = `${last.text}\n\n${segment.text}`; last.id = segment.id; return; }

@@ -182,6 +182,60 @@ try {
     await writeFile(join(output, 'functional.json'), JSON.stringify({ environment:'Chrome Webview fixtures, mocked Host protocol; not real OS IME or provider execution', checks },null,2));
     console.log(`Functional browser checks: ${checks.length} passed`);
   }
+  const measures = [];
+  for (const theme of ['dark', 'light', 'hc']) for (const width of [300, 390, 600, 1000]) {
+    await call('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
+    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/extensions/ai-agents/test/ui-preview/index.html?scene=chat&theme=${theme}&lang=en&width=${width}&height=${height}` });
+    for (let i = 0; i < 100; i++) {
+      if (await evaluate('document.readyState === "complete" && window.previewReady === true')) break;
+      await delay(30);
+    }
+    await evaluate(`document.querySelector('.log-toggle')?.click()`);
+    await evaluate('document.fonts.ready.then(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))))');
+    const measured = await evaluate(`(() => {
+      const style = (el) => el ? getComputedStyle(el) : null;
+      const row = style(document.querySelector('.composer-row'));
+      const card = style(document.querySelector('.composer-card'));
+      const activity = style(document.querySelector('.activity-row') || document.querySelector('.log-toggle[data-action="toggle-log"]'));
+      const log = style(document.querySelector('.log'));
+      const user = style(document.querySelector('.user-body'));
+      const mode = document.querySelector('.mode');
+      const send = document.querySelector('.composer-card .send');
+      const column = style(document.querySelector('.thread'));
+      return {
+        composerRowHeight: row?.height,
+        composerPadding: card?.padding,
+        composerRadius: card?.borderTopLeftRadius,
+        composerBorder: card?.borderTopColor,
+        modeHeight: style(mode)?.height,
+        modeFont: style(mode)?.fontSize,
+        sendBox: send ? [style(send).width, style(send).height] : null,
+        activityFont: activity?.fontSize,
+        activityLine: activity?.lineHeight,
+        activityHeight: activity?.height,
+        activityGap: activity?.columnGap || activity?.gap,
+        logGap: log?.rowGap || log?.gap,
+        userFont: user?.fontSize,
+        userLine: user?.lineHeight,
+        threadPadding: column?.paddingLeft,
+        modeUsable: Boolean(mode && !mode.disabled && mode.querySelector('.btn-label')?.textContent),
+        modelUsable: Boolean(document.querySelector('.model-name .btn-label')?.textContent),
+        attachUsable: document.querySelector('.attach')?.getAttribute('aria-disabled') !== 'true',
+        sendUsable: Boolean(send && !send.disabled),
+      };
+    })()`);
+    measures.push({ theme, width, ...measured });
+    if (theme === 'dark' && (width === 390 || width === 1000)) {
+      const png = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      await writeFile(join(output, `measure-chat-${width}-dark-en.png`), Buffer.from(png.data, 'base64'));
+    }
+  }
+  await writeFile(join(output, 'computed-style.json'), JSON.stringify(measures, null, 2));
+  const rowMismatch = measures.filter((item) => item.composerRowHeight !== '28px' || item.activityFont !== '14px' || item.activityHeight !== '22px' || item.activityLine !== '22px');
+  if (rowMismatch.length) {
+    console.error(JSON.stringify(rowMismatch, null, 2));
+    process.exitCode = 1;
+  }
   console.log(JSON.stringify({ output, captures: report.length, layoutFindings: bad }, null, 2));
   if (bad.length) process.exitCode = 1;
 } finally {

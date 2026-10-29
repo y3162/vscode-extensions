@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { captureGitBaselines } from '../../src/change-tracker.js';
+import { contentDigest } from '../../src/review-acceptance.js';
 import { revertChange } from '../../src/change-review.js';
 
 test('Git baselines preserve dirty, untracked, renamed and unusual paths without trusting ignored files', async () => {
@@ -58,8 +59,9 @@ test('shell changes exclude pre-existing edits and retain a content-preserving G
     assert.deepEqual(changes.find((change) => change.path === 'note.txt'), {
       path: 'note.txt', kind: 'update', previousText: 'user\n', previousMode: 0o644, mode: 0o644,
       preview: [{ kind: 'remove', line: 1, text: 'user' }, { kind: 'add', line: 1, text: 'agent' }], additions: 1, deletions: 1,
+      observedDigest: contentDigest('agent\n'),
     });
-    assert.deepEqual(changes.find((change) => change.path === 'new.txt'), { path: 'new.txt', kind: 'rename', oldPath: 'old.txt', previousText: 'same\n', previousMode: 0o644, mode: 0o644, additions: 0, deletions: 0 });
+    assert.deepEqual(changes.find((change) => change.path === 'new.txt'), { path: 'new.txt', kind: 'rename', oldPath: 'old.txt', previousText: 'same\n', previousMode: 0o644, mode: 0o644, additions: 0, deletions: 0, observedDigest: contentDigest('same\n') });
   } finally { await rm(cwd, { recursive: true, force: true }); }
 });
 
@@ -78,6 +80,7 @@ test('an unborn repository keeps new files reviewable and a non-repository has n
     assert.deepEqual(await baselines.changes(), [{
       path: 'added-later.txt', kind: 'add', previousText: null, previousMode: null,
       mode: 0o644, preview: [{ kind: 'add', line: 1, text: 'new file' }], additions: 1, deletions: 0,
+      observedDigest: contentDigest('new file\n'),
     }]);
     assert.equal(await captureGitBaselines(plain), undefined);
   } finally {

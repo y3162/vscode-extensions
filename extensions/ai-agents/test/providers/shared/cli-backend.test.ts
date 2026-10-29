@@ -653,6 +653,29 @@ process.stdout.write('composer-2.5 - Composer 2.5\\n');
   await assert.rejects(pending, /SIGTERM/);
 });
 
+test('Codex CLI forwards reasoning snapshots without inventing text from usage', async (t) => {
+  const cwd = await directory(t);
+  const events = scripted([
+    json({ type: 'item.started', item: { id: 'r', type: 'reasoning', text: '' } }),
+    json({ type: 'item.updated', item: { id: 'r', type: 'reasoning', text: 'First' } }),
+    json({ type: 'item.updated', item: { id: 'r', type: 'reasoning', text: 'First second' } }),
+    json({ type: 'item.completed', item: { id: 'r', type: 'reasoning', text: 'First second' } }),
+    json({ type: 'item.completed', item: { id: 'invalid', type: 'reasoning', text: ['unsupported'] } }),
+    json({ type: 'item.completed', item: { id: 'future', type: 'future_reasoning', text: 'ignored' } }),
+    json({ type: 'item.completed', item: { id: 'a', type: 'agent_message', text: 'Answer' } }),
+    json({ type: 'turn.completed', usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 9 } }),
+  ]);
+  const session = await createCodexCliSession({ provider: 'codex', backend: 'cli', cwd, model: '', storagePath: cwd, approval: 'never' }, { spawn: events.spawn });
+  const updates: AgentUpdate[] = [];
+  await session.run('prompt', new AbortController().signal, (update) => updates.push(update));
+  assert.deepEqual(updates.filter((item) => item.meta?.type === 'thinking').map(({ id, text }) => ({ id, text })), [
+    { id: 'r', text: 'First' }, { id: 'r', text: 'First second' }, { id: 'r', text: 'First second' },
+  ]);
+  assert.equal(updates.find((item) => item.id === 'a')?.text, 'Answer');
+  assert.equal(updates.some((item) => item.id === 'invalid' || item.id === 'future'), false);
+  await session.dispose();
+});
+
 test('Codex CLI accepts every thread item and uses the real executable when no spawn is injected', async (t) => {
   const bare = codexCliArgs({ cwd: '/work', sandbox: 'other' });
   assert.equal(bare[bare.indexOf('-s') + 1], 'workspace-write');
@@ -713,7 +736,7 @@ test('Codex CLI accepts every thread item and uses the real executable when no s
   assert.equal(updates.find((update) => update.id === 'search')?.text, 'Search: docs');
   assert.equal(updates.find((update) => update.id === 'todos')?.meta?.todos?.[1]?.status, 'completed');
   assert.equal(updates.find((update) => update.id === 'error')?.role, 'error');
-  assert.equal(updates.find((update) => update.id === 'reason'), undefined);
+  assert.deepEqual(updates.find((update) => update.id === 'reason'), { id: 'reason', role: 'assistant', text: 'think', meta: { type: 'thinking', thinkingCompleted: true } });
   assert.equal(updates.find((update) => update.id === 'answer')?.text, 'hi');
   assert.equal(updates.filter((update) => update.meta?.type === 'usage').length, 1);
   await session.dispose();

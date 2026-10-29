@@ -24,9 +24,17 @@ export function mergeFileChanges(current: FileChange[], incoming: FileChange[]):
       continue;
     }
     const existing = next[index]!;
+    const kind = existing.kind === 'rename' && change.kind === 'update' ? 'rename' : change.kind || existing.kind;
+    const afterStateChanged = Boolean(
+      (change.diff && change.diff !== existing.diff)
+      || (change.preview?.length && JSON.stringify(change.preview) !== JSON.stringify(existing.preview))
+      || (change.additions !== undefined && change.additions !== existing.additions)
+      || (change.deletions !== undefined && change.deletions !== existing.deletions)
+      || (kind !== existing.kind),
+    );
     next[index] = {
       ...existing,
-      kind: existing.kind === 'rename' && change.kind === 'update' ? 'rename' : change.kind || existing.kind,
+      kind,
       ...(change.oldPath ? { oldPath: existing.oldPath ?? change.oldPath } : {}),
       previousText: existing.previousText !== undefined ? existing.previousText : change.previousText,
       previousMode: existing.previousMode !== undefined ? existing.previousMode : change.previousMode,
@@ -36,6 +44,8 @@ export function mergeFileChanges(current: FileChange[], incoming: FileChange[]):
       additions: change.additions ?? existing.additions,
       deletions: change.deletions ?? existing.deletions,
     };
+    if (afterStateChanged) delete next[index]!.observedDigest;
+    else if (existing.observedDigest !== undefined) next[index]!.observedDigest = existing.observedDigest;
   }
   return next;
 }

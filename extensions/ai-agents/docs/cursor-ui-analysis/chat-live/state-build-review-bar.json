@@ -1,0 +1,672 @@
+{
+  "capturedAt": "2026-10-29T00:23+09:00",
+  "state": "after-build-review-bar",
+  "cursor": "3.26.13",
+  "page": "workbench chat editor group. Plan editor is gone. A browser preview webview is open on the left. Not the Agents Window.",
+  "screenshotLocal": "/tmp/cursor-ui-probe-chat-20261029/captures/build-review-bar.png",
+  "note": "Conversation prose, generated page copy, and filenames redacted.",
+  "vw": 1280,
+  "vh": 800,
+  "editorBg": "#181818",
+  "groups": [
+    {
+      "cls": [
+        "editor-group-container",
+        "active"
+      ],
+      "x": 0,
+      "y": 35,
+      "w": 880,
+      "h": 743
+    },
+    {
+      "cls": [
+        "editor-group-container",
+        "active",
+        "has-composer-editor"
+      ],
+      "x": 881,
+      "y": 35,
+      "w": 400,
+      "h": 743
+    }
+  ],
+  "scrollers": [
+    {
+      "cls": [
+        "composer-react-virtual-plane",
+        "virtualized-composer-messages-scroll-container"
+      ],
+      "x": 881,
+      "y": 70,
+      "w": 400,
+      "h": 569,
+      "scrollTop": 2596,
+      "scrollHeight": 3165,
+      "clientHeight": 569
+    }
+  ],
+  "visibleHeaderCount": 0,
+  "headerSummary": {
+    "total": 23,
+    "expanded": 1,
+    "collapsed": 21,
+    "verbs": [
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -1521,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Explored",
+        "aria": "false",
+        "y": -1405,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Explored",
+        "aria": "false",
+        "y": -1218,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Explored",
+        "aria": "true",
+        "y": -1097,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -1061,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -1009,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -957,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -905,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -827,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -775,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -723,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -671,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -619,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -567,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -515,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -463,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -411,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -333,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -281,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -229,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -151,
+        "h": 22,
+        "w": 346
+      },
+      {
+        "verb": "Thought",
+        "aria": "false",
+        "y": -99,
+        "h": 22,
+        "w": 346
+      }
+    ]
+  },
+  "marks": [
+    {
+      "name": "files",
+      "missing": true
+    },
+    {
+      "name": "undoAll",
+      "cls": [
+        "truncate"
+      ],
+      "x": 1079,
+      "y": 672,
+      "w": 48,
+      "h": 16,
+      "style": {
+        "display": "block",
+        "flexDirection": "row",
+        "justifyContent": "normal",
+        "alignItems": "normal",
+        "gap": "normal",
+        "width": "47.8438px",
+        "height": "16px",
+        "maxWidth": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "0px",
+        "marginBottom": "0px",
+        "borderTopWidth": "0px",
+        "borderTopColor": "color(srgb 0.941176 0.941176 0.941176 / 0.74)",
+        "borderRadius": "0px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "color": "color(srgb 0.941176 0.941176 0.941176 / 0.74)",
+        "fontSize": "12px",
+        "fontWeight": "400",
+        "lineHeight": "16px",
+        "overflowY": "hidden",
+        "position": "static"
+      },
+      "chain": [
+        "SPAN.truncate",
+        "SPAN.inline-flex.items-baseline.gap-[2px].min-w-0.overflow-hidden",
+        "DIV.flex.flex-nowrap.items-center.justify-center.gap-[4px].px-[6px].rounded.cursor-pointer",
+        "DIV.",
+        "DIV.",
+        "DIV."
+      ]
+    },
+    {
+      "name": "keepAll",
+      "cls": [
+        "truncate"
+      ],
+      "x": 1143,
+      "y": 672,
+      "w": 46,
+      "h": 16,
+      "style": {
+        "display": "block",
+        "flexDirection": "row",
+        "justifyContent": "normal",
+        "alignItems": "normal",
+        "gap": "normal",
+        "width": "46.0078px",
+        "height": "16px",
+        "maxWidth": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "0px",
+        "marginBottom": "0px",
+        "borderTopWidth": "0px",
+        "borderTopColor": "color(srgb 0.941176 0.941176 0.941176 / 0.74)",
+        "borderRadius": "0px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "color": "color(srgb 0.941176 0.941176 0.941176 / 0.74)",
+        "fontSize": "12px",
+        "fontWeight": "400",
+        "lineHeight": "16px",
+        "overflowY": "hidden",
+        "position": "static"
+      },
+      "chain": [
+        "SPAN.truncate",
+        "SPAN.inline-flex.items-baseline.gap-[2px].min-w-0.overflow-hidden",
+        "DIV.flex.flex-nowrap.items-center.justify-center.gap-[4px].px-[6px].rounded.cursor-pointer",
+        "DIV.",
+        "DIV.",
+        "DIV."
+      ]
+    },
+    {
+      "name": "review",
+      "cls": [
+        "truncate"
+      ],
+      "x": 1205,
+      "y": 672,
+      "w": 40,
+      "h": 16,
+      "style": {
+        "display": "block",
+        "flexDirection": "row",
+        "justifyContent": "normal",
+        "alignItems": "normal",
+        "gap": "normal",
+        "width": "40.0234px",
+        "height": "16px",
+        "maxWidth": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "0px",
+        "marginBottom": "0px",
+        "borderTopWidth": "0px",
+        "borderTopColor": "rgb(240, 240, 240)",
+        "borderRadius": "0px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "color": "rgb(240, 240, 240)",
+        "fontSize": "12px",
+        "fontWeight": "400",
+        "lineHeight": "16px",
+        "overflowY": "hidden",
+        "position": "static"
+      },
+      "chain": [
+        "SPAN.truncate",
+        "SPAN.inline-flex.items-baseline.gap-[2px].min-w-0.overflow-hidden",
+        "DIV.flex.flex-nowrap.items-center.justify-center.gap-[4px].px-[6px].rounded.cursor-pointer",
+        "DIV.",
+        "DIV.",
+        "DIV."
+      ]
+    },
+    {
+      "name": "reviewBar",
+      "cls": [],
+      "x": 907,
+      "y": 667,
+      "w": 348,
+      "h": 26,
+      "style": {
+        "display": "flex",
+        "flexDirection": "row",
+        "justifyContent": "space-between",
+        "alignItems": "center",
+        "gap": "normal",
+        "width": "348px",
+        "height": "26px",
+        "maxWidth": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "0px",
+        "marginBottom": "0px",
+        "borderTopWidth": "0px",
+        "borderTopColor": "rgba(240, 240, 240, 0.74)",
+        "borderRadius": "0px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "color": "rgba(240, 240, 240, 0.74)",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "18.2px",
+        "overflowY": "visible",
+        "position": "static"
+      },
+      "chain": [
+        "DIV.",
+        "DIV.",
+        "DIV.hide-if-empty",
+        "DIV.",
+        "DIV.",
+        "DIV."
+      ]
+    },
+    {
+      "name": "composer",
+      "cls": [
+        "ai-input-full-input-box",
+        "full-input-box"
+      ],
+      "x": 897,
+      "y": 693,
+      "w": 368,
+      "h": 75,
+      "style": {
+        "display": "flex",
+        "flexDirection": "column",
+        "justifyContent": "normal",
+        "alignItems": "stretch",
+        "gap": "6px",
+        "width": "368px",
+        "height": "75px",
+        "maxWidth": "none",
+        "paddingTop": "8px",
+        "paddingRight": "10px",
+        "paddingBottom": "6px",
+        "paddingLeft": "10px",
+        "marginTop": "0px",
+        "marginBottom": "0px",
+        "borderTopWidth": "1px",
+        "borderTopColor": "color(srgb 0.941176 0.941176 0.941176 / 0.2)",
+        "borderRadius": "12px",
+        "backgroundColor": "color(srgb 0.941177 0.941177 0.941177 / 0.0352941)",
+        "color": "rgba(240, 240, 240, 0.74)",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "18.2px",
+        "overflowY": "visible",
+        "position": "relative"
+      },
+      "chain": [
+        "DIV.ai-input-full-input-box.full-input-box",
+        "DIV.composer-input-blur-wrapper",
+        "DIV.",
+        "DIV.composer-bar.editor",
+        "DIV.",
+        "DIV.editor-instance"
+      ]
+    },
+    {
+      "name": "terminalRow",
+      "cls": [],
+      "x": 907,
+      "y": 640,
+      "w": 348,
+      "h": 24,
+      "style": {
+        "display": "block",
+        "flexDirection": "row",
+        "justifyContent": "normal",
+        "alignItems": "normal",
+        "gap": "normal",
+        "width": "348px",
+        "height": "24px",
+        "maxWidth": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "0px",
+        "marginBottom": "0px",
+        "borderTopWidth": "0px",
+        "borderTopColor": "rgba(240, 240, 240, 0.74)",
+        "borderRadius": "0px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "color": "rgba(240, 240, 240, 0.74)",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "18.2px",
+        "overflowY": "visible",
+        "position": "relative"
+      },
+      "chain": [
+        "DIV.",
+        "DIV.hide-if-empty",
+        "DIV.",
+        "DIV.",
+        "DIV.",
+        "DIV.composer-bar.editor"
+      ]
+    },
+    {
+      "name": "leftEditor",
+      "cls": [
+        "editor-group-container",
+        "active"
+      ],
+      "x": 0,
+      "y": 35,
+      "w": 880,
+      "h": 743,
+      "style": {
+        "display": "block",
+        "flexDirection": "row",
+        "justifyContent": "normal",
+        "alignItems": "normal",
+        "gap": "normal",
+        "width": "880px",
+        "height": "743px",
+        "maxWidth": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "0px",
+        "marginBottom": "0px",
+        "borderTopWidth": "0px",
+        "borderTopColor": "rgb(240, 240, 240)",
+        "borderRadius": "0px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "color": "rgb(240, 240, 240)",
+        "fontSize": "13px",
+        "fontWeight": "400",
+        "lineHeight": "18.2px",
+        "overflowY": "visible",
+        "position": "static"
+      },
+      "chain": [
+        "DIV.editor-group-container.active",
+        "DIV.split-view-view.visible",
+        "DIV.split-view-container",
+        "DIV.monaco-scrollable-element.mac",
+        "DIV.monaco-split-view2.vertical.separator-border",
+        "DIV.monaco-grid-branch-node"
+      ]
+    }
+  ],
+  "assistantParagraphs": [
+    {
+      "cls": [
+        "ui-markdown__paragraph"
+      ],
+      "x": 908,
+      "y": 27,
+      "w": 346,
+      "h": 44,
+      "style": {
+        "display": "block",
+        "flexDirection": "row",
+        "justifyContent": "normal",
+        "alignItems": "normal",
+        "gap": "normal",
+        "width": "346px",
+        "height": "44px",
+        "maxWidth": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "16px",
+        "marginBottom": "8px",
+        "borderTopWidth": "0px",
+        "borderTopColor": "rgb(240, 240, 240)",
+        "borderRadius": "0px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "color": "rgb(240, 240, 240)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "overflowY": "visible",
+        "position": "static"
+      }
+    },
+    {
+      "cls": [
+        "ui-markdown__paragraph"
+      ],
+      "x": 908,
+      "y": 319,
+      "w": 346,
+      "h": 88,
+      "style": {
+        "display": "block",
+        "flexDirection": "row",
+        "justifyContent": "normal",
+        "alignItems": "normal",
+        "gap": "normal",
+        "width": "346px",
+        "height": "88px",
+        "maxWidth": "none",
+        "paddingTop": "0px",
+        "paddingRight": "0px",
+        "paddingBottom": "0px",
+        "paddingLeft": "0px",
+        "marginTop": "16px",
+        "marginBottom": "0px",
+        "borderTopWidth": "0px",
+        "borderTopColor": "rgb(240, 240, 240)",
+        "borderRadius": "0px",
+        "backgroundColor": "rgba(0, 0, 0, 0)",
+        "color": "rgb(240, 240, 240)",
+        "fontSize": "14px",
+        "fontWeight": "400",
+        "lineHeight": "22px",
+        "overflowY": "visible",
+        "position": "static"
+      }
+    }
+  ],
+  "humanCount": 0,
+  "reviewStrip": {
+    "bar": {
+      "x": 907,
+      "y": 667,
+      "w": 348,
+      "h": 26,
+      "background": "transparent"
+    },
+    "filesLabel": {
+      "text": "2 Files",
+      "cls": "composer-toolbar-section-header-label",
+      "x": 933,
+      "y": 671,
+      "w": 37,
+      "h": 18,
+      "fontSize": "12px",
+      "lineHeight": "18.2px",
+      "color": "white 66%"
+    },
+    "actions": {
+      "height": 20,
+      "padding": "0 6px",
+      "gap": "4px",
+      "radius": "4px",
+      "fontSize": "12px",
+      "lineHeight": "16px",
+      "undoAll": {
+        "x": 1073,
+        "y": 670,
+        "w": 60,
+        "background": "transparent"
+      },
+      "keepAll": {
+        "x": 1137,
+        "y": 670,
+        "w": 58,
+        "background": "transparent"
+      },
+      "review": {
+        "x": 1199,
+        "y": 670,
+        "w": 52,
+        "background": "rgb(98, 98, 98)",
+        "color": "rgb(240, 240, 240)"
+      }
+    },
+    "above": {
+      "terminalRow": {
+        "label": "1 background terminal",
+        "x": 907,
+        "y": 640,
+        "w": 348,
+        "h": 24
+      }
+    },
+    "gapToComposerPx": 0,
+    "composerMode": "Agent"
+  },
+  "assistantAnswer": {
+    "fontSize": "14px",
+    "lineHeight": "22px",
+    "background": "transparent",
+    "radius": "0px",
+    "frame": "none"
+  },
+  "activityRows": {
+    "observedVerbs": [
+      "Thought",
+      "Explored"
+    ],
+    "rowHeight": 22,
+    "rowWidth": 346,
+    "mostlyCollapsed": true,
+    "expandedCount": 1,
+    "note": "Edited and Ran were not in the mounted collapsible-header verbs. The list is virtualized and scrolled to the end (scrollTop 2596 of 3165), so earlier rows may be unmounted."
+  }
+}

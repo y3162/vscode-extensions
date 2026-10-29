@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { AgentControls, ProviderCapabilities } from './capabilities.js';
 import { isInsideWorkspace } from './change-review.js';
+import { projectReview, type ReviewProbe } from './review-acceptance.js';
 import type { MessageDiff, ViewChange, ViewChoice, ViewMessage, ViewShell } from './protocol.js';
 import { formatToken, parameterRole } from './model-settings.js';
 import type { ViewPlan, ViewSubagent, ViewTerminal, ViewTurnTiming } from './protocol.js';
@@ -27,6 +28,7 @@ export interface ShellSource {
   backends: Record<Provider, Backend>;
   conversationId?: string;
   showBuildModel?: boolean;
+  reviewProbe?: ReviewProbe;
 }
 
 const genericTitles = new Set(['', 'Codex', 'Cursor', 'Cursor ACP', 'New Agent']);
@@ -239,6 +241,17 @@ export function buildShell(source: ShellSource): ViewShell {
       images: item.extras?.images?.length ?? 0,
     })),
     changes,
+    review: projectReview(state.changes, state.reviewAcceptance, source.reviewProbe, locale === 'ja'
+      ? {
+        checking: '一括で戻せるか確認しています。',
+        conflict: '受け入れ後にファイルの内容が変わっています。',
+        unavailable: '安全に一括Undoできないため、ボタンは使えません。',
+      }
+      : {
+        checking: 'Checking whether Undo All is safe.',
+        conflict: 'Files changed after they were kept.',
+        unavailable: 'Undo All is unavailable because it cannot be done safely.',
+      }),
     planView: presentPlan(state, source.showBuildModel !== false),
     timings: state.turns.map((turn): ViewTurnTiming => ({
       id: turn.id,
@@ -326,6 +339,7 @@ export function toViewMessage(message: ChatMessage, canRewind = false): ViewMess
     ...(meta ? {
       meta: {
         type: meta.type,
+        ...(meta.thinkingCompleted !== undefined ? { thinkingCompleted: meta.thinkingCompleted } : {}),
         ...(files?.length ? { files } : {}),
         ...(meta.todos?.length ? { todos: meta.todos } : {}),
         ...(meta.task ? { task: meta.task } : {}),
