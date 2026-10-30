@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { lstat, readFile } from 'node:fs/promises';
+import { lstat, readFile, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { isInsideWorkspace, isRealPathInsideWorkspace } from './change-review.js';
 import { errorMessage, type FileChange, type ReviewAcceptance } from './types.js';
@@ -56,6 +56,25 @@ function workspacePath(change: FileChange, roots: string[]): string | undefined 
   return candidates.find((candidate) => isInsideWorkspace(candidate, roots));
 }
 
+// A symlinked directory can alias a dirty editor's real path, so checking only
+// the final component and the textual editor path is insufficient for Undo.
+async function hasSymlinkComponent(candidate: string, roots: string[]): Promise<boolean> {
+  const root = roots.map((item) => path.resolve(item)).find((item) => isInsideWorkspace(candidate, [item]));
+  if (!root) return true;
+  let current = root;
+  if ((await lstat(root)).isSymbolicLink()) return true;
+  for (const part of path.relative(root, candidate).split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    try {
+      if ((await lstat(current)).isSymbolicLink()) return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw error;
+    }
+  }
+  return false;
+}
+
 export async function readChangeDigest(change: FileChange, roots: string[]): Promise<string | null | undefined> {
   const resolved = workspacePath(change, roots);
   if (!resolved || !await isRealPathInsideWorkspace(resolved, roots)) return undefined;
@@ -79,6 +98,9 @@ export async function inspectUndoAll(changes: FileChange[], roots: string[], dir
   if (targets.some((change) => change.kind === 'rename' || change.oldPath)) {
     return { ok: false, targets: [], blocks: targets.filter((change) => change.kind === 'rename' || change.oldPath).map((change) => ({ path: change.path, reason: '移動を含む変更は一括Undoできません。' })) };
   }
+  // Workspace roots can themselves be reached through an ancestor alias (for
+  // example /tmp on macOS). Match dirty editor paths by their real paths too.
+  const dirtyRealPaths = new Set(await Promise.all([...dirtyPaths].map(async (item) => realpath(item).catch(() => path.resolve(item)))));
   const blocks: UndoBlock[] = [];
   for (const change of targets) {
     const resolved = workspacePath(change, roots);
@@ -86,7 +108,8 @@ export async function inspectUndoAll(changes: FileChange[], roots: string[], dir
       blocks.push({ path: change.path, reason: 'ワークスペース外のファイルは戻せません。' });
       continue;
     }
-    if (dirtyPaths.has(resolved) || dirtyPaths.has(change.path)) {
+    const resolvedRealPath = await realpath(resolved).catch(() => undefined);
+    if (dirtyPaths.has(resolved) || dirtyPaths.has(change.path) || (resolvedRealPath !== undefined && dirtyRealPaths.has(resolvedRealPath))) {
       blocks.push({ path: change.path, reason: '未保存のエディタ変更があるため戻せません。' });
       continue;
     }
@@ -99,6 +122,10 @@ export async function inspectUndoAll(changes: FileChange[], roots: string[], dir
       continue;
     }
     try {
+      if (await hasSymlinkComponent(resolved, roots)) {
+        blocks.push({ path: change.path, reason: '通常ファイル以外やシンボリックリンクを含むパスは戻せません。' });
+        continue;
+      }
       const info = await lstat(resolved);
       if (info.isSymbolicLink() || !info.isFile()) {
         blocks.push({ path: change.path, reason: '通常ファイル以外は戻せません。' });
@@ -156,10 +183,12 @@ export async function applyUndoAll(
   targets: FileChange[],
   roots: string[],
   revert: (change: FileChange, roots: string[]) => Promise<void>,
+  validate?: (change: FileChange) => Promise<void>,
 ): Promise<{ restored: string[]; failed?: { path: string; message: string } }> {
   const restored: string[] = [];
   for (const change of targets) {
     try {
+      await validate?.(change);
       await revert(change, roots);
       restored.push(change.path);
     } catch (error) {

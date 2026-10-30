@@ -72,7 +72,7 @@ registerHooks({ resolve(specifier, context, nextResolve) {
     `--reports-dir=${path.join(temporary, 'report')}`,
     `--temp-directory=${path.join(temporary, 'raw')}`,
     '--reporter=json', '--reporter=text-summary', '--reporter=text', process.execPath,
-    '--import', './test/support/register-vscode.mjs', '--test', ...testPaths,
+    '--import', './test/support/register-vscode.mjs', '--test', '--test-concurrency=4', ...testPaths,
   ];
   const existingNodeOptions = process.env.NODE_OPTIONS?.trim();
   const result = spawnSync(c8, args, {

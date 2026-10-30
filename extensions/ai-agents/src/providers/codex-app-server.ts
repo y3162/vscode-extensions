@@ -194,7 +194,10 @@ export function messagesFrom(value: unknown): ChatMessage[] {
       }
       const command = typeof item.command === 'string' ? item.command : '';
       const output = typeof item.aggregatedOutput === 'string' ? item.aggregatedOutput : typeof item.output === 'string' ? item.output : '';
-      const text = type.toLowerCase().includes('command') ? [command, output].filter(Boolean).join('\n') : textOf(item);
+      const files = type.toLowerCase().includes('file') ? filesOf(item) : [];
+      // App Server fileChange items have changes but no text/content field.
+      // Keep them in replay so a restored transcript retains its file results.
+      const text = (type.toLowerCase().includes('command') ? [command, output].filter(Boolean).join('\n') : textOf(item)) || (files.length ? 'diff updated' : '');
       if (!text) continue;
       const role = type.toLowerCase().includes('user') ? 'user'
         : type.toLowerCase().includes('error') ? 'error'
@@ -202,10 +205,10 @@ export function messagesFrom(value: unknown): ChatMessage[] {
           : type.toLowerCase().includes('agent') || type.toLowerCase().includes('message') ? 'assistant' : 'tool';
       const backendTurnId = String(record(turn).id ?? '');
       const backendId = typeof item.id === 'string' ? item.id : `history-${messages.length}`;
-      const files = type.toLowerCase().includes('file') ? filesOf(item) : [];
       messages.push({ id: `${backendTurnId}:${backendId}`, backendTurnId, backendId, role, text,
+        ...(role === 'user' && /^(inprogress|in_progress|running)$/i.test(String(turnRecord.status ?? '')) ? { backendTurnIncomplete: true } : {}),
         ...(type.toLowerCase().includes('command') ? { tool: { ...describedTool('shell', command, String(item.status ?? 'completed')), ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}) } } : {}),
-        ...(files.length ? { meta: { type: 'files', files } } : type.toLowerCase().includes('reasoning') ? { meta: { type: 'thinking' } } : {}),
+        ...(files.length ? { meta: { type: 'files', files } } : type.toLowerCase().includes('reasoning') ? { meta: { type: 'thinking', ...(turnRecord.status === 'completed' ? { thinkingCompleted: true } : {}) } } : {}),
         ...(isAgentMessage(type) && item.phase === 'final_answer' ? { final: true } : {}),
       });
     }

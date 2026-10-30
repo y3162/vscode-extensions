@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, symlink, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, symlink, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -84,6 +84,47 @@ test('undo all restores only a fully checked set and refuses user edits, symlink
   }
 });
 
+test('undo refuses a symlinked directory even when it points inside the workspace', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ai-agents-review-alias-'));
+  const actual = path.join(root, 'actual');
+  const alias = path.join(root, 'alias');
+  try {
+    await mkdir(actual);
+    await writeFile(path.join(actual, 'note.txt'), 'after');
+    await symlink(actual, alias);
+    const plan = await inspectUndoAll([change(path.join(alias, 'note.txt'), 'before', 'after')], [root], new Set());
+    assert.equal(plan.ok, false);
+    assert.match(plan.blocks[0]!.reason, /シンボリックリンク/);
+    assert.equal(await readFile(path.join(actual, 'note.txt'), 'utf8'), 'after');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('undo refuses a symlinked workspace root and detects dirty files through ancestor aliases', async () => {
+  const base = await mkdtemp(path.join(tmpdir(), 'ai-agents-review-root-alias-'));
+  const parent = path.join(base, 'parent');
+  const workspace = path.join(parent, 'workspace');
+  const alias = path.join(base, 'alias');
+  const workspaceAlias = path.join(base, 'workspace-alias');
+  try {
+    await mkdir(workspace, { recursive: true });
+    await writeFile(path.join(workspace, 'note.txt'), 'after');
+    await symlink(parent, alias);
+    await symlink(workspace, workspaceAlias);
+    const rootLink = await inspectUndoAll([change(path.join(workspaceAlias, 'note.txt'), 'before', 'after')], [workspaceAlias], new Set());
+    assert.equal(rootLink.ok, false);
+    assert.match(rootLink.blocks[0]!.reason, /シンボリックリンク/);
+    const aliasedWorkspace = path.join(alias, 'workspace');
+    const dirty = await inspectUndoAll([change(path.join(aliasedWorkspace, 'note.txt'), 'before', 'after')], [aliasedWorkspace], new Set([path.join(workspace, 'note.txt')]));
+    assert.equal(dirty.ok, false);
+    assert.match(dirty.blocks[0]!.reason, /未保存/);
+    assert.equal(await readFile(path.join(workspace, 'note.txt'), 'utf8'), 'after');
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 test('a partial undo reports the restored file and the failure separately', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'ai-agents-review-partial-'));
   const first = path.join(root, 'first.txt');
@@ -102,6 +143,32 @@ test('a partial undo reports the restored file and the failure separately', asyn
     assert.match(result.failed?.message ?? '', /disk full/);
     const { readFile } = await import('node:fs/promises');
     assert.equal(await readFile(first, 'utf8'), 'before\n');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('undo revalidates each file and preserves a later external edit', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'ai-agents-review-race-'));
+  const first = path.join(root, 'first.txt');
+  const second = path.join(root, 'second.txt');
+  try {
+    await writeFile(first, 'after one');
+    await writeFile(second, 'after two');
+    const changes = [change(first, 'before one', 'after one'), change(second, 'before two', 'after two')];
+    assert.equal((await inspectUndoAll(changes, [root], new Set())).ok, true);
+    const result = await applyUndoAll(changes, [root], async (item) => {
+      await writeFile(item.path, item.previousText ?? '');
+      if (item.path === first) await writeFile(second, 'external edit');
+    }, async (item) => {
+      const plan = await inspectUndoAll([item], [root], new Set());
+      if (!plan.ok) throw new Error(plan.blocks.map((block) => block.reason).join('\n'));
+    });
+    assert.deepEqual(result.restored, [first]);
+    assert.equal(result.failed?.path, second);
+    assert.match(result.failed?.message ?? '', /一致しない/);
+    assert.equal(await readFile(first, 'utf8'), 'before one');
+    assert.equal(await readFile(second, 'utf8'), 'external edit');
   } finally {
     await rm(root, { recursive: true, force: true });
   }

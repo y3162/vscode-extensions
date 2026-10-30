@@ -97,3 +97,33 @@ test('Undo All refuses a file the user edited after the agent and does not repor
     await close(harness);
   }
 });
+
+test('concurrent Undo All requests restore two files once after one confirmation', async () => {
+  resetVscode();
+  const harness = openSidebar();
+  const view = createView();
+  const first = path.join(harness.workspacePath, 'first.txt');
+  const second = path.join(harness.workspacePath, 'second.txt');
+  writeFileSync(first, 'after one');
+  writeFileSync(second, 'after two');
+  try {
+    await ready(harness.sidebar, view);
+    const state = harness.sidebar.controller.snapshot();
+    state.changes = [
+      { path: first, kind: 'update', previousText: 'before one', observedDigest: contentDigest('after one') },
+      { path: second, kind: 'update', previousText: 'before two', observedDigest: contentDigest('after two') },
+    ];
+    harness.sidebar.controller.restoreSnapshot(state);
+    window.warningQueue.push({ value: 'Undo All' });
+    await Promise.all([
+      harness.sidebar.handleMessage({ type: 'undoAllChanges' }),
+      harness.sidebar.handleMessage({ type: 'undoAllChanges' }),
+    ]);
+    assert.equal(window.warningMessages.length, 1);
+    assert.equal(readFileSync(first, 'utf8'), 'before one');
+    assert.equal(readFileSync(second, 'utf8'), 'before two');
+    assert.equal(harness.sidebar.controller.snapshot().changes.length, 0);
+  } finally {
+    await close(harness);
+  }
+});

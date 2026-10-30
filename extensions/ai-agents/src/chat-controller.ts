@@ -1305,6 +1305,15 @@ export class ChatController {
         await session.loadTranscript((message) => replay.push(message));
         signal.throwIfAborted();
         if (replay.length) {
+          // A CLI transcript may be the only surviving record of an interrupted
+          // turn. Its unfinished status must not become a completed UI turn.
+          for (const message of replay) {
+            if (message.role !== 'user' || !message.backendTurnIncomplete || !message.backendTurnId
+              || this.state.turns.some((turn) => turn.backendTurnId === message.backendTurnId)) continue;
+            this.state.turns.push({ id: message.id, backendTurnId: message.backendTurnId, startedAt: 0,
+              status: 'unknown', waitMs: 0, mode: 'agent', model: this.state.selection.model, intent: 'chat' });
+            this.state.messages.push(message);
+          }
           const knownTurns = new Set(this.state.turns.map((turn) => turn.backendTurnId).filter(Boolean));
           const byId = new Map(this.state.messages.map((m) => [m.id, m]));
           for (const message of replay) {

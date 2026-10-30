@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile, readdir, access } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile, readdir, access, copyFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { downloadAndUnzipVSCode } from '@vscode/test-electron';
@@ -139,6 +139,8 @@ async function start() {
   await writeFile(join(paths.userData, 'User', 'settings.json'), `${JSON.stringify({
     // executablePath has machine scope, so VS Code ignores it in workspace settings.
     'ai-agents.codex.executablePath': paths.mockExecutable,
+    // The disposable development host uses DOM-accessible VS Code dialogs.
+    ...(process.env.AI_AGENTS_GUI_FIXTURE_EXTENSION === '1' ? { 'window.dialogStyle': 'custom' } : {}),
   }, null, 2)}\n`);
   await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
   const mockBackend = resolve(extensionRoot, 'test/fixtures/mock-codex.cjs');
@@ -186,7 +188,7 @@ async function start() {
   receipt.launchArgs = [
     paths.workspace, '--new-window', '--disable-extensions', '--disable-updates',
     '--use-inmemory-secretstorage',
-    '--skip-welcome', '--skip-release-notes', '--no-cached-data',
+    '--skip-welcome', '--skip-release-notes', '--no-cached-data', '--disable-workspace-trust',
     `--user-data-dir=${paths.userData}`, `--extensions-dir=${paths.extensions}`,
     `--shared-data-dir=${paths.sharedData}`, `--extensionDevelopmentPath=${paths.extension}`,
   ];
@@ -195,9 +197,34 @@ async function start() {
   if (process.env.AI_AGENTS_GUI_CDP === '1') {
     receipt.launchArgs.push('--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0');
   }
+  // The disposable host has no user files or credentials. Verify the CLI
+  // trust override inside its Extension Host rather than relying on a dialog.
+  const trustExtension = join(root, 'trust-verifier-extension');
+  await mkdir(trustExtension);
+  await writeFile(join(trustExtension, 'package.json'), JSON.stringify({ name: 'ai-agents-trust-verifier', publisher: 'ai-agents-fixture', version: '0.0.1', engines: { vscode: '^1.109.0' }, main: './index.cjs', activationEvents: ['onStartupFinished'] }));
+  await writeFile(join(trustExtension, 'index.cjs'), `exports.activate = () => { const vscode = require('vscode'); require('fs').writeFileSync(${JSON.stringify(join(root, 'workspace-trust.json'))}, JSON.stringify({ isTrusted: vscode.workspace.isTrusted, workspace: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath })); };\n`);
+  receipt.launchArgs.push(`--extensionDevelopmentPath=${trustExtension}`);
   if (process.env.AI_AGENTS_GUI_VIEWMODEL_FIXTURE === '1') {
     receipt.launchArgs.push(`--extensionTestsPath=${join(paths.extension, 'test/fixtures/host-viewmodel.cjs')}`);
     receipt.backend = 'isolated Extension Host ViewModel fixture; no CLI';
+  }
+  const fixtureEntry = process.env.AI_AGENTS_GUI_FIXTURE_ENTRY;
+  if (fixtureEntry) {
+    if (process.env.AI_AGENTS_GUI_VIEWMODEL_FIXTURE === '1') throw new Error('Select only one host fixture');
+    if (!/^host-[a-z0-9-]+\.cjs$/.test(fixtureEntry)) throw new Error('Invalid host fixture entry');
+    const fixturePath = join(paths.extension, 'test/fixtures', fixtureEntry);
+    await access(fixturePath);
+    if (process.env.AI_AGENTS_GUI_FIXTURE_EXTENSION === '1') {
+      const fixtureExtension = join(root, 'fixture-extension');
+      await mkdir(fixtureExtension);
+      await copyFile(fixturePath, join(fixtureExtension, 'fixture.cjs'));
+      await writeFile(join(fixtureExtension, 'index.cjs'), "exports.activate = () => { void require('./fixture.cjs').run().catch(error => console.error(error)); };\n");
+      await writeFile(join(fixtureExtension, 'package.json'), JSON.stringify({ name: 'ai-agents-acceptance-fixture', publisher: 'ai-agents-fixture', version: '0.0.1', engines: { vscode: '^1.109.0' }, main: './index.cjs', activationEvents: ['onStartupFinished'], extensionDependencies: ['y3162.ai-agents'] }));
+      receipt.launchArgs.push(`--extensionDevelopmentPath=${fixtureExtension}`);
+    } else {
+      receipt.launchArgs.push(`--extensionTestsPath=${fixturePath}`);
+    }
+    receipt.backend = `isolated Extension Host fixture ${fixtureEntry}; no CLI`;
   }
   await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
   const checked = await preflight(root, receipt);
@@ -210,7 +237,7 @@ async function start() {
     CURSOR_HOME: paths.cursorHome,
     TMPDIR: paths.tmp,
     LANG: 'en_US.UTF-8',
-    ...(process.env.AI_AGENTS_GUI_VIEWMODEL_FIXTURE === '1' ? { AI_AGENTS_GUI_FIXTURE_ROOT: root } : {}),
+    ...((process.env.AI_AGENTS_GUI_VIEWMODEL_FIXTURE === '1' || fixtureEntry) ? { AI_AGENTS_GUI_FIXTURE_ROOT: root } : {}),
   };
   const child = spawn(checked.executable, receipt.launchArgs, { cwd: root, env, detached: true, stdio: 'ignore' });
   receipt.processId = child.pid;
@@ -273,11 +300,32 @@ async function stop() {
   const { absolute, receipt, receiptPath } = await sessionReceipt(requestedRoot);
   await preflight(absolute, receipt);
   if (!receipt.processId) throw new Error('No recorded GUI process. Quit the disposable VS Code window manually.');
-  try { process.kill(-receipt.processId, 'SIGTERM'); }
-  catch (error) {
-    if (error?.code === 'EPERM') throw new Error(`Cannot signal GUI process group ${receipt.processId} from this caller. Quit the disposable window manually; session retained at ${absolute}.`);
-    if (error?.code !== 'ESRCH') throw error;
-  }
+  if (processGroupState(receipt.processId) === 'stopped') return;
+  if (!receipt.launchArgs?.includes('--remote-debugging-port=0')) throw new Error('Cannot safely close a host without its isolated CDP port. Close the disposable window manually.');
+  const port = (await readFile(join(receipt.paths.userData, 'DevToolsActivePort'), 'utf8')).split('\n')[0];
+  const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
+  const page = targets.find(target => target.type === 'page' && target.title.includes('[Extension Development Host]'));
+  if (!page) throw new Error('Disposable workbench target not found; session retained.');
+  if (!decodeURIComponent(page.url).includes(`${receipt.paths.appBundle}/Contents/Resources/app/`)) throw new Error('CDP workbench does not belong to the isolated app; refusing to quit.');
+  const processArgs = execFileSync('/bin/ps', ['-ww', '-p', String(receipt.processId), '-o', 'command='], { encoding: 'utf8' });
+  if (!processArgs.includes(receipt.paths.executable) || !processArgs.includes(`--user-data-dir=${receipt.paths.userData}`)) throw new Error('Recorded GUI process does not match the isolated executable and profile; refusing to quit.');
+  const ws = new WebSocket(page.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => { ws.onopen = resolve; ws.onerror = reject; });
+  let sequence = 0;
+  const pending = new Map();
+  ws.onmessage = event => { const message = JSON.parse(event.data); if (message.id && pending.has(message.id)) { const [ok, fail] = pending.get(message.id); pending.delete(message.id); message.error ? fail(new Error(JSON.stringify(message.error))) : ok(message.result); } };
+  ws.onclose = () => { for (const [, fail] of pending.values()) fail(new Error('Workbench CDP closed')); pending.clear(); };
+  const call = (method, params = {}) => new Promise((ok, fail) => { const id = ++sequence; pending.set(id, [ok, fail]); ws.send(JSON.stringify({ id, method, params })); });
+  const evaluate = async expression => (await call('Runtime.evaluate', { expression, returnByValue: true })).result.value;
+  try {
+    const point = await evaluate(`(() => { const r = document.querySelector('.part.titlebar').getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2}; })()`);
+    await call('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
+    await call('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
+    // The macOS VS Code keybinding invokes workbench.action.quit on this
+    // isolated target. Close Window alone can leave the app running.
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'q', code: 'KeyQ', modifiers: 4 }).catch(() => {});
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'q', code: 'KeyQ', modifiers: 4 }).catch(() => {});
+  } finally { ws.close(); }
   receipt.launchStatus = 'stop requested; confirm the disposable window and Extension Host have closed before cleanup';
   await writeFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
   console.log(`GUI_STOP_REQUESTED ${receipt.processId}`);

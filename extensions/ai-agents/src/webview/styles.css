@@ -595,7 +595,8 @@ textarea {
 .plan-head, .plan-actions, .terminal-row, .change-head { min-width: 0; }
 .plan-head h2, .terminal-row span, .change-head span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .terminal-row, .change-head { flex-wrap: wrap; }
-.plan-actions { justify-content: space-between; flex-wrap: nowrap; align-items: center; }
+.plan-actions { justify-content: space-between; flex-wrap: wrap; align-items: center; }
+.plan-view-toggle, .plan-build .build { flex: 0 0 auto; white-space: nowrap; }
 .plan-build { display: flex; align-items: center; gap: .35em; min-width: 0; margin-left: auto; }
 .plan-build .pill { max-width: 10em; }
 .plan-view.is-ready { border-color: var(--vscode-contrastBorder, var(--agent-stroke)); }

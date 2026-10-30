@@ -72,7 +72,7 @@ function visible(document: Document, selector: string): HTMLElement {
 test('settings changes approval, search, network, directories, and auto-approve', () => {
   const { window, sent, emit, document } = boot();
   emit(shell({
-    showApproval: true, showWebSearch: true, showNetwork: true, network: false, autoApprove: true,
+    showApproval: true, showWebSearch: true, showNetwork: true, network: false, autoApprove: true, interactiveApproval: true,
     additionalDirectories: ['/extra', '/other'],
   }));
   click(visible(document, '.new-chat'));
@@ -106,6 +106,9 @@ test('settings changes approval, search, network, directories, and auto-approve'
   assert.equal(auto.getAttribute('aria-pressed'), 'true');
   click(auto);
   assert.equal(countType(sent, 'toggleAutoApprove'), 1);
+  emit(shell({ interactiveApproval: false }));
+  assert.equal([...document.querySelectorAll('button')].some((button) => button.textContent?.includes('Auto-approve')), false);
+  emit(shell({ showApproval: true, showWebSearch: true, showNetwork: true, network: false, autoApprove: true, interactiveApproval: true, additionalDirectories: ['/extra', '/other'] }));
   for (const [label, type] of [['Sign in', 'login'], ['API key', 'apiKey'], ['Diagnose', 'diagnose'], ['Usage', 'usage'], ['Rules / Skills / MCP', 'instructions'], ['Logs', 'logs'], ['VS Code settings', 'settings']] as const) {
     click([...document.querySelectorAll('button')].find((button) => button.textContent?.includes(label))!);
     assert.equal(posted(sent, type)?.type, type);

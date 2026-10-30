@@ -36,21 +36,38 @@ exports.run = async function run() {
     try { raw = await fs.readFile(request, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if (raw && raw !== previous) {
       previous = raw;
-      const { id, scenario, session = 'a' } = JSON.parse(raw);
+      const { id, scenario, session = 'a', layout = false } = JSON.parse(raw);
       if (scenario === 'stop') return;
+      if (scenario === 'layout') {
+        await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
+        // Isolated visual fixture only: exercise controls exposed by a
+        // Plan-capable backend without changing production CLI capability.
+        sidebar.controls.codex = { ...sidebar.controls.codex, backend: 'app-server' };
+        sidebar.controllerControls.set(sidebar.controller, { ...sidebar.controls.codex });
+        sidebar.flushNow();
+        await fs.writeFile(response, JSON.stringify({id, scenario, at: new Date().toISOString()}));
+        continue;
+      }
+      if (scenario === 'theme') {
+        const { theme } = JSON.parse(raw);
+        if (!['Dark Modern', 'Light Modern', 'Default High Contrast'].includes(theme)) throw new Error('Unknown fixture theme');
+        await vscode.workspace.getConfiguration('workbench').update('colorTheme', theme, vscode.ConfigurationTarget.Workspace);
+        await fs.writeFile(response, JSON.stringify({ id, scenario, theme, at: new Date().toISOString() }));
+        continue;
+      }
       if (!['T01', 'T02', 'T03', 'T04', 'T05', 'T06'].includes(scenario) || !['a', 'b'].includes(session)) throw new Error('Unknown fixture scenario');
       sidebar.registry.focus(keys[session]);
       const done = scenario === 'T05';
       const completed = ['T03', 'T04', 'T05'].includes(scenario);
       const now = Date.now();
       const current = snapshots[session] = { ...snapshots[session], busy: !done, status: done ? 'idle' : 'running', messages: [
-        { id: 'fixture-user', role: 'user', text: 'Fixture scenario', at: now - 1000 },
+        { id: 'fixture-user', role: 'user', text: layout ? `Fixture scenario\n${'Long fixture line for scroll testing.\n'.repeat(60)}` : 'Fixture scenario', at: now - 1000 },
         { id: 'fixture-thinking', role: 'assistant', text: scenario === 'T02' ? 'Fixture thinking updated' : 'Fixture thinking', turnId: 'fixture-user', at: now - 900, meta: { type: 'thinking', ...(completed ? { thinkingCompleted: true } : {}) } },
         ...(scenario === 'T04' ? [{ id: 'fixture-tool', role: 'tool', text: 'running: fixture tool', turnId: 'fixture-user', tool: { kind: 'shell', name: 'fixture tool', status: 'running' } }] : []),
         ...(done ? [{ id: 'fixture-answer', role: 'assistant', text: 'Fixture turn complete', turnId: 'fixture-user', final: true }] : []),
       ], turns: [{ id: 'fixture-user', startedAt: now - 1000, status: done ? 'completed' : 'running', waitMs: 0, mode: 'agent', model: '', intent: 'chat', ...(done ? { endedAt: now } : {}) }] };
       sidebar.flushNow();
-      await fs.writeFile(response, JSON.stringify({ id, scenario, conversation: sidebar.registry.frontKey, busy: current.busy, at: new Date().toISOString() }));
+      await fs.writeFile(response, JSON.stringify({ id, scenario, conversation: sidebar.registry.frontKey, busy: current.busy, activeBusy: sidebar.controller.snapshot().busy, activeMatches: sidebar.controller === controllers[session], readyViews: sidebar.readyViews.size, at: new Date().toISOString() }));
     }
     await new Promise(resolve => setTimeout(resolve, 50));
   }

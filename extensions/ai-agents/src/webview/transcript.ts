@@ -459,7 +459,7 @@ export class Transcript {
   private activityGroup(segment: Extract<Segment, { type: 'explore' | 'ran' | 'edited' }>, copy: Copy, running: boolean): HTMLElement {
     const locale = this.shell?.locale ?? 'en';
     const failed = segment.tools.some((tool) => tool.status === 'error');
-    const label = segment.type === 'explore'
+    const label = segment.tools.some((tool) => tool.status === 'unknown') ? copy.toolUnknown : segment.type === 'explore'
       ? exploreFailureLabel(exploreLabel(locale, segment.tools.filter((tool) => tool.kind === 'read').length, segment.tools.filter((tool) => tool.kind === 'search').length, running), locale, failed)
       : segment.type === 'ran'
         ? shellGroupLabel(locale, segment.tools.map((tool) => tool.target || tool.name), running, failed)
@@ -549,12 +549,12 @@ export class Transcript {
   }
 
   private toolStatus(tool: ToolRow, copy: Copy): HTMLElement {
-    const label = tool.status === 'running' ? copy.toolRunning : tool.status === 'error' ? copy.toolFailed : copy.toolDone;
+    const label = tool.status === 'unknown' ? copy.toolUnknown : tool.status === 'running' ? copy.toolRunning : tool.status === 'error' ? copy.toolFailed : copy.toolDone;
     return this.dom.el('span', 'tool-state', label);
   }
 
   private toolRow(tool: ToolRow, copy: Copy): HTMLElement {
-    const row = this.dom.el('div', `tool-row-item ${tool.status === 'error' ? 'is-error' : tool.status === 'running' ? 'is-running' : 'is-done'}`);
+    const row = this.dom.el('div', `tool-row-item ${tool.status === 'error' ? 'is-error' : tool.status === 'running' ? 'is-running' : tool.status === 'unknown' ? 'is-unknown' : 'is-done'}`);
     if (tool.kind === 'shell' && tool.target) {
       row.classList.add('shell-tool');
       const command = tool.target;
@@ -566,7 +566,7 @@ export class Transcript {
       button.setAttribute('aria-expanded', String(open));
       button.append(this.dom.icon(open ? 'chevron-down' : 'chevron-right'));
       button.append(this.dom.el('span', 'tool-name', shellCaption(command, copy)));
-      if (tool.status !== 'completed') button.append(this.dom.icon(tool.status === 'running' ? 'loading~spin' : 'error'));
+      if (tool.status !== 'completed') button.append(this.dom.icon(tool.status === 'running' ? 'loading~spin' : tool.status === 'unknown' ? 'question' : 'error'));
       button.append(this.toolStatus(tool, copy));
       row.append(button);
       if (!open) {
@@ -607,7 +607,7 @@ export class Transcript {
       const range = tool.line ? ` L${tool.line}${tool.endLine && tool.endLine !== tool.line ? `-${tool.endLine}` : ''}` : '';
       button.append(this.dom.el('span', 'tool-target', `${tool.target}${range}`));
     }
-    if (tool.status !== 'completed') button.append(this.dom.icon(tool.status === 'running' ? 'loading~spin' : 'error'));
+    if (tool.status !== 'completed') button.append(this.dom.icon(tool.status === 'running' ? 'loading~spin' : tool.status === 'unknown' ? 'question' : 'error'));
     button.append(this.toolStatus(tool, copy));
     row.append(button);
     const open = this.openDetails.has(tool.id);

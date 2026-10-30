@@ -209,8 +209,19 @@ export function createApp(vscode: VsCodeApi, options?: { document?: Document }):
     if (scheduled) return;
     scheduled = true;
     const raf = document.defaultView?.requestAnimationFrame?.bind(document.defaultView);
-    if (raf) raf(() => { scheduled = false; paint(); });
-    else { scheduled = false; paint(); }
+    if (!raf) { scheduled = false; paint(); return; }
+    // Chromium can suspend animation frames in a background webview. Keep
+    // host state visible even when the next frame is delayed indefinitely.
+    let rendered = false;
+    const timer = setTimeout(render, 100);
+    function render(): void {
+      if (rendered) return;
+      rendered = true;
+      clearTimeout(timer);
+      scheduled = false;
+      paint();
+    }
+    raf(render);
   };
 
   const onMessage = (event: MessageEvent) => {

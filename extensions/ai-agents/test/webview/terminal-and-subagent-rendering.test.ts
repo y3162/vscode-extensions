@@ -94,7 +94,8 @@ test('terminals render without file changes and unknown subagents are not labele
   assert.ok(window.document.querySelector('.plan-actions'));
   const css = readFileSync(path.join(__dirname, '../../src/webview/styles.css'), 'utf8');
   assert.match(css, /\.terminal-row, \.change-head \{ flex-wrap: wrap; \}/);
-  assert.match(css, /\.plan-actions \{ justify-content: space-between; flex-wrap: nowrap; align-items: center; \}/);
+  assert.match(css, /\.plan-actions \{ justify-content: space-between; flex-wrap: wrap; align-items: center; \}/);
+  assert.match(css, /\.plan-view-toggle, \.plan-build \.build \{ flex: 0 0 auto; white-space: nowrap; \}/);
 });
 
 test('shell executions use a command card with expandable output', () => {

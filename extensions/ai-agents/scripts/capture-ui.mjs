@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 const root = resolve(import.meta.dirname, '../../..');
 const output = resolve(process.env.UI_CAPTURE_OUTPUT || join(root, 'extensions/ai-agents/docs/evidence/ui-redesign/after'));
 const bundle = process.env.UI_CAPTURE_BUNDLE && resolve(process.env.UI_CAPTURE_BUNDLE);
+const screenshots = process.env.AI_AGENTS_GUI_NO_SCREENSHOTS !== '1';
 const scenes = (process.env.UI_CAPTURE_SCENES || 'home,empty-home,empty,chat,running,approval,plan,build,error,settings,subagent,terminal,model,model-list,mode,question,usage,queue,changes,plan-expanded,subagent-detail,banner').split(',');
 const widths = (process.env.UI_CAPTURE_WIDTHS || '300,390,520').split(',').map(Number);
 const themes = (process.env.UI_CAPTURE_THEMES || 'dark,light,hc').split(',');
@@ -49,7 +50,7 @@ const evaluate = async (expression) => {
 const report = [];
 try {
   let port;
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 600; i++) {
     try { port = (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]; break; } catch { await delay(100); }
   }
   if (!port) throw new Error('Chrome did not start; set CHROME_PATH to a local Chrome/Chromium executable.');
@@ -91,13 +92,15 @@ try {
       return { lowContrast, frameWidth: frame.width, pageOverflow: document.documentElement.scrollWidth > ${width}, horizontalOverflow: main.scrollWidth > main.clientWidth + 1, outside, promptHeight: document.querySelector('#prompt').getBoundingClientRect().height, threadHeight: main.clientHeight };
     })()`);
     const name = `${scene}-${width}-${theme}-${lang}`;
-    const png = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
-    await writeFile(join(output, `${name}.png`), Buffer.from(png.data, 'base64'));
+    if (screenshots) {
+      const png = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      await writeFile(join(output, `${name}.png`), Buffer.from(png.data, 'base64'));
+    }
     report.push({ name, scene, width, theme, lang, ...metrics, exceptions: [...exceptions] });
-    if (report.length % 18 === 0) console.log(`Captured ${report.length} screens`);
+    if (report.length % 18 === 0) console.log(`Checked ${report.length} scenes`);
   }
   await writeFile(join(output, 'report.json'), JSON.stringify(report, null, 2));
-  if (process.env.UI_CAPTURE_SHEETS !== '0') {
+  if (screenshots && process.env.UI_CAPTURE_SHEETS !== '0') {
     for (const scene of scenes) {
       const rows = report.filter(r => r.scene === scene);
       const html = `<!doctype html><meta charset="utf-8"><style>body{margin:12px;font:13px system-ui;background:#ddd}section{display:grid;grid-template-columns:repeat(6,240px);gap:12px}figure{margin:0}img{display:block;width:240px}figcaption{height:28px}</style><h2>${scene}</h2><section>${rows.map(r=>`<figure><figcaption>${r.name}</figcaption><img src="${r.name}.png"></figure>`).join('')}</section>`;
@@ -111,7 +114,7 @@ try {
   }
 
   const bad = report.filter(r => r.exceptions.length || r.pageOverflow || r.horizontalOverflow || r.outside.length || r.lowContrast.length);
-  await writeFile(join(output, 'index.html'), `<!doctype html><html><head><meta charset="utf-8"><title>AI Agents UI matrix</title><style>body{font:14px system-ui;background:#ddd;color:#222}section{display:grid;grid-template-columns:repeat(6,260px);gap:12px}figure{margin:0}img{width:260px;border:1px solid #888}h2{margin-top:30px}figcaption{padding:8px 0}</style></head><body><h1>AI Agents — Webview fixture matrix</h1><p>${report.length} static fixture screenshots. View at original size to inspect text. Functional checks are separate.</p>${scenes.map(scene=>`<h2>${scene}</h2><section>${report.filter(r=>r.scene===scene).map(r=>`<figure><figcaption>${r.name}</figcaption><a href="${r.name}.png"><img src="${r.name}.png" loading="lazy"></a></figure>`).join('')}</section>`).join('')}</body></html>`);
+  if (screenshots) await writeFile(join(output, 'index.html'), `<!doctype html><html><head><meta charset="utf-8"><title>AI Agents UI matrix</title><style>body{font:14px system-ui;background:#ddd;color:#222}section{display:grid;grid-template-columns:repeat(6,260px);gap:12px}figure{margin:0}img{width:260px;border:1px solid #888}h2{margin-top:30px}figcaption{padding:8px 0}</style></head><body><h1>AI Agents — Webview fixture matrix</h1><p>${report.length} static fixture screenshots. View at original size to inspect text. Functional checks are separate.</p>${scenes.map(scene=>`<h2>${scene}</h2><section>${report.filter(r=>r.scene===scene).map(r=>`<figure><figcaption>${r.name}</figcaption><a href="${r.name}.png"><img src="${r.name}.png" loading="lazy"></a></figure>`).join('')}</section>`).join('')}</body></html>`);
   if (process.env.UI_CAPTURE_FUNCTIONAL !== '0') {
     const checks = [];
     const check = async (name, expression) => { if (!await evaluate(expression)) throw new Error(`Functional check failed: ${name}`); checks.push(name); };
@@ -225,7 +228,7 @@ try {
       };
     })()`);
     measures.push({ theme, width, ...measured });
-    if (theme === 'dark' && (width === 390 || width === 1000)) {
+    if (screenshots && theme === 'dark' && (width === 390 || width === 1000)) {
       const png = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
       await writeFile(join(output, `measure-chat-${width}-dark-en.png`), Buffer.from(png.data, 'base64'));
     }
@@ -236,7 +239,7 @@ try {
     console.error(JSON.stringify(rowMismatch, null, 2));
     process.exitCode = 1;
   }
-  console.log(JSON.stringify({ output, captures: report.length, layoutFindings: bad }, null, 2));
+  console.log(JSON.stringify({ output, scenesChecked: report.length, captures: screenshots ? report.length : 0, layoutFindings: bad }, null, 2));
   if (bad.length) process.exitCode = 1;
 } finally {
   ws?.close(); child.kill('SIGTERM'); server.close();

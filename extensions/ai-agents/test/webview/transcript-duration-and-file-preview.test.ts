@@ -59,11 +59,14 @@ test('a restored running turn is visibly marked unknown instead of completed', (
   const root = dom.el('main');
   window.document.body.append(root);
   const transcript = new Transcript(dom, root, () => {}, () => {}, () => {}, () => {});
-  transcript.render([{ id: 'user-unknown', role: 'user', text: 'unfinished prompt', at: 100 }], shell({ timings: [
+  transcript.render([{ id: 'user-unknown', role: 'user', text: 'unfinished prompt', at: 100 },
+    { id: 'tool', turnId: 'user-unknown', role: 'tool', text: 'fixture command', tool: { kind: 'shell', name: 'fixture command', target: 'fixture command', status: 'running' } }], shell({ timings: [
     { id: 'user-unknown', startedAt: 100, waitMs: 0, status: 'unknown', intent: 'chat' },
   ] }), strings('en'));
   assert.match(root.querySelector('.turn-usage')?.textContent ?? '', /Run state unknown after reload/);
   assert.equal(root.querySelector('.turn-usage')?.hidden, false);
+  assert.match(root.textContent ?? '', /Run state unknown/);
+  assert.doesNotMatch(root.textContent ?? '', /Ran fixture command|Running fixture command/);
   window.happyDOM.abort();
 });
 

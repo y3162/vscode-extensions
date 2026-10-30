@@ -51,7 +51,7 @@ export class SettingsPanel {
 
   render(shell: ViewShell, copy: Copy): void {
     this.shell = shell;
-    const signature = JSON.stringify([shell.locale, shell.busy, shell.backend, shell.sandboxChoices, shell.sandbox, shell.showApproval, shell.approvalChoices, shell.approval, shell.showWebSearch, shell.webSearchChoices, shell.webSearch, shell.showNetwork, shell.network, shell.additionalDirectories, shell.autoApprove]);
+    const signature = JSON.stringify([shell.locale, shell.busy, shell.backend, shell.sandboxChoices, shell.sandbox, shell.showApproval, shell.approvalChoices, shell.approval, shell.showWebSearch, shell.webSearchChoices, shell.webSearch, shell.showNetwork, shell.network, shell.additionalDirectories, shell.autoApprove, shell.interactiveApproval]);
     if (signature === this.signature) return;
     this.signature = signature;
     this.applying = true;
@@ -80,10 +80,12 @@ export class SettingsPanel {
       }
       this.body.append(group);
     }
-    const auto = this.dom.button(shell.autoApprove ? 'secondary pressed' : 'secondary', copy.autoApprove);
-    auto.setAttribute('aria-pressed', String(shell.autoApprove));
-    auto.addEventListener('click', () => this.post({ type: 'toggleAutoApprove' }));
-    this.body.append(auto);
+    if (shell.interactiveApproval) {
+      const auto = this.dom.button(shell.autoApprove ? 'secondary pressed' : 'secondary', copy.autoApprove);
+      auto.setAttribute('aria-pressed', String(shell.autoApprove));
+      auto.addEventListener('click', () => this.post({ type: 'toggleAutoApprove' }));
+      this.body.append(auto);
+    }
     this.body.append(this.dom.el('p', 'menu-note', copy.sandboxNote));
     const tools = this.dom.el('div', 'tool-row');
     tools.setAttribute('aria-label', copy.accountTools);

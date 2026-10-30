@@ -208,3 +208,21 @@ test('transcript replay maps child and local parent ids into the saved turn', as
   assert.equal(snapshot.subagents.find((child) => child.id === 'local-parent')?.parentTurnId, 'local-turn');
   await controller.dispose();
 });
+
+test('a transcript-only interrupted turn retains unknown status and its tool', async () => {
+  const { messagesFrom } = await import('../../src/providers/codex-app-server.js');
+  const replay = messagesFrom({ turns: [{ id: 'unfinished', status: 'inProgress', items: [
+    { id: 'user', type: 'userMessage', content: [{ type: 'text', text: 'run command' }] },
+    { id: 'cmd', type: 'commandExecution', command: 'fixture command', status: 'inProgress' },
+  ] }] });
+  const controller = new ChatController(baseSelection, async () => ({
+    sessionId: 'thread', async run() {}, async loadTranscript(emit) { for (const message of replay) emit(message); }, async dispose() {},
+  }), () => {});
+  controller.prepareResume('thread');
+  await controller.openSession();
+  const state = controller.snapshot();
+  assert.equal(state.turns[0]?.status, 'unknown');
+  assert.equal(state.turns[0]?.id, 'unfinished:user');
+  assert.equal(state.messages.find((message) => message.tool)?.tool?.status, 'running');
+  await controller.dispose();
+});

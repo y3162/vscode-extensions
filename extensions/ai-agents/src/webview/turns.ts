@@ -6,7 +6,7 @@ export interface ToolRow {
   id: string;
   name: string;
   kind: ToolInfo['kind'];
-  status: ToolInfo['status'];
+  status: ToolInfo['status'] | 'unknown';
   target?: string;
   line?: number;
   endLine?: number;
@@ -153,6 +153,11 @@ export function buildTurns(messages: readonly ViewMessage[], busy: boolean, pend
   const finish = () => {
     if (!id) return;
     const timing = timings.find((item) => item.id === id);
+    if (timing?.status === 'unknown') {
+      for (const segment of segments) if (segment.type === 'tools') {
+        for (const tool of segment.tools) if (tool.status === 'running') tool.status = 'unknown';
+      }
+    }
     closeThinking(segments, timing?.endedAt ?? (!busy && !pending ? endedAt : undefined));
     const answer = takeAnswer(segments);
     const log = presentActivity(segments);

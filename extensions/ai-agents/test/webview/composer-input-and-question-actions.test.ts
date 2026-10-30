@@ -136,6 +136,10 @@ test('a running turn queues, ArrowUp recalls, and approval answers keep their to
   assert.equal(answer?.id, 'perm');
   assert.equal(answer?.token, 'token-1');
   assert.equal(answer?.decision, 'allow-once');
+  const choices = [...window.document.querySelectorAll<HTMLButtonElement>('.pending-card .card-actions button')];
+  assert.equal(choices.every((button) => button.disabled), true);
+  choices[2]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  assert.equal(sent.filter((message) => message.type === 'resolvePermission').length, 1);
 });
 
 test('suggestion arrows and Tab insert the highlighted file', async () => {

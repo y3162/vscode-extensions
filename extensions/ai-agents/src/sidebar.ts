@@ -466,7 +466,11 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     try {
       const controller = this.controller;
       const roots = this.folders().map((folder) => folder.path);
-      const plan = await inspectUndoAll(controller.snapshot().changes, roots, this.dirtyPaths());
+      const changes = controller.snapshot().changes;
+      // Capture all undo metadata, including observed digests and file modes,
+      // which are intentionally not part of the review presentation fingerprint.
+      const undoSnapshot = JSON.stringify(changes);
+      const plan = await inspectUndoAll(changes, roots, this.dirtyPaths());
       if (!plan.ok) throw new Error(undoReasonText(plan.blocks) || (this.locale === 'ja' ? '安全に一括Undoできないため中止しました。' : 'Undo All was cancelled because it is not safe.'));
       const names = plan.targets.map((change) => path.basename(change.path));
       const label = this.locale === 'ja' ? 'すべて戻す' : 'Undo All';
@@ -481,9 +485,15 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       );
       if (choice !== label || this.controller !== controller) return;
       const again = await inspectUndoAll(controller.snapshot().changes, roots, this.dirtyPaths());
-      const same = again.ok && again.targets.map((item) => item.path).join('\0') === plan.targets.map((item) => item.path).join('\0');
+      const same = again.ok && JSON.stringify(controller.snapshot().changes) === undoSnapshot;
       if (!same) throw new Error(this.locale === 'ja' ? '確認後にファイルが変わったため、一括Undoを中止しました。' : 'Files changed after confirmation, so Undo All was cancelled.');
-      const result = await applyUndoAll(again.targets, roots, revertChange);
+      const result = await applyUndoAll(again.targets, roots, revertChange, async (change) => {
+        if (this.controller !== controller || JSON.stringify(controller.snapshot().changes) !== undoSnapshot) {
+          throw new Error(this.locale === 'ja' ? '変更集合が変わりました。' : 'The change set changed.');
+        }
+        const current = await inspectUndoAll([change], roots, this.dirtyPaths());
+        if (!current.ok) throw new Error(undoReasonText(current.blocks));
+      });
       if (result.restored.length) controller.removeChanges(result.restored);
       if (result.failed) {
         const done = result.restored.map((item) => path.basename(item)).join(', ') || (this.locale === 'ja' ? 'なし' : 'none');

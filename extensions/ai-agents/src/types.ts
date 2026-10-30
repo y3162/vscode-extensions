@@ -260,6 +260,8 @@ export interface ChatMessage {
   turnId?: string;
   backendId?: string;
   backendTurnId?: string;
+  /** An interrupted backend turn observed during transcript replay. */
+  backendTurnIncomplete?: boolean;
   /** Set only for events received from a child thread with an explicit backend thread ID. */
   subagentId?: string;
   failure?: { kind: string; retryable: boolean; operation?: string };

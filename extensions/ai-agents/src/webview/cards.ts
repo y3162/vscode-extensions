@@ -28,11 +28,17 @@ export function renderPending(host: HTMLElement, shell: ViewShell, dom: Dom, cop
     if (extra) card.append(dom.el('pre', 'pending-detail', extra));
     const actions = dom.el('div', 'card-actions');
     const joiner = copy.allow === '許可' ? '、' : ', ';
+    let submitted = false;
     for (const [label, decision] of [[copy.allow, 'allow-once'], [copy.allowSession, 'allow-session'], [copy.deny, 'deny']] as const) {
       const button = dom.button(decision === 'allow-once' ? 'primary' : 'secondary', label);
       button.dataset.decision = decision;
       button.setAttribute('aria-label', `${label}${joiner}${target}`);
-      button.addEventListener('click', () => post({ type: 'resolvePermission', id: request.id, decision, token }));
+      button.addEventListener('click', () => {
+        if (submitted) return;
+        submitted = true;
+        for (const choice of actions.querySelectorAll('button')) choice.disabled = true;
+        post({ type: 'resolvePermission', id: request.id, decision, token });
+      });
       actions.append(button);
     }
     card.append(actions);

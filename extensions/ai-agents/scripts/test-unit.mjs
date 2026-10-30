@@ -17,7 +17,7 @@ async function filesUnder(directory) {
 
 const tests = await filesUnder(path.join(root, 'test'));
 const result = spawnSync(process.execPath, [
-  '--import', 'tsx', '--import', './test/support/register-vscode.mjs', '--test',
+  '--import', 'tsx', '--import', './test/support/register-vscode.mjs', '--test', '--test-concurrency=4',
   ...tests.map((file) => path.relative(root, file)),
 ], { cwd: root, stdio: 'inherit' });
 

@@ -4,7 +4,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const cwdIndex = process.argv.indexOf('-C');
 if (cwdIndex >= 0) process.chdir(process.argv[cwdIndex + 1]);
-const emit = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
+// Persist only synthetic data in the disposable workspace so a fresh app-server
+// process can answer the same public history requests as the real CLI.
+const historyFile = path.join(process.cwd(), 'fixture-history.json');
+const readHistory = () => fs.existsSync(historyFile) ? JSON.parse(fs.readFileSync(historyFile, 'utf8')) : {};
+const saveHistory = (history) => fs.writeFileSync(historyFile, JSON.stringify(history));
+let recordEvent = () => {};
+const emit = (event) => { recordEvent(event); process.stdout.write(`${JSON.stringify(event)}\n`); };
 if (process.argv.includes('app-server')) {
   const modeFile = path.join(process.cwd(), 'model-mode.txt');
   const mode = fs.existsSync(modeFile) ? fs.readFileSync(modeFile, 'utf8').trim() : '';
@@ -13,7 +19,26 @@ if (process.argv.includes('app-server')) {
     const request = JSON.parse(line);
     if (request.method === 'initialize') emit({ id: request.id, result: { userAgent: 'fixture' } });
     if (request.method === 'initialized') initialized = true;
-    if (request.method === 'thread/resume') { emit({ id: request.id, error: { message: 'fixture history unavailable' } }); return; }
+    const history = readHistory();
+    if (request.method === 'thread/resume') {
+      const id = request.params.threadId;
+      if (fs.existsSync(path.join(process.cwd(), 'fixture-resume-failure')) || !history[id]) {
+        emit({ id: request.id, error: { message: 'fixture history unavailable' } });
+      } else emit({ id: request.id, result: { thread: { id, historyMode: 'paginated' } } });
+      return;
+    }
+    if (request.method === 'thread/turns/list') {
+      const turns = history[request.params.threadId]?.turns;
+      if (!turns) emit({ id: request.id, error: { message: 'fixture thread not found' } });
+      else if (fs.existsSync(path.join(process.cwd(), 'fixture-history-incomplete'))) emit({ id: request.id, result: {} });
+      else emit({ id: request.id, result: { data: turns, nextCursor: null } });
+      return;
+    }
+    if (request.method === 'thread/list') {
+      emit({ id: request.id, result: { data: Object.entries(history).map(([id, thread]) => ({ id, title: thread.title, updatedAt: thread.updatedAt })) } });
+      return;
+    }
+    if (request.method === 'thread/backgroundTerminals/list') { emit({ id: request.id, result: { data: [], nextCursor: null } }); return; }
     if (request.method !== 'model/list') return;
     if (!initialized) { emit({ id: request.id, error: { message: 'Not initialized' } }); return; }
     if (mode === 'wait') return;
@@ -45,7 +70,33 @@ process.stdin.on('end', () => {
   const invocations = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : [];
   invocations.push({ args: process.argv.slice(2), prompt });
   fs.writeFileSync(file, JSON.stringify(invocations));
-  emit({ type: 'thread.started', thread_id: 'fixture-thread' });
+  const resumeIndex = process.argv.indexOf('resume');
+  const history = readHistory();
+  const threadId = resumeIndex >= 0 ? process.argv[resumeIndex + 1] : `fixture-thread-${Object.keys(history).length + 1}`;
+  if (resumeIndex >= 0 && !history[threadId]) { emit({ type: 'error', message: 'fixture thread not found' }); process.exitCode = 1; return; }
+  const thread = history[threadId] ??= { title: prompt.trim().slice(0, 80), updatedAt: new Date().toISOString(), turns: [] };
+  const turn = { id: `${threadId}-turn-${thread.turns.length + 1}`, status: 'inProgress', items: [{ id: 'user', type: 'userMessage', content: [{ type: 'text', text: prompt }] }] };
+  thread.turns.push(turn);
+  saveHistory(history);
+  recordEvent = (event) => {
+    if (event.type.startsWith('item.') && event.item) {
+      const item = event.item;
+      const types = { agent_message: 'agentMessage', command_execution: 'commandExecution', file_change: 'fileChange' };
+      const converted = { ...item, type: types[item.type] || item.type,
+        ...(item.aggregated_output !== undefined ? { aggregatedOutput: item.aggregated_output } : {}),
+        ...(item.exit_code !== undefined ? { exitCode: item.exit_code } : {}),
+        ...(item.type === 'agent_message' ? { phase: 'final_answer' } : {}) };
+      const index = turn.items.findIndex((entry) => entry.id === item.id);
+      // Some completion notifications omit reasoning text; keep its last body.
+      if (index >= 0) turn.items[index] = { ...turn.items[index], ...converted, ...(item.type === 'reasoning' && !item.text ? { text: turn.items[index].text } : {}) };
+      else turn.items.push(converted);
+    }
+    if (event.type === 'turn.completed') turn.status = 'completed';
+    if (event.type === 'turn.failed') { turn.status = 'failed'; turn.error = event.error; }
+    thread.updatedAt = new Date().toISOString();
+    saveHistory(history);
+  };
+  emit({ type: 'thread.started', thread_id: threadId });
   emit({ type: 'turn.started' });
   if (prompt.includes('WAIT_FOR_STOP')) {
     setInterval(() => {}, 1000);

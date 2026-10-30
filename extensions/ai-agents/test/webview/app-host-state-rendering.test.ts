@@ -62,3 +62,17 @@ test('host state is painted immediately when the browser has no animation-frame 
   }));
   assert.equal(document.querySelector('.title-pill')?.textContent, 'Synchronous update');
 });
+
+test('host state is painted when a background webview does not run animation frames', async () => {
+  const { window, document, app } = boot();
+  Object.defineProperty(window, 'requestAnimationFrame', { configurable: true, value: () => 1 });
+  window.dispatchEvent(new window.MessageEvent('message', {
+    data: {
+      type: 'state', revision: 1, full: true, shell: shell({ sessionTitle: 'Background update' }),
+      messages: { removed: [], upserts: [], order: [] },
+    },
+  }));
+  await new Promise(resolve => setTimeout(resolve, 150));
+  assert.equal(document.querySelector('.title-pill')?.textContent, 'Background update');
+  app.destroy();
+});
