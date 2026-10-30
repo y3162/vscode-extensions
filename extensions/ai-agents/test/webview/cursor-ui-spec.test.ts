@@ -226,3 +226,29 @@ test('japanese copy keeps the work-time and mode labels', () => {
   assert.equal(copy.interrupted, '中断');
   assert.equal(copy.allow, '許可');
 });
+
+test('restored activity choices survive immediate redraws and stay isolated', () => {
+  const { document, emit } = boot();
+  const user: ViewMessage = { id: 'restored-turn', role: 'user', text: 'Run' };
+  const tool: ViewMessage = { id: 'restored-tool', role: 'tool', text: 'completed: echo hi\nhi', turnId: user.id, tool: { kind: 'shell', name: 'command', status: 'completed', target: 'echo hi' } };
+  const answer: ViewMessage = { id: 'answer', role: 'assistant', text: 'Done', turnId: user.id, final: true };
+  const state = shell({ conversationId: 'session-a' });
+  const group = () => document.querySelector<HTMLDetailsElement>('details.ran')!;
+  const heading = () => document.querySelector<HTMLButtonElement>('.shell-tool-heading')!;
+  emit(state, [user, tool, answer]);
+  group().querySelector<HTMLElement>('summary')!.click();
+  assert.equal(group().open, true);
+  heading().click();
+  assert.equal(group().open, true);
+  assert.equal(heading().getAttribute('aria-expanded'), 'true');
+  emit(state, [user, { ...tool, text: 'completed: echo hi\nupdated' }, answer]);
+  assert.equal(group().open, true);
+  assert.equal(heading().getAttribute('aria-expanded'), 'true');
+  group().querySelector<HTMLElement>('summary')!.click();
+  emit(state, [user, tool, answer]);
+  assert.equal(group().open, false);
+  assert.equal(heading().getAttribute('aria-expanded'), 'true');
+  emit(shell({ conversationId: 'session-b' }), [user, tool, answer]);
+  assert.equal(group().open, false);
+  assert.equal(heading().getAttribute('aria-expanded'), 'false');
+});

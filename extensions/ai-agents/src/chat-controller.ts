@@ -112,6 +112,7 @@ export class ChatController {
     private readonly factory: SessionFactory,
     private readonly changed: (state: ChatState) => void,
     private readonly rewindPersistence?: RewindPersistence,
+    private readonly validateSelection?: (selection: Selection, signal: AbortSignal) => Promise<void>,
   ) {
     this.state = {
       selection: { ...selection }, busy: false, messages: [], queue: [], status: 'idle', usage: null,
@@ -787,6 +788,8 @@ export class ChatController {
     operation.done = (async () => {
       const signal = operation.abort.signal;
       try {
+        if (this.validateSelection) await this.validateSelection(selection, signal);
+        signal.throwIfAborted();
         await this.openAgent(signal);
         signal.throwIfAborted();
         if (intent === 'build') {

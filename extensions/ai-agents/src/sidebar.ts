@@ -3,7 +3,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readdir, realpath, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { capabilitiesFor, defaultControls, modelApplyMode, normalizeControls, type AgentControls } from './capabilities.js';
-import { inferIntent } from './plan-state.js';
+import { inferIntent, remapPlanAnchor } from './plan-state.js';
 import { revertChange } from './change-review.js';
 import { applyUndoAll, captureAcceptance, changeSetFingerprint, inspectUndoAll, readChangeDigest, undoReasonText } from './review-acceptance.js';
 import { createCodexCliHistory } from './providers/codex-cli-history.js';
@@ -17,7 +17,7 @@ import { runProcess } from './diagnostics.js';
 import { agentLaunch, codexLaunch } from './providers/codex-binary.js';
 import { localeFrom } from './i18n.js';
 import { sanitizeImages } from './images.js';
-import { baseModelLabel, matchesModel, selectBaseModel } from './model-selection.js';
+import { baseModelLabel, matchesModel, selectBaseModel, validateCursorParams } from './model-selection.js';
 import { ModelDetails } from './model-details.js';
 import { catalogIsCurrent, ModelSettingsDraft, sameModelParams, toCatalogModel } from './model-settings.js';
 import { createSession, writeBaselineFile } from './providers/index.js';
@@ -175,6 +175,15 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       enabled: () => !this.historyPaused
         && vscode.workspace.getConfiguration('ai-agents').get<boolean>('history.enabled', true),
       flush: () => this.flushHistory(),
+    }, async (selected, signal) => {
+      if (selected.provider !== 'cursor' || this.controllerControls.get(controller)?.backend !== 'cli' || !selected.modelParams?.length) return;
+      let models: AgentModel[];
+      try { models = await this.listAvailableModels(selected, signal); }
+      catch (error) {
+        signal.throwIfAborted();
+        throw new Error(`Cursor CLI のモデル一覧を取得できず、保存済みパラメータを検証できません。設定は保持されています: ${errorMessage(error)}`);
+      }
+      validateCursorParams(selected, models);
     });
     this.conversationIds.set(controller, randomUUID());
     this.controllerControls.set(controller, { ...this.controls[selection.provider] });
@@ -270,7 +279,10 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
     if (record?.sessionId && !visible && !failed) target.restoreSnapshot(record.state, record.sessionId);
     const saved = this.savedPlans[sessionId];
     const plan = target.snapshot().plan;
-    if (saved?.current && !plan.current && !plan.draft) target.restorePlan(saved);
+    if (saved?.current && !plan.current && !plan.draft) {
+      const replayed = target.snapshot().messages;
+      target.restorePlan(record ? remapPlanAnchor(saved, record.state.messages, replayed) : saved);
+    }
   }
 
   async flushHistory(): Promise<void> {
@@ -387,7 +399,8 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       reviewProbe: this.controller.reviewProbeSnapshot(),
     });
     const rewindable = state.selection.provider === 'codex' && (controls.backend === 'app-server' || controls.backend === 'cli') ? this.controller.rewindableTurnIds() : new Set<string>();
-    const messages = state.messages.map((message) => toViewMessage(message, message.role === 'user' && rewindable.has(message.id)));
+    const cursorCli = provider === 'cursor' && (this.controllerControls.get(this.controller)?.backend ?? controls.backend) === 'cli';
+    const messages = state.messages.map((message) => toViewMessage(message, message.role === 'user' && rewindable.has(message.id), cursorCli));
     for (const view of this.readyViews) {
       const current = this.sync.get(view) ?? { sigs: new Map<string, string>(), revision: 0 };
       const full = current.revision === 0;
@@ -733,6 +746,15 @@ export class AgentsSidebar implements vscode.WebviewViewProvider {
       const models = await this.cachedModels(selection);
       const chosen = models.find((model) => model.id && (model.id === modelId || model.aliases?.includes(modelId)));
       if (!chosen) throw new Error('モデル一覧に、そのモデルはありません。');
+      if (selection.provider === 'cursor' && this.controls.cursor.backend === 'cli' && matchesModel(chosen, selection.model) && selection.modelParams?.length) {
+        try { validateCursorParams(selection, models); }
+        catch (error) {
+          const confirm = '保存済みパラメータを消去';
+          const choice = await vscode.window.showWarningMessage(`${errorMessage(error)}\nこのモデルの保存済みパラメータをすべて消去しますか？`, { modal: true }, confirm);
+          if (choice !== confirm) return undefined;
+          return { next: { provider: selection.provider, cwd: selection.cwd, model: selection.model }, label: chosen.label, hasDetails: Boolean(chosen.parameters?.length) };
+        }
+      }
       const next = selectBaseModel(chosen, selection);
       return { next, label: chosen.label, hasDetails: Boolean(chosen.parameters?.length) };
     });

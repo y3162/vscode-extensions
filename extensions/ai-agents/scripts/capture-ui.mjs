@@ -129,6 +129,14 @@ try {
     await check('completed log is collapsed', `document.querySelector('.log').hidden`);
     await evaluate(`document.querySelector('.log-toggle').click()`);
     await check('log expands with shell details', `!document.querySelector('.log').hidden && !!document.querySelector('.shell-tool')`);
+    await evaluate(`(()=>{const g=document.querySelector('details.ran');g.querySelector('summary').click();g.querySelector('.shell-tool-heading').click()})()`);
+    await check('group and detail survive immediate redraw', `document.querySelector('details.ran').open && document.querySelector('.shell-tool-heading').getAttribute('aria-expanded')==='true'`);
+    await evaluate(`window.previewSetState({...previewState,revision:2,messages:{...previewState.messages,upserts:previewState.messages.upserts.map(m=>m.id==='t2'?{...m,text:m.text+' updated'}:m)}})`);
+    await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
+    await check('group and detail survive host update', `document.querySelector('details.ran').open && document.querySelector('.shell-tool-heading').getAttribute('aria-expanded')==='true' && document.querySelector('.shell-command-output').textContent.includes('updated')`);
+    await evaluate(`document.querySelector('details.ran summary').click();window.previewSetState({...previewState,revision:3,messages:{...previewState.messages,upserts:previewState.messages.upserts.map(m=>m.id==='t2'?{...m,text:m.text+' again'}:m)}})`);
+    await evaluate('new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))');
+    await check('closed group survives host update', `!document.querySelector('details.ran').open && document.querySelector('.shell-tool-heading').getAttribute('aria-expanded')==='true'`);
     await evaluate(`document.querySelector('.change-toggle').click(); document.querySelector('.change-file .file-link').click()`);
     await check('changed file opens with conversation identity', `previewPosts.some(p=>p.type==='openDiff' && p.conversationId==='preview')`);
     await evaluate(`document.querySelector('.model-name').click(); document.querySelector('.model-menu [data-id="model"]').click()`);

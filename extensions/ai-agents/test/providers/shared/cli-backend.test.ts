@@ -493,7 +493,7 @@ process.stdin.on('end', () => {
   streamed.kill();
   assert.deepEqual(lines, ['alpha', '', '  ', 'beta']);
   assert.equal(finished.code, 0);
-  assert.equal(finished.stderr.length, 4000);
+  assert.equal(finished.stderr.length, 4500);
 
   const failing = path.join(cwd, 'fail.js');
   await writeFile(failing, 'process.exit(4);\n');
@@ -547,7 +547,10 @@ process.stdin.on('end', () => {
 
 test('Cursor CLI model text and tool events cover partial, nested, and failed results', async (t) => {
   assert.equal(cursorCliModelArg('  ', [{ id: 'fast', value: 'true' }]), undefined);
-  assert.equal(cursorCliModelArg('composer', [{ id: '', value: 'true' }, { id: 'fast', value: '' }, { id: 'fast', value: 'true' }]), 'composer[fast=true]');
+  assert.throws(() => cursorCliModelArg('composer', [{ id: '', value: 'true' }]), /パラメータが不正/);
+  assert.throws(() => cursorCliModelArg('composer', [{ id: 'fast', value: '' }]), /パラメータが不正/);
+  assert.throws(() => cursorCliModelArg('composer-2.5', [{ id: 'fast', value: 'true,effort=high' }]), /パラメータが不正/);
+  assert.throws(() => cursorCliModelArg('composer-2.5', [{ id: 'fast', value: 'true' }, { id: 'fast', value: 'false' }]), /パラメータが不正/);
   assert.equal(cursorCliArgs({ prompt: 'hello' }).includes('--model'), false);
   assert.equal(cursorCliArgs({ prompt: 'hello', mode: 'ask', sandbox: 'disabled' }).includes('--mode'), true);
   assert.deepEqual(parseCursorCliModels([

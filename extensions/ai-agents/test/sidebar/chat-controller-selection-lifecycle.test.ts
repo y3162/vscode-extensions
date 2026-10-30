@@ -8,6 +8,18 @@ import type { AgentSession, AgentUpdate, ChatState, Selection, UsageStats } from
 
 const selection: Selection = { provider: 'codex', cwd: '/workspace', model: 'initial' };
 
+test('failed turn validation preserves the selection and never starts the backend', async () => {
+  const chosen: Selection = { provider: 'cursor', cwd: '/workspace', model: 'composer-2.5', modelParams: [{ id: 'fast', value: 'bad' }] };
+  let launches = 0;
+  const controller = new ChatController(chosen, async () => { launches++; return { async run() {}, async dispose() {} }; }, () => {}, undefined,
+    async () => { throw new Error('catalog unavailable'); });
+  await controller.send('hello');
+  assert.equal(launches, 0);
+  assert.deepEqual(controller.snapshot().selection, chosen);
+  assert.match(controller.snapshot().messages.find(message => message.role === 'error')?.text ?? '', /catalog unavailable/);
+  await controller.dispose();
+});
+
 test('selection can change without an open session and no-op selection preserves the chosen model', async () => {
   let factoryCalls = 0;
   const controller = new ChatController(selection, async () => {

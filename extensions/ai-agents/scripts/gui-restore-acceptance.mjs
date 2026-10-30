@@ -37,11 +37,13 @@ async function attach(previousUrl) {
   throw Error('Timeout waiting for Development Host Webview');
 }
 let v = await attach();
+const contextTransitions = [];
 const evalWeb = async expression => {
   let result;
   try { result = await v.web.call('Runtime.evaluate', { contextId: v.context, expression, returnByValue: true }); }
   catch (error) {
     if (!String(error).includes('Cannot find context')) throw error;
+    contextTransitions.push({ timestamp: new Date().toISOString(), previousUrl: v.url, error: String(error) });
     v.wb.ws.close(); v.web.ws.close(); v = await attach();
     result = await v.web.call('Runtime.evaluate', { contextId: v.context, expression, returnByValue: true });
   }
@@ -119,11 +121,39 @@ try {
   if (!await has(`(()=>{const t=document.querySelector('details.thinking');return !t.open && t.textContent.includes('Synthetic thinking') && !t.querySelector('summary').textContent.includes('Thinking')})()`)) throw Error('Thinking state invalid after reload');
   const rows = await evalWeb(`[...document.querySelectorAll('.thread .turn')].map(e=>e.textContent)`);
   if (rows.length !== 3 || !rows[0].includes('GUI_THINKING_GATE') || !rows[0].includes('Synthetic thinking complete') || !rows[1].includes('read fixture') || !rows[1].includes('fixture answer 2: second turn') || !rows[2].includes('EMIT_DIFF note.txt') || !rows[2].includes('fixture answer 3: EMIT_DIFF note.txt')) throw Error('History duplicated, missing, or tool/file missing');
-  if (!await evalWeb(`(()=>{const t=document.querySelectorAll('.thread .turn')[1], g=t?.querySelector('details.activity-group.ran');if(!g)return false;if(!g.open)g.querySelector('summary').click();return true})()`)) throw Error('Restored tool group unavailable');
-  await wait(() => has(`!!document.querySelectorAll('.thread .turn')[1]?.querySelector('details.activity-group.ran[open] .shell-tool-heading')`), 'restored tool group open');
-  if (!await evalWeb(`(()=>{const t=document.querySelectorAll('.thread .turn')[1], b=t?.querySelector('.shell-tool-heading');if(!b)return false;if(b.getAttribute('aria-expanded')!=='true')b.click();return true})()`)) throw Error('Restored tool detail unavailable');
-  await wait(() => has(`document.querySelectorAll('.thread .turn')[1]?.querySelector('.shell-tool-heading')?.getAttribute('aria-expanded') === 'true'`), 'restored tool detail open');
-  await wait(() => has(`document.querySelectorAll('.thread .turn')[1]?.querySelector('.shell-command-output')?.textContent.includes('fixture content')`), 'restored tool output');
+  // A Webview replacement destroys the execution context and its DOM. Restart
+  // these actual UI actions only when CDP confirms that replacement; never
+  // treat an unobserved click or a timeout in the same context as success.
+  let restoredToolsVerified = false;
+  for (let attempt = 0; attempt < 3 && !restoredToolsVerified; attempt++) {
+    const generation = contextTransitions.length;
+    const stableWait = async (fn, label) => {
+      const deadline = Date.now() + 30000;
+      while (Date.now() < deadline) {
+        const value = await fn();
+        if (contextTransitions.length !== generation) throw Error('Webview context replaced during ' + label);
+        if (value) return;
+        await new Promise(r => setTimeout(r, 100));
+      }
+      throw Error(`Timeout waiting for ${label}`);
+    };
+    try {
+      await stableWait(() => has(`!!document.querySelectorAll('.thread .turn')[1]?.querySelector('details.activity-group.ran .shell-tool-heading')`), 'restored tool for diagnostics');
+      if (contextTransitions.length !== generation) continue;
+      await evalWeb(`(()=>{const t=document.querySelectorAll('.thread .turn')[1];if(!t)return;window.__restoreTrace={started:new Date().toISOString(),turnId:t.dataset.id,events:[]};const log=(kind,e)=>{const g=t.querySelector('details.activity-group.ran'),b=t.querySelector('.shell-tool-heading');window.__restoreTrace.events.push({timestamp:new Date().toISOString(),kind,target:e?.target?.outerHTML?.slice(0,300),groupId:g?.dataset.id,groupOpen:g?.open,groupAria:g?.querySelector('summary')?.getAttribute('aria-expanded'),toolId:b?.dataset.id,detailAria:b?.getAttribute('aria-expanded'),turnConnected:t.isConnected});};document.addEventListener('click',e=>log('click',e),true);document.addEventListener('toggle',e=>log('toggle',e),true);new MutationObserver(records=>{if(window.__restoreTrace.events.length<100)log('mutation:'+records.map(r=>r.type+':'+(r.attributeName||'')).join(','));}).observe(t,{subtree:true,childList:true,attributes:true,attributeFilter:['open','aria-expanded']});log('before');})()`);
+      if (contextTransitions.length !== generation) continue;
+      const clicked = await evalWeb(`(()=>{const g=document.querySelectorAll('.thread .turn')[1]?.querySelector('details.activity-group.ran');if(!g)return false;if(!g.open)g.querySelector('summary').click();const b=g.querySelector('.shell-tool-heading');if(!b)return false;if(b.getAttribute('aria-expanded')!=='true')b.click();return true})()`);
+      if (contextTransitions.length !== generation) continue;
+      if (!clicked) throw Error('Restored tool group or detail unavailable');
+      await stableWait(() => has(`!!document.querySelectorAll('.thread .turn')[1]?.querySelector('details.activity-group.ran[open] .shell-tool-heading')`), 'restored tool group open');
+      await stableWait(() => has(`document.querySelectorAll('.thread .turn')[1]?.querySelector('.shell-tool-heading')?.getAttribute('aria-expanded') === 'true'`), 'restored tool detail open');
+      await stableWait(() => has(`document.querySelectorAll('.thread .turn')[1]?.querySelector('.shell-command-output')?.textContent.includes('fixture content')`), 'restored tool output');
+      restoredToolsVerified = true;
+    } catch (error) {
+      if (contextTransitions.length === generation) throw error;
+    }
+  }
+  if (!restoredToolsVerified) throw Error('Webview context repeatedly replaced during restored tool interaction');
   if (await readFile(file, 'utf8') !== 'changed\n') throw Error('Workspace file changed unexpectedly');
   await capture('T08-T17-T18-reload');
   if (process.argv.includes('--keep-after-restore')) {
@@ -135,9 +165,11 @@ try {
     if (before !== await hash(file)) throw Error('Keep changed restored file');
     await capture('T20-integrated-keep');
   }
+  await writeFile(join(out, 'trace.json'), JSON.stringify({ contextTransitions, trace: JSON.parse(await evalWeb('JSON.stringify(window.__restoreTrace ?? null)')) }, null, 2));
   await writeFile(join(out, 'result.json'), JSON.stringify({ pass:true, scenarios:['T07','T08','T17','T18'], capturedAt:new Date().toISOString() }, null, 2));
   console.log('PASS T07 T08 T17 T18');
 } catch (error) {
+  try { await mkdir(out, { recursive: true }); await writeFile(join(out, 'trace.json'), JSON.stringify({ contextTransitions, trace: JSON.parse(await evalWeb('JSON.stringify(window.__restoreTrace ?? null)')) }, null, 2)); } catch {}
   try { await capture('failure'); } catch { /* Preserve the original error if the target is gone. */ }
   await writeFile(join(out, 'error.txt'), String(error));
   throw error;

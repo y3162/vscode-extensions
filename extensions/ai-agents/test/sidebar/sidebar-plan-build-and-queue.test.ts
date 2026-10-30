@@ -160,6 +160,7 @@ test('buildPlan applies a validated model selection and restores Plan mode after
   const view = createView();
   const session = fakeSession('build-session');
   installFakeFactory(harness, () => session);
+  harness.sidebar.listAvailableModels = async () => [{ id: 'fixture-model', label: 'Fixture model', parameters: [{ id: 'effort', label: 'Effort', values: [{ value: 'high', label: 'High' }] }] }];
   try {
     await ready(harness.sidebar, view);
     await harness.sidebar.handleMessage({ type: 'select', provider: 'cursor', cwd: harness.workspacePath });

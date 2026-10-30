@@ -319,7 +319,13 @@ export function buildShell(source: ShellSource): ViewShell {
   };
 }
 
-export function toViewMessage(message: ChatMessage, canRewind = false): ViewMessage {
+export function summarizeCursorModelError(text: string): string {
+  const match = /Cannot use this model:\s*(.+?)\.\s*Available models:/is.exec(text);
+  if (!match) return text;
+  return `Cursor CLIが指定モデルを拒否しました。\n要求モデル: ${match[1]}\n理由: Cannot use this model.\n詳細はログを参照してください。`;
+}
+
+export function toViewMessage(message: ChatMessage, canRewind = false, cursorCli = false): ViewMessage {
   const meta = message.meta;
   const files = meta?.files?.map((file) => ({
     path: file.path,
@@ -331,7 +337,7 @@ export function toViewMessage(message: ChatMessage, canRewind = false): ViewMess
   return {
     id: message.id,
     role: message.role,
-    text: message.text,
+    text: cursorCli && message.role === 'error' ? summarizeCursorModelError(message.text) : message.text,
     ...(message.turnId ? { turnId: message.turnId } : {}),
     ...(message.subagentId ? { subagentId: message.subagentId } : {}),
     ...(message.failure ? { failure: message.failure } : {}),

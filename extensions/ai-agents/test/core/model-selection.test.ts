@@ -1,12 +1,23 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { baseModelLabel, matchesModel, selectBaseModel } from '../../src/model-selection.js';
+import { baseModelLabel, matchesModel, selectBaseModel, validateCursorParams } from '../../src/model-selection.js';
 import type { AgentModel, Selection } from '../../src/types.js';
 
 const model: AgentModel = { id: 'fixture-model', label: 'Fixture Model', aliases: ['fixture-alias'],
   defaultParams: [{ id: 'effort', value: 'medium' }, { id: 'context', value: '200k' }] };
 const current: Selection = { provider: 'cursor', cwd: '/workspace', model: model.id,
   modelParams: [{ id: 'effort', value: 'high' }, { id: 'context', value: '1m' }] };
+
+test('saved Cursor parameters require matching current catalog definitions', () => {
+  const selected: Selection = { provider: 'cursor', cwd: '/work', model: 'composer-2.5', modelParams: [{ id: 'effort', value: 'high' }] };
+  const entry: AgentModel = { id: selected.model, label: 'Composer', parameters: [{ id: 'effort', label: 'Effort', values: [{ value: 'high', label: 'High' }] }] };
+  assert.doesNotThrow(() => validateCursorParams(selected, [entry]));
+  assert.throws(() => validateCursorParams(selected, []), /モデル一覧に/);
+  assert.throws(() => validateCursorParams(selected, [{ id: selected.model, label: 'Composer' }]), /同じモデルを再選択すると、確認後にパラメータを消去して既定値で使用できます/);
+  assert.throws(() => validateCursorParams(selected, [{ ...entry, parameters: [] }]), /無効/);
+  assert.throws(() => validateCursorParams(selected, [{ ...entry, parameters: [{ id: 'effort', label: 'Effort', values: [{ value: 'low', label: 'Low' }] }] }]), /無効/);
+  assert.deepEqual(selected.modelParams, [{ id: 'effort', value: 'high' }]);
+});
 
 test('reselecting a base model preserves effort/context settings and the session identity', () => {
   assert.deepEqual(selectBaseModel(model, current), current);

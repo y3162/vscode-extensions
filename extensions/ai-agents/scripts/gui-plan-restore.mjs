@@ -88,16 +88,21 @@ try {
   let staged;await wait(async()=>{try{staged=JSON.parse(await readFile(join(root,'plan-restore-result.json'),'utf8'));return staged.id===requestId}catch{return false}},'saved Plan');
   if(staged.backend!=='cli'||staged.sessionId!=='fixture-thread-1'||staged.plan.phase!=='ready')throw Error('Fixture did not stage real CLI session plan');
   await wait(()=>has(`document.querySelector('.plan-view.phase-ready')?.textContent.includes('Restored Fixture Plan')`),'Plan before reload');
+  const anchorBefore = await evalWeb(`document.querySelector('.thread > .turn')?.dataset.id`);
+  if (anchorBefore !== staged.plan.current.turnId) throw Error('Plan anchor does not match its creating turn');
+  await click('.plan-view .build');
+  await wait(()=>has(`!!document.querySelector('.plan-view.phase-implemented') && document.querySelectorAll('.thread > .turn').length >= 2`),'completed Build');
+  if (!await has(`(()=>{const turns=[...document.querySelectorAll('.thread > .turn')], plan=document.querySelector('.thread > .plan-slot');return turns[0]?.nextElementSibling===plan && !!(plan.compareDocumentPosition(turns[1]) & Node.DOCUMENT_POSITION_FOLLOWING)})()`)) throw Error('Build displaced the Plan');
   await capture('plan-before-reload');
   await reload();
   if (!await has(`!document.querySelector('.home').hidden`)) await click('button.back');
   await wait(()=>has(`!!document.querySelector('.session-card[data-session-id="fixture-thread-1"]')`),'CLI history after reload');
   await click('.session-card[data-session-id="fixture-thread-1"]');
-  await wait(()=>has(`document.querySelector('.plan-view.phase-ready')?.textContent.includes('Restored Fixture Plan')`),'restored Plan');
+  await wait(()=>has(`document.querySelector('.plan-view.phase-implemented')?.textContent.includes('Restored Fixture Plan')`),'restored Plan');
   await wait(()=>has(`document.body.textContent.includes('Plan restore fixture session') && document.body.textContent.includes('fixture answer 1') && document.querySelector('.plan-view').textContent.includes('Retain this plan after reload')`),'history and plan body');
-  if (!await has(`(()=>{const turn=document.querySelector('.thread > .turn');const plan=document.querySelector('.thread > .plan-slot');return !!turn && turn.nextElementSibling===plan})()`)) throw Error('Restored Plan is not immediately after its creating turn');
+  if (!await has(`(()=>{const turns=[...document.querySelectorAll('.thread > .turn')],plan=document.querySelector('.thread > .plan-slot');return turns.length>=2 && turns[0].nextElementSibling===plan && !!(plan.compareDocumentPosition(turns[1]) & Node.DOCUMENT_POSITION_FOLLOWING)})()`)) throw Error('Restored Plan is not immediately after its creating turn');
   await click('.plan-view-toggle');await wait(()=>has(`document.querySelector('.plan-body')?.textContent.includes('Retain this plan after reload')`),'restored Plan expanded');
   await capture('plan-after-reload');
-  await writeFile(join(out,'result.json'),JSON.stringify({pass:true,scenario:'Plan restored from savedPlans on genuine mock CLI history',sessionId:staged.sessionId,capturedAt:new Date().toISOString()},null,2));
+  await writeFile(join(out,'result.json'),JSON.stringify({pass:true,scenario:'Plan restored after Build from savedPlans on genuine mock CLI history',sessionId:staged.sessionId,anchorBefore,capturedAt:new Date().toISOString()},null,2));
   console.log('PASS Plan savedPlans reload via CLI history');
 } finally {v.wb.ws.close();v.web.ws.close();}

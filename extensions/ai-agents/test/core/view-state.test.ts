@@ -4,6 +4,18 @@ import { capabilitiesFor, defaultControls } from '../../src/capabilities.js';
 import { backendLabel, buildShell, countDiff, diffMessages, effortText, messageSignature, presentChange, toViewMessage } from '../../src/view-state.js';
 import { emptyPlanState, type ChatState } from '../../src/types.js';
 
+test('Cursor model rejection is summarized in the view while retaining the original diagnostic', () => {
+  const text = 'Cannot use this model: composer-2.5[fast=false]. Available models: auto, composer-2.5';
+  const message = { id: 'e', role: 'error' as const, text };
+  const shown = toViewMessage(message, false, true).text;
+  assert.match(shown, /composer-2\.5\[fast=false\]/);
+  assert.match(shown, /Cannot use this model/);
+  assert.doesNotMatch(shown, /Available models/);
+  assert.equal(message.text, text);
+  assert.equal(toViewMessage(message, false, false).text, text);
+  assert.equal(toViewMessage({ ...message, text: 'unexpected error' }, false, true).text, 'unexpected error');
+});
+
 function state(extra: Partial<ChatState> = {}): ChatState {
   return {
     selection: { provider: 'codex', cwd: '/workspace', model: 'gpt', modelParams: [{ id: 'modelReasoningEffort', value: 'high' }] },

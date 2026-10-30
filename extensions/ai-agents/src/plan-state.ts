@@ -1,8 +1,20 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentMode, PlanDocument, PlanSource, PlanState, Selection, TodoEntry, TurnIntent } from './types.js';
+import type { AgentMode, ChatMessage, PlanDocument, PlanSource, PlanState, Selection, TodoEntry, TurnIntent } from './types.js';
 import { emptyPlanState } from './types.js';
 
 export const maxPlanRevisions = 5;
+
+export function remapPlanAnchor(plan: PlanState, saved: ChatMessage[], replayed: ChatMessage[]): PlanState {
+  const copy = structuredClone(plan);
+  for (const document of [copy.current, copy.draft]) {
+    if (!document?.turnId || replayed.some((message) => message.role === 'user' && message.id === document.turnId)) continue;
+    const original = saved.find((message) => message.role === 'user' && (message.id === document.turnId || message.turnId === document.turnId));
+    if (!original || saved.filter((message) => message.role === 'user' && message.text === original.text).length !== 1) continue;
+    const matches = replayed.filter((message) => message.role === 'user' && message.text === original.text);
+    if (matches.length === 1) document.turnId = matches[0]!.id;
+  }
+  return copy;
+}
 
 export interface PlanDraft {
   name?: string;

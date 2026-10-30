@@ -10,6 +10,13 @@ import type { SessionOptions } from './session-options.js';
 export function cursorCliModelArg(model: string, params?: { id: string; value: string }[]): string | undefined {
   const id = model.trim();
   if (!id) return undefined;
+  const seen = new Set<string>();
+  for (const param of params ?? []) {
+    if (!/^[A-Za-z0-9_-]+$/.test(param.id) || !/^[A-Za-z0-9_.-]+$/.test(param.value) || seen.has(param.id)) {
+      throw new Error(`Cursor CLI のモデルパラメータが不正です: ${redactSecrets(param.id)}`);
+    }
+    seen.add(param.id);
+  }
   const pairs = (params ?? []).flatMap((param) => param.id && param.value ? [`${param.id}=${param.value}`] : []);
   return pairs.length ? `${id}[${pairs.join(',')}]` : id;
 }

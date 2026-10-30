@@ -26,6 +26,26 @@ async function close(harness: Harness): Promise<void> {
   rmSync(harness.root, { recursive: true, force: true });
 }
 
+test('Cursor rejection keeps the model list in the redacted log but summarizes it in the webview', async () => {
+  resetVscode();
+  const harness = withFactory(async () => ({
+    async run() { throw new Error('Cannot use this model: composer-2.5. Available models: auto, composer-2.5 token=secret'); },
+    async dispose() {},
+  }));
+  const view = createView();
+  try {
+    harness.sidebar.resolveWebviewView(view as never);
+    await harness.sidebar.handleMessage({ type: 'ready' }, view as never);
+    await harness.sidebar.controller.select({ provider: 'cursor', cwd: harness.workspacePath, model: 'composer-2.5' });
+    await harness.sidebar.handleMessage({ type: 'send', provider: 'cursor', cwd: harness.workspacePath, prompt: 'hello' });
+    const visible = JSON.stringify(view.messages);
+    assert.match(visible, /composer-2\.5/);
+    assert.doesNotMatch(visible, /Available models/);
+    assert.match(harness.output.lines.join('\n'), /Available models: auto/);
+    assert.doesNotMatch(harness.output.lines.join('\n'), /token=secret/);
+  } finally { await close(harness); }
+});
+
 test('empty Codex executable setting uses the bundled launcher and records its version before sending', async () => {
   resetVscode();
   const runs: string[] = [];

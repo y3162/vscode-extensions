@@ -217,11 +217,13 @@ try {
         await startHost('plan');
         const flow = await run(process.execPath, ['scripts/gui-plan-flow.mjs', root, join(output, id, 'flow')], {}, 90000);
         await writeFile(join(output, `${id}-flow-runner.json`), JSON.stringify(flow, null, 2));
-        if (flow.code !== 0) throw new Error(`${flow.kind}: ${flow.stderr || flow.stdout}`);
+        // Keep the reload assertion independent of the width-dependent flow.
+        // Both results remain mandatory for the scenario to pass.
         await stopHost();
         await startHost('planrestore');
         const restored = await run(process.execPath, ['scripts/gui-plan-restore.mjs', root, join(output, id, 'restore')], {}, 120000);
         await writeFile(join(output, `${id}-restore-runner.json`), JSON.stringify(restored, null, 2));
+        if (flow.code !== 0) throw new Error(`Plan flow ${flow.kind}: ${flow.stderr || flow.stdout}; restore ${restored.code === 0 ? 'PASS' : `${restored.kind}: ${restored.stderr || restored.stdout}`}`);
         if (restored.code !== 0) throw new Error(`${restored.kind}: ${restored.stderr || restored.stdout}`);
         results.push({id, status: 'PASS', layer: 2, reason: 'Plan input, revision, Build, Stop, failure, model and reload verified', evidence: join(output, id)});
       } catch (error) { results.push({id, status: 'FAIL', layer: 2, reason: String(error), evidence: join(output, id)}); }

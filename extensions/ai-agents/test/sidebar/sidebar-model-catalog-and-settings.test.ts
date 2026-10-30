@@ -71,6 +71,24 @@ async function close(harness: Harness): Promise<void> {
   rmSync(harness.root, { recursive: true, force: true });
 }
 
+test('reselecting a Cursor model clears unverified saved parameters only after confirmation', async () => {
+  resetVscode();
+  const harness = openSidebar();
+  try {
+    await ready(harness.sidebar, createView());
+    const selected: Selection = { provider: 'cursor', cwd: harness.workspacePath, model: 'composer-2.5', modelParams: [{ id: 'fast', value: 'true' }] };
+    await harness.sidebar.controller.select(selected);
+    harness.sidebar.listAvailableModels = async () => [{ id: selected.model, label: 'Composer 2.5' }];
+    window.warningQueue.push({ value: undefined });
+    await harness.sidebar.handleMessage({ type: 'setModel', modelId: selected.model });
+    assert.deepEqual(harness.sidebar.controller.snapshot().selection.modelParams, selected.modelParams);
+    window.warningQueue.push({ value: '保存済みパラメータを消去' });
+    await harness.sidebar.handleMessage({ type: 'setModel', modelId: selected.model });
+    assert.equal(harness.sidebar.controller.snapshot().selection.modelParams, undefined);
+    assert.equal(harness.sidebar.controller.snapshot().selection.model, selected.model);
+  } finally { await close(harness); }
+});
+
 interface FakeSession extends AgentSession {
   disposed: number;
   modes: string[];

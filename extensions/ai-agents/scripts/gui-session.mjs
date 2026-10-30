@@ -197,6 +197,12 @@ async function start() {
   if (process.env.AI_AGENTS_GUI_CDP === '1') {
     receipt.launchArgs.push('--remote-debugging-address=127.0.0.1', '--remote-debugging-port=0');
   }
+  // The disposable host may be occluded while CDP drives it. Keep Chromium's
+  // background throttling disabled so CDP can measure the out-of-process viewport.
+  // The opt-out is only for comparing normal Chromium behavior in this host.
+  if (process.env.AI_AGENTS_GUI_NORMAL_THROTTLING !== '1') {
+    receipt.launchArgs.push('--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling');
+  }
   // The disposable host has no user files or credentials. Verify the CLI
   // trust override inside its Extension Host rather than relying on a dialog.
   const trustExtension = join(root, 'trust-verifier-extension');

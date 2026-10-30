@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 import { test } from 'node:test';
 
-import { applyPlanTodos, beginPlanning, buildPrompt, cloneSelection, commitDraft, finishBuild, inferIntent, planningFailed, requestBuild, setBuildSelection, stageDraft } from '../../src/plan-state.js';
+import { applyPlanTodos, beginPlanning, buildPrompt, cloneSelection, commitDraft, finishBuild, inferIntent, planningFailed, requestBuild, setBuildSelection, stageDraft, remapPlanAnchor } from '../../src/plan-state.js';
 
 import { emptyPlanState, errorMessage, redactSecrets, type AgentModel, type ChatState, type PlanState, type Selection, type TurnFileSnapshot, type TurnRecord } from '../../src/types.js';
 
@@ -16,6 +16,16 @@ function planDocument(extra: Partial<PlanState['current']> = {}) {
     source: 'assistant-text' as const, createdAt: 1, name: 'Name', overview: 'Overview', files: ['a.ts'], ...extra,
   };
 }
+
+test('Plan anchor is remapped only when its user message is unique in both histories', () => {
+  const plan: PlanState = { phase: 'ready', revisions: [], current: planDocument({ turnId: 'old' }) };
+  const saved = [{ id: 'old', role: 'user' as const, text: 'make plan' }];
+  const replayed = [{ id: 'new', role: 'user' as const, text: 'make plan' }, { id: 'build', role: 'user' as const, text: 'build' }];
+  assert.equal(remapPlanAnchor(plan, saved, replayed).current?.turnId, 'new');
+  assert.equal(plan.current?.turnId, 'old');
+  assert.equal(remapPlanAnchor(plan, saved, [...replayed, { id: 'other', role: 'user', text: 'make plan' }]).current?.turnId, 'old');
+  assert.equal(remapPlanAnchor(plan, [...saved, { id: 'other', role: 'user', text: 'make plan' }], replayed).current?.turnId, 'old');
+});
 
 function readyPlan(phase: PlanState['phase'] = 'ready'): PlanState {
   return { phase, revisions: [{ revision: 1, createdAt: 1, source: 'assistant-text', markdown: 'Do the work', name: 'Name' }], current: planDocument(), build: { selection: selection(), label: 'Fixture' } };

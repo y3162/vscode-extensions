@@ -489,11 +489,14 @@ export class Transcript {
     const summary = this.dom.el('summary', `log-toggle activity-row ${kind}-toggle`);
     summary.setAttribute('aria-expanded', String(details.open));
     summary.append(this.dom.icon('chevron-right'), this.dom.el('span', 'activity-verb', label));
-    details.addEventListener('toggle', () => {
-      summary.setAttribute('aria-expanded', String(details.open));
+    summary.addEventListener('click', (event) => {
+      event.preventDefault();
+      details.open = !details.open;
       if (details.open) { this.openDetails.add(openedKey); this.openDetails.delete(closedKey); }
       else { this.openDetails.add(closedKey); this.openDetails.delete(openedKey); }
+      summary.setAttribute('aria-expanded', String(details.open));
     });
+    details.addEventListener('toggle', () => summary.setAttribute('aria-expanded', String(details.open)));
     details.append(summary);
     return details;
   }

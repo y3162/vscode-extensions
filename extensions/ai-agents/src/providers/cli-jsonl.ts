@@ -33,7 +33,7 @@ export function spawnCli(request: CliRunRequest, launchProcess: typeof spawn = s
   let stderr = '';
   child.stderr?.setEncoding('utf8');
   // CLI validation errors put the reason before the (potentially huge) model list.
-  child.stderr?.on('data', (chunk: string) => { stderr = `${stderr}${chunk}`.slice(0, 4000); });
+  child.stderr?.on('data', (chunk: string) => { stderr = `${stderr}${chunk}`.slice(0, 65536); });
   child.stdin?.on('error', () => undefined);
   if (request.input !== undefined) child.stdin?.write(request.input);
   child.stdin?.end();
