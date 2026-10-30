@@ -113,10 +113,10 @@ button.bubble:not(:disabled):hover { background: color-mix(in srgb, var(--vscode
   text-align: left;
   white-space: normal;
   overflow-wrap: anywhere;
-  line-height: var(--agent-line-user);
-  font-size: inherit;
+  line-height: 18.2px;
+  font-size: 13px;
 }
-.user-body { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: inherit; line-height: var(--agent-line-user); }
+.user-body { min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 18.2px; }
 .user-actions { display: flex; justify-content: flex-end; opacity: 0; }
 .user-card:hover .user-actions, .user-card:focus-within .user-actions { opacity: 1; }
 .user-actions .codicon { color: var(--agent-muted); }
@@ -140,7 +140,7 @@ ul.chips { list-style: none; margin: 0; padding: 0; }
 .activity-verb { color: var(--vscode-foreground); flex: 0 0 auto; }
 .log-toggle.is-active { color: var(--vscode-foreground); }
 .log-toggle.is-active > .codicon { color: var(--vscode-progressBar-background); }
-.answer { position: relative; line-height: var(--agent-line); min-width: 0; padding-top: 0; background: transparent; border: 0; }
+.answer { position: relative; font-size: 14px; line-height: 22px; min-width: 0; padding-top: 0; background: transparent; border: 0; }
 .answer .md.is-streaming { white-space: pre-wrap; overflow-wrap: anywhere; }
 .answer .md > * + * { margin-top: 8px; }
 .answer h2, .answer h3, .progress-note h2, .progress-note h3 { font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
@@ -387,7 +387,7 @@ textarea {
   min-height: 2.6em; max-height: 30vh; padding: .15em .15em var(--ui-space-1); line-height: 1.45;
 }
 .composer-card {
-  display: flex; flex-direction: column; min-width: 0;
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
   border: 1px solid var(--vscode-contrastBorder, var(--agent-stroke-strong));
   border-radius: var(--agent-radius); background: var(--agent-fill);
   padding: 8px 10px 6px 10px; position: relative;
@@ -395,7 +395,7 @@ textarea {
 .composer-card:hover { border-color: var(--agent-stroke-strong); }
 .composer-card:focus-within { border-color: var(--vscode-focusBorder); outline: 1px solid var(--vscode-focusBorder); outline-offset: 0; }
 .composer-card textarea:focus-visible { outline: none; }
-.composer-card textarea { flex: 1 1 auto; min-height: 1.4em; max-height: 30vh; padding: 0; }
+.composer-card textarea { flex: 1 1 auto; min-height: 22px; max-height: 30vh; padding: 0; font-size: 14px; line-height: 22px; }
 .composer-card .composer-row { height: 28px; min-height: 28px; max-height: 28px; flex: 0 0 28px; padding: 0; gap: 4px; box-sizing: border-box; justify-content: space-between; flex-wrap: nowrap; align-items: center; overflow: hidden; }
 .composer-note { margin: 0; padding: 0 10px 8px; color: var(--agent-muted); font-size: 12px; line-height: 1.4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .composer-card .send, .composer-card .stop { width: 24px; height: 24px; min-width: 24px; min-height: 24px; border-radius: 999px; }
@@ -405,7 +405,7 @@ textarea {
 .row-left { flex: 1 1 auto; }
 .row-right { justify-content: flex-end; flex: 0 0 auto; }
 .model-name { flex-direction: row-reverse; }
-.model-name { min-width: 0; max-width: 100%; flex: 1 1 auto; padding-left: .35em; }
+.model-name { min-width: 0; max-width: 100%; flex: 0 1 auto; padding-left: .35em; }
 .composer-row .model-name { max-width: min(16em, 46%); }
 .pill { border-radius: var(--ui-radius); max-width: 100%; min-height: 28px; }
 .mode { gap: var(--ui-space-1); padding: .25em .35em; flex: 0 0 auto; }
@@ -669,7 +669,8 @@ textarea {
 
 .ghost, .log-toggle, .tool-line, .session-row, .change-file > .file-link { min-height: 28px; }
 .log-toggle[data-action="toggle-log"],
-.activity-group > summary.activity-row {
+.activity-group > summary.activity-row,
+.thinking > summary {
   box-sizing: border-box;
   height: 22px;
   min-height: 22px;
@@ -679,6 +680,7 @@ textarea {
   padding: 0 0 0 8px;
   gap: 4px;
 }
+.thinking > summary { align-items: center; width: 100%; color: var(--vscode-descriptionForeground); }
 .composer-card .pill,
 .composer-card .mode,
 .composer-card .model-name,
@@ -694,6 +696,11 @@ textarea {
   padding: 0 6px;
 }
 .composer-card .icon-btn.attach { width: 20px; min-width: 20px; padding: 0; }
+.composer-card .mode {
+  padding: 0 4px 0 8px;
+  border-radius: var(--agent-radius-pill);
+  background: color-mix(in srgb, var(--vscode-foreground) 14%, transparent);
+}
 .composer-card .row-left,
 .composer-card .row-right { height: 28px; max-height: 28px; align-items: center; }
 .review-bar { min-height: 22px; gap: 4px; font-size: 12px; line-height: 20px; }

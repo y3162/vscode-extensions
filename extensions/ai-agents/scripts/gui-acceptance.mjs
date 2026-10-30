@@ -78,8 +78,8 @@ async function stopHost() {
   if (running) throw new Error(`Isolated host process group ${receipt.processId} did not exit after Quit; session retained`);
   // Keep the receipt, profile, workspace and evidence; the disposable app copy
   // is large and is no longer needed after its process group has exited.
-  const appCopy = join(stoppedRoot, 'vscode-cache', 'local-disposable-app');
-  if (receipt.paths?.appBundle?.startsWith(`${appCopy}/`)) await rm(appCopy, {recursive: true, force: true});
+  const cache = join(stoppedRoot, 'vscode-cache');
+  if (receipt.paths?.cache === cache && receipt.paths?.appBundle?.startsWith(`${cache}/`)) await rm(cache, {recursive: true, force: true});
   root = undefined;
   hostKind = undefined;
 }

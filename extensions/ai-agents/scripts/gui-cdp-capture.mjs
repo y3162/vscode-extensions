@@ -26,16 +26,26 @@ const workbench = await connect(page); const webview = await connect(frame);
 try {
   const targets = await workbench.call('Target.getTargets');
   const tree = await webview.call('Page.getFrameTree');
+  const workbenchGeometry = (await workbench.call('Runtime.evaluate', {returnByValue: true, expression: `JSON.stringify({at:Date.now(), windowWidth:innerWidth, sidebar:document.querySelector('.part.sidebar')?.getBoundingClientRect().toJSON(), frames:[...document.querySelectorAll('iframe')].map(e=>({src:e.src, rect:e.getBoundingClientRect().toJSON(), visible:getComputedStyle(e).visibility, display:getComputedStyle(e).display}))})`})).result.value;
+  const outerGeometry = (await webview.call('Runtime.evaluate', {returnByValue: true, expression: `JSON.stringify({at:Date.now(), width:innerWidth, documentWidth:document.documentElement.clientWidth, frames:[...document.querySelectorAll('iframe')].map(e=>({name:e.name, rect:e.getBoundingClientRect().toJSON(), visible:getComputedStyle(e).visibility, display:getComputedStyle(e).display}))})`})).result.value;
   const active = tree.frameTree.childFrames?.find(x => x.frame.name === 'active-frame');
   if (!active) throw new Error('Webview active-frame not found');
   const world = await webview.call('Page.createIsolatedWorld', { frameId: active.frame.id, worldName: 'ai-agents-acceptance' });
   const evaluate = async expression => (await webview.call('Runtime.evaluate', { contextId: world.executionContextId, expression, returnByValue: true })).result.value;
   const waitFor = async (expression, label) => {
-    const deadline = Date.now() + 15000;
+    const started = Date.now();
+    const deadline = started + 15000;
     while (Date.now() < deadline) {
       if (await evaluate(expression)) return;
       await new Promise(resolve => setTimeout(resolve, 100));
     }
+    await mkdir(output, { recursive: true });
+    const dom = await evaluate("JSON.stringify({html:document.body.outerHTML,text:document.body.innerText,width:document.documentElement.clientWidth})");
+    const host = {};
+    for (const name of ['viewmodel-result.json', 'interaction-state.json']) {
+      try { host[name] = JSON.parse(await readFile(join(root, name), 'utf8')); } catch {}
+    }
+    await writeFile(join(output, 'timeout.json'), JSON.stringify({label, expression, elapsedMs: Date.now() - started, host, dom: JSON.parse(dom)}, null, 2));
     throw new Error(`Timed out waiting for ${label}`);
   };
   const scenarioArg = process.argv.find(arg => arg.startsWith('--scenario='));
@@ -54,6 +64,11 @@ try {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     if (response?.id !== id) throw new Error('Timed out waiting for fixture Host');
+    if (scenario === 'T05') {
+      await waitFor("document.querySelector('.turn.done .answer')?.textContent.includes('Fixture turn complete')", 'completed answer DOM');
+      await evaluate("document.querySelector('.turn.done .answer').scrollIntoView({block:'center'})");
+      await evaluate('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))');
+    }
     const condition = scenario === 'T05' ? "document.body.innerText.includes('Fixture turn complete') && !document.body.innerText.includes('Running')"
       : scenario === 'T02' ? "document.querySelector('.thinking')?.textContent.includes('Fixture thinking updated')"
       : scenario === 'T03' ? "document.querySelector('.thinking summary')?.textContent.includes('Thought')"
@@ -218,6 +233,9 @@ try {
   }
   if (process.argv.includes('--release-thinking')) {
     await writeFile(join(receipt.paths.workspace, 'gui-release-thinking'), '');
+    await waitFor("document.querySelector('.turn.done .answer')?.textContent.includes('Synthetic thinking complete')", 'completed turn DOM');
+    await evaluate("document.querySelector('.turn.done .answer').scrollIntoView({block:'center'})");
+    await evaluate('new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))');
     await waitFor("document.body.innerText.includes('Synthetic thinking complete') && !document.body.innerText.includes('Running')", 'completed turn');
   }
   let interactions;
@@ -268,7 +286,7 @@ try {
     bundles[name] = { path, sha256: createHash('sha256').update(await readFile(path)).digest('hex') };
   }
   await Promise.all([
-    writeFile(join(output, 'capture.json'), JSON.stringify({ capturedAt: new Date().toISOString(), scenario: scenarioArg?.slice('--scenario='.length) ?? subagentArg ?? (planReady ? 'plan-ready' : planView ? 'plan-view' : planBuild ? 'plan-build' : permissionRequest ?? permissionDecision ?? null), receipt, bundles, targets, tree, assertions, interactions, webview: view, dom, snapshot }, null, 2)),
+    writeFile(join(output, 'capture.json'), JSON.stringify({ capturedAt: new Date().toISOString(), scenario: scenarioArg?.slice('--scenario='.length) ?? subagentArg ?? (planReady ? 'plan-ready' : planView ? 'plan-view' : planBuild ? 'plan-build' : permissionRequest ?? permissionDecision ?? null), receipt, bundles, targets, tree, workbenchGeometry: JSON.parse(workbenchGeometry), outerGeometry: JSON.parse(outerGeometry), assertions, interactions, webview: view, dom, snapshot }, null, 2)),
     ...(screenshot ? [writeFile(join(output, 'workbench.png'), Buffer.from(screenshot.data, 'base64'))] : []),
   ]);
   console.log(`Captured Development Host evidence in ${output}`);

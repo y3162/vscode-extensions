@@ -1083,7 +1083,12 @@ export class ChatController {
       this.state.todos = update.meta.todos;
       this.state.plan = applyPlanTodos(this.state.plan, update.meta.todos);
     }
-    if (update.meta?.type === 'plan' && update.meta.plan?.markdown) this.state.plan = stageDraft(this.state.plan, update.meta.plan);
+    if (update.meta?.type === 'plan' && update.meta.plan?.markdown) {
+      this.state.plan = stageDraft(this.state.plan, update.meta.plan);
+      const draft = this.state.plan.draft;
+      const turn = this.state.turns.find((item) => item.id === turnId);
+      if (draft && !draft.turnId && turnId) draft.turnId = turn?.userMessageId ?? turnId;
+    }
     if (update.meta?.type === 'subagent' && update.meta.subagent) {
       const previous = this.state.subagents.find((item) => item.id === update.meta?.subagent?.id);
       const safeSubagent = lightMeta(update.meta)!.subagent!;

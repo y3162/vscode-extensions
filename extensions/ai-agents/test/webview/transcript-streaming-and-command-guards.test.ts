@@ -70,3 +70,30 @@ test('a direct transcript covers streaming boundaries and commands that must not
   root.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
   assert.equal(sent.length, 0);
 });
+
+test('plan remains at its creating turn through revision, build and session restoration', () => {
+  const window = new Window();
+  const root = window.document.createElement('main');
+  window.document.body.append(root);
+  const transcript = new Transcript(createDom(window.document), root, () => {}, () => {}, () => {}, () => {});
+  const plan: NonNullable<ViewShell['planView']> = {
+    id: 'plan', turnId: 'first', revision: 1, phase: 'ready', markdown: 'Plan', todos: [], source: 'assistant-text',
+    buildModelId: 'model', buildModelLabel: 'Model', buildParams: [], showBuildModel: true, canBuild: true, history: [],
+  };
+  const messages: ViewMessage[] = [
+    { id: 'first', role: 'user', text: 'Plan' },
+    { id: 'second', role: 'user', text: 'Build' },
+    { id: 'tool', role: 'tool', text: 'running', turnId: 'second' },
+  ];
+  const verify = () => {
+    const first = root.querySelector('[data-id="first"]');
+    assert.equal(first?.nextElementSibling?.className, 'plan-slot');
+    assert.equal(first?.nextElementSibling?.nextElementSibling?.getAttribute('data-id'), 'second');
+  };
+  transcript.render(messages, shell({ planView: plan }), strings('en')); verify();
+  transcript.render(messages, shell({ planView: { ...plan, revision: 2, phase: 'building', canBuild: false } }), strings('en')); verify();
+  transcript.render(messages, shell({ planView: { ...plan, phase: 'implemented', canBuild: false } }), strings('en')); verify();
+  transcript.render([], shell({ conversationId: 'other' }), strings('en'));
+  assert.equal(root.querySelector('.plan-view'), null);
+  transcript.render(messages, shell({ planView: { ...plan, restored: true } }), strings('en')); verify();
+});

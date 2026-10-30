@@ -33,6 +33,7 @@ export function stageDraft(state: PlanState, draft: PlanDraft, now = Date.now())
     markdown,
     todos: draft.todos ?? [],
     source: draft.source,
+    ...(state.current?.turnId ? { turnId: state.current.turnId } : state.draft?.turnId ? { turnId: state.draft.turnId } : {}),
     createdAt: state.draft?.createdAt ?? now,
     ...(draft.name ? { name: draft.name } : {}),
     ...(draft.overview ? { overview: draft.overview } : {}),

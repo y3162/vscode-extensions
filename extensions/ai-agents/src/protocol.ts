@@ -67,6 +67,7 @@ export interface ViewChange {
 }
 
 export interface ViewPlan {
+  turnId?: string;
   id: string;
   revision: number;
   phase: PlanPhase;

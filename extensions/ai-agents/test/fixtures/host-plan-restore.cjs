@@ -11,7 +11,8 @@ exports.run=async()=>{
   let raw='';try{raw=await fs.readFile(path.join(root,'plan-restore-request.json'),'utf8')}catch(e){if(e.code!=='ENOENT')throw e}
   if(raw&&raw!==handled){handled=raw;const req=JSON.parse(raw);if(req.action==='stage'){
    const c=sidebar.controller;const id=c.sessionId();if(!id||!id.startsWith('fixture-thread-'))throw Error('Real fixture CLI session required');
-   c.restorePlan({phase:'ready',revisions:[],current:{id:'fixture-restored-plan',revision:1,name:'Restored Fixture Plan',markdown:'## Verification\n- Retain this plan after reload',todos:[],source:'assistant-text',createdAt:Date.now(),sessionId:id}});
+   const turnId=c.snapshot().turns[0]?.id;if(!turnId)throw Error('Fixture turn missing');
+   c.restorePlan({phase:'ready',revisions:[],current:{id:'fixture-restored-plan',revision:1,name:'Restored Fixture Plan',markdown:'## Verification\n- Retain this plan after reload',todos:[],source:'assistant-text',createdAt:Date.now(),sessionId:id,turnId}});
    await sidebar.flushHistory();await fs.writeFile(path.join(root,'plan-restore-result.json'),JSON.stringify({id:req.id,sessionId:id,plan:c.snapshot().plan,backend:sidebar.controllerControls.get(c).backend}));
   }}
   await new Promise(r=>setTimeout(r,50));

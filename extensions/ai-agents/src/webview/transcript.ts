@@ -95,7 +95,9 @@ export class Transcript {
     renderPending(this.pending, shell, this.dom, copy, this.post);
     if (shell.plan) renderPlanBody(this.pending, (parent, text) => renderMarkdown(parent, text, this.dom, copy.copy), shell.plan.request.overview, shell.plan.request.plan);
     renderPlanView(this.planHost, shell, this.dom, copy, this.post, this.onPickModel, planExpanded, this.onTogglePlan);
-    this.insertInThread(this.planHost);
+    const planTurn = shell.planView?.turnId ? this.nodes.get(shell.planView.turnId) : undefined;
+    if (planTurn?.parentElement === this.root) planTurn.after(this.planHost);
+    else this.insertInThread(this.planHost);
     const wait = shell.subagentWaiting;
     this.subagentWait.hidden = !wait;
     if (wait) this.subagentWait.textContent = wait.count !== undefined && wait.count > 1 ? copy.waitingSubagents : copy.waitingSubagent;

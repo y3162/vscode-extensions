@@ -9,7 +9,9 @@ if (!receipt.launchArgs.some(x=>x.includes('host-visual.cjs'))) throw Error('Vis
 const id=crypto.randomUUID();
 await writeFile(join(root,'interaction-request.json'),JSON.stringify({id,action:'layout'}));
 const end=Date.now()+15000;
-while(Date.now()<end){try{if(JSON.parse(await readFile(join(root,'interaction-switch.json'),'utf8')).id===id) break}catch{} await new Promise(r=>setTimeout(r,50));}
+let layoutReady=false;
+while(Date.now()<end){try{if(JSON.parse(await readFile(join(root,'interaction-switch.json'),'utf8')).id===id){layoutReady=true;break}}catch{} await new Promise(r=>setTimeout(r,50));}
+if(!layoutReady) throw Error('Component layout fixture did not acknowledge the request');
 const port=(await readFile(join(receipt.paths.userData,'DevToolsActivePort'),'utf8')).split('\n')[0];
 const page=(await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find(x=>x.type==='page'&&x.title.includes('[Extension Development Host]'));
 if (!page) throw Error('Workbench not found');

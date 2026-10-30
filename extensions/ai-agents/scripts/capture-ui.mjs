@@ -204,6 +204,10 @@ try {
       const user = style(document.querySelector('.user-body'));
       const mode = document.querySelector('.mode');
       const send = document.querySelector('.composer-card .send');
+      const model = document.querySelector('.composer-row .model-name');
+      const labelRect = model?.querySelector('.btn-label')?.getBoundingClientRect();
+      const arrowRect = model?.querySelector('.codicon')?.getBoundingClientRect();
+      const modelRect = model?.getBoundingClientRect();
       const column = style(document.querySelector('.thread'));
       return {
         composerRowHeight: row?.height,
@@ -222,7 +226,8 @@ try {
         userLine: user?.lineHeight,
         threadPadding: column?.paddingLeft,
         modeUsable: Boolean(mode && !mode.disabled && mode.querySelector('.btn-label')?.textContent),
-        modelUsable: Boolean(document.querySelector('.model-name .btn-label')?.textContent),
+        modelUsable: Boolean(model?.querySelector('.btn-label')?.textContent),
+        modelGeometry: modelRect && labelRect && arrowRect ? { leftGap: labelRect.left - modelRect.left, labelRight: labelRect.right, arrowLeft: arrowRect.left, right: modelRect.right } : null,
         attachUsable: document.querySelector('.attach')?.getAttribute('aria-disabled') !== 'true',
         sendUsable: Boolean(send && !send.disabled),
       };
@@ -235,6 +240,8 @@ try {
   }
   await writeFile(join(output, 'computed-style.json'), JSON.stringify(measures, null, 2));
   const rowMismatch = measures.filter((item) => item.composerRowHeight !== '28px' || item.activityFont !== '14px' || item.activityHeight !== '22px' || item.activityLine !== '22px');
+  const modelMismatch = measures.filter(({modelGeometry: g}) => !g || g.leftGap > 10 || g.labelRight > g.arrowLeft + 1 || g.arrowLeft >= g.right);
+  if (modelMismatch.length) { console.error(JSON.stringify({modelMismatch}, null, 2)); process.exitCode = 1; }
   if (rowMismatch.length) {
     console.error(JSON.stringify(rowMismatch, null, 2));
     process.exitCode = 1;

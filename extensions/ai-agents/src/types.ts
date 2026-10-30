@@ -147,6 +147,7 @@ export interface PlanDocument {
   source: PlanSource;
   createdAt: number;
   sessionId?: string;
+  turnId?: string;
   restored?: boolean;
 }
 

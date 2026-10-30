@@ -45,14 +45,25 @@ try {
       const dir=join(output, name.replaceAll(' ','-'), String(width));
       let run, data;
       for (let attempt=0; attempt<3; attempt++) {
-        run=spawnSync(process.execPath, ['scripts/gui-cdp-capture.mjs',root,dir,'--scenario=T04','--layout-interactions'], {encoding:'utf8',timeout:30000});
-        if (run.status !== 0) break;
-        data=JSON.parse(await readFile(join(dir,'capture.json'),'utf8'));
+        // The workbench iframe can resize before its out-of-process document.
+        // Do not correct the sash using a stale document width.
+        const deadline=Date.now()+15000;
+        do {
+          run=spawnSync(process.execPath, ['scripts/gui-cdp-capture.mjs',root,dir,'--scenario=T04','--layout-interactions'], {encoding:'utf8',timeout:30000});
+          if (run.status !== 0) break;
+          data=JSON.parse(await readFile(join(dir,'capture.json'),'utf8'));
+          const frame=data.workbenchGeometry.frames.find(f=>f.src.includes('extensionId=y3162.ai-agents') && f.visible==='visible' && f.display!=='none');
+          if (frame && Math.abs(frame.rect.width-data.outerGeometry.width)<1 && data.outerGeometry.width===data.webview.webviewWidth) break;
+          data=undefined;
+          await pause();
+        } while(Date.now()<deadline);
+        if (run.status !== 0 || !data) break;
         const correction=width-data.webview.webviewWidth;
         if (!correction) break;
         await resize(width, correction);
       }
-      if (run.status !== 0 || !data) {results.push({theme:name,width,status:'FAIL',error:run.stderr || run.stdout}); continue;}
+      if (run.status !== 0 || !data) {results.push({theme:name,width,status:'FAIL',error:run.status !== 0 ? (run.stderr || run.stdout) : 'Webview geometry did not converge'}); continue;}
+      const geometry=await evaluate("JSON.stringify({windowWidth:innerWidth,sidebar:document.querySelector('.part.sidebar')?.getBoundingClientRect().toJSON(),sash:document.querySelector('.primary-sidebar-sash')?.getBoundingClientRect().toJSON()})");
       const view=data.webview;
       const card=view.elements.find(e=>e.className.includes('user-card'));
       const activity=view.elements.find(e=>e.className.includes('activity-row') && e.rect.width > 0);
@@ -65,7 +76,7 @@ try {
         activity: Boolean(activity && activity.fontSize === '14px' && activity.lineHeight === '22px'),
         focus: Boolean(data.interactions?.focused && data.interactions.focusOutline !== 'none' && data.interactions.focusWidth !== '0px'), scroll: Boolean(data.interactions?.top === 0 && data.interactions.bottom > 0 && data.interactions.scrollHeight > data.interactions.clientHeight),
         font: Boolean(view.font), border: Boolean(composer?.borderColor && composer.borderColor !== 'transparent'), model: shown('model-name'), mode: shown('mode'), send: shown('send'), stop: shown('stop')};
-      results.push({theme:name,width,actualWidth:view.webviewWidth,status:Object.values(checks).every(Boolean)?'PASS':'FAIL',checks,evidence:dir});
+      results.push({theme:name,width,actualWidth:view.webviewWidth,geometry:JSON.parse(geometry),status:Object.values(checks).every(Boolean)?'PASS':'FAIL',checks,evidence:dir});
     }
   }
 } finally { ws.close(); await writeFile(join(output,'matrix.json'),JSON.stringify({capturedAt:new Date().toISOString(),results},null,2)); }

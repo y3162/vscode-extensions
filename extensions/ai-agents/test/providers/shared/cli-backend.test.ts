@@ -118,6 +118,14 @@ test('Cursor CLI concatenates deltas, ignores the final snapshot, and keeps resu
   assert.equal(resumedArgs[resumedArgs.indexOf('--model') + 1], 'auto');
   assert.equal(resumedArgs.at(-1), 'follow up');
 
+  // A turn-level selection without parameters must not inherit a previous model's overrides.
+  await session.setModel!({ provider: 'cursor', cwd, model: 'old', modelParams: [{ id: 'fast', value: 'true' }] });
+  await session.run('composer', new AbortController().signal, () => undefined, undefined, {
+    intent: 'chat', mode: 'agent', selection: { provider: 'cursor', cwd, model: 'composer-2.5' },
+  });
+  const selectedArgs = first.requests[2]!.args;
+  assert.equal(selectedArgs[selectedArgs.indexOf('--model') + 1], 'composer-2.5');
+
   const second = scripted([json({ type: 'result', subtype: 'success', is_error: false, result: 'again', session_id: 'chat-1' })]);
   const resumed = await createCursorCliSession({
     provider: 'cursor', backend: 'cli', cwd, model: '', storagePath: cwd, resumeId: 'chat-1', sandbox: 'enabled',
@@ -184,8 +192,19 @@ test('Cursor CLI rejects images before launch and reads model ids from colored l
   const fromCli = await listCursorCliModels({ agentPath: 'agent', cwd: '/work' }, listed.spawn);
   assert.deepEqual(listed.requests[0]?.args, ['--list-models']);
   assert.equal(fromCli[0]?.id, 'composer-2.5');
+  assert.deepEqual(parseCursorCliModels('auto - Auto (default)\ncomposer-2.5 - Composer 2.5\ncomposer-2.5-fast - Composer 2.5 Fast\n').map(m => m.id), ['auto', 'composer-2.5', 'composer-2.5-fast']);
+  assert.equal(parseCursorCliModels('auto - Auto (default)').some(m => m.id === 'composer-2.5'), false);
   const empty = scripted(['Tip: nothing here']);
   await assert.rejects(listCursorCliModels({ agentPath: 'agent' }, empty.spawn), /空/);
+});
+
+test('Cursor CLI surfaces model rejection without switching models', async () => {
+  const fake = scripted([], { code: 1, stderr: 'Cannot use this model: composer-2.5. Available models: auto' });
+  const session = await createCursorCliSession({ provider: 'cursor', backend: 'cli', cwd: '/work', model: 'composer-2.5', storagePath: '/work' }, fake.spawn);
+  await assert.rejects(session.run('hello', new AbortController().signal, () => undefined), /Cannot use this model: composer-2\.5/);
+  const args = fake.requests[0]!.args;
+  assert.equal(args[args.indexOf('--model') + 1], 'composer-2.5');
+  assert.equal(fake.requests.length, 1);
 });
 
 test('Codex CLI maps thread events, refuses interactive approval, and passes exec arguments', async (t) => {
@@ -437,7 +456,7 @@ function fakeLaunch(behavior: { streams?: boolean; killThrows?: boolean; hang?: 
         if (behavior.killThrows) throw new Error('kill failed');
         this.exitCode = 0;
         this.signalCode = null;
-        events.emit('exit', 0, null);
+        events.emit('close', 0, null);
         return true;
       },
     });
@@ -448,7 +467,7 @@ function fakeLaunch(behavior: { streams?: boolean; killThrows?: boolean; hang?: 
       if (!behavior.hang && !behavior.killThrows) {
         child.exitCode = behavior.emitError ? null : 0;
         child.signalCode = null;
-        events.emit('exit', child.exitCode, child.signalCode);
+        events.emit('close', child.exitCode, child.signalCode);
       }
     });
     return child;
@@ -479,6 +498,8 @@ process.stdin.on('end', () => {
   const failing = path.join(cwd, 'fail.js');
   await writeFile(failing, 'process.exit(4);\n');
   await assert.rejects(readCliText(spawnCli({ command: failing, args: [], cwd }), new AbortController().signal), /exited \(4\)/);
+  const longError = spawnCli({ command: process.execPath, args: ['-e', "process.stderr.write('Cannot use this model: composer-2.5[bad=x]. Available models: ' + 'x'.repeat(10000)); process.exitCode = 1"], cwd });
+  await assert.rejects(readCliText(longError, new AbortController().signal), /Cannot use this model: composer-2\.5\[bad=x\]/);
   await assert.rejects(readCliText(spawnCli({ command: path.join(cwd, 'missing-bin'), args: [], cwd }), new AbortController().signal), /ENOENT/);
 
   const sleeping = spawnCli({ command: process.execPath, args: ['-e', 'setInterval(() => {}, 1000)'], cwd });

@@ -32,7 +32,8 @@ export function spawnCli(request: CliRunRequest, launchProcess: typeof spawn = s
   });
   let stderr = '';
   child.stderr?.setEncoding('utf8');
-  child.stderr?.on('data', (chunk: string) => { stderr = `${stderr}${chunk}`.slice(-4000); });
+  // CLI validation errors put the reason before the (potentially huge) model list.
+  child.stderr?.on('data', (chunk: string) => { stderr = `${stderr}${chunk}`.slice(0, 4000); });
   child.stdin?.on('error', () => undefined);
   if (request.input !== undefined) child.stdin?.write(request.input);
   child.stdin?.end();
@@ -45,7 +46,8 @@ export function spawnCli(request: CliRunRequest, launchProcess: typeof spawn = s
       resolve({ code, signal, stderr: redactSecrets(stderr.trim() || error?.message || '') });
     };
     child.on('error', (error) => finish(null, null, error));
-    child.on('exit', (code, signal) => finish(code, signal));
+    // close follows the final stderr data; exit can arrive before the pipes drain.
+    child.on('close', (code, signal) => finish(code, signal));
   });
   return {
     lines,

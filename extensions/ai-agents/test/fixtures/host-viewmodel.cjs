@@ -35,8 +35,10 @@ exports.run = async function run() {
     let raw = '';
     try { raw = await fs.readFile(request, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
     if (raw && raw !== previous) {
+      let parsed;
+      try { parsed = JSON.parse(raw); } catch { await new Promise(resolve => setTimeout(resolve, 50)); continue; }
       previous = raw;
-      const { id, scenario, session = 'a', layout = false } = JSON.parse(raw);
+      const { id, scenario, session = 'a', layout = false } = parsed;
       if (scenario === 'stop') return;
       if (scenario === 'layout') {
         await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');

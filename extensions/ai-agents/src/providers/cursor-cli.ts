@@ -135,7 +135,7 @@ export async function createCursorCliSession(options: SessionOptions, spawn: Cli
       const args = cursorCliArgs({
         mode: requestedMode,
         model: selection?.model ?? model,
-        modelParams: selection?.modelParams ?? modelParams,
+        modelParams: selection ? selection.modelParams : modelParams,
         sandbox: options.sandbox,
         additionalDirectories: options.additionalDirectories,
         resumeId: sessionId,

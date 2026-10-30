@@ -83,8 +83,12 @@ function presentPlan(state: ChatState, showBuildModel: boolean): ViewPlan | null
   const visible = drafting ? state.plan.draft ?? state.plan.current : state.plan.current;
   if (!visible?.markdown) return null;
   const selection = state.plan.build?.selection ?? state.selection;
+  // Older saved plans lack an anchor; infer it only when there is one eligible planning turn.
+  const candidates = state.turns.filter((turn) => turn.intent === 'plan' && turn.startedAt <= visible.createdAt);
+  const anchor = visible.turnId ?? (candidates.length === 1 ? candidates[0]?.userMessageId ?? candidates[0]?.id : undefined);
   return {
     id: visible.id,
+    ...(anchor ? { turnId: anchor } : {}),
     revision: visible.revision,
     phase: state.plan.phase,
     ...(visible.name ? { name: visible.name } : {}),

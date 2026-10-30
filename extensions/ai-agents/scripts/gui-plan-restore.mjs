@@ -95,6 +95,7 @@ try {
   await click('.session-card[data-session-id="fixture-thread-1"]');
   await wait(()=>has(`document.querySelector('.plan-view.phase-ready')?.textContent.includes('Restored Fixture Plan')`),'restored Plan');
   await wait(()=>has(`document.body.textContent.includes('Plan restore fixture session') && document.body.textContent.includes('fixture answer 1') && document.querySelector('.plan-view').textContent.includes('Retain this plan after reload')`),'history and plan body');
+  if (!await has(`(()=>{const turn=document.querySelector('.thread > .turn');const plan=document.querySelector('.thread > .plan-slot');return !!turn && turn.nextElementSibling===plan})()`)) throw Error('Restored Plan is not immediately after its creating turn');
   await click('.plan-view-toggle');await wait(()=>has(`document.querySelector('.plan-body')?.textContent.includes('Retain this plan after reload')`),'restored Plan expanded');
   await capture('plan-after-reload');
   await writeFile(join(out,'result.json'),JSON.stringify({pass:true,scenario:'Plan restored from savedPlans on genuine mock CLI history',sessionId:staged.sessionId,capturedAt:new Date().toISOString()},null,2));
