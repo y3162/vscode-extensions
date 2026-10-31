@@ -362,7 +362,7 @@ const fileIcons: FileIcons = {
     fileNames: ['circle.yml'],
   },
   'claude': {
-    fileNames: ['agents.md'],
+    fileNames: ['agents.md', 'claude.md'],
   },
   'clojure': {
     languageIds: ['clojure'],
